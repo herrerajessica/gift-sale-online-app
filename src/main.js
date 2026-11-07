@@ -183,7 +183,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publ
       const ph = el("div",{class:"ph"});
       if(cover) ph.append(el("img",{src:src(cover.thumb||cover.full),alt:"",loading:"lazy",decoding:"async",onerror:function(){this.remove();}}));
       ph.append(el("span",{class:"price"+(p.precio==null?" none":"")}, p.precio==null ? "Consultar" : money(p.precio), p.precio!=null && soles(p.precio) ? el("small",null, soles(p.precio)) : null));
-      if(st!=="disponible") ph.append(el("span",{class:"status "+st}, st==="vendido"?"Vendido":"Apartado"));
+      if(st!=="disponible") ph.append(el("span",{class:"status "+st}, {vendido:"Vendido",apartado:"Apartado",oculto:"Oculto"}[st]||st));
       if(S.selecting) ph.append(el("span",{class:"check","aria-hidden":"true"}, S.sel.has(p.id)?"✓":""));
       else if(p.fotos && p.fotos.length>1) ph.append(el("span",{class:"multi"}, p.fotos.length+" fotos"));
       open.append(ph, el("div",{class:"info",style:"padding-bottom:0"}, el("span",{class:"name"},p.nombre||"Sin nombre"), el("span",{class:"meta"}, el("span",null,p.categoria||""), el("span",null,p.publico||""))));
@@ -267,7 +267,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publ
         el("label",{class:"f"},"Nombre", el("input",{id:"eName",value:v("eName",p.nombre||""),maxlength:"120"})),
         el("div",{class:"row2"},
           el("label",{class:"f"},"Precio (USD)", el("input",{id:"ePrice",inputmode:"decimal",value:v("ePrice",p.precio==null?"":String(p.precio)),placeholder:"Consultar"})),
-          el("label",{class:"f"},"Estado", (()=>{ const s=el("select",{id:"eStatus"}); [["disponible","Disponible"],["apartado","Apartado"],["vendido","Vendido"]].forEach(([k,l])=>s.append(el("option",{value:k},l))); s.value=v("eStatus",p.estado||"disponible"); return s; })())
+          el("label",{class:"f"},"Estado", (()=>{ const s=el("select",{id:"eStatus"}); [["disponible","Disponible"],["apartado","Apartado"],["vendido","Vendido"],["oculto","Oculto (no se muestra en la tienda)"]].forEach(([k,l])=>s.append(el("option",{value:k},l))); s.value=v("eStatus",p.estado||"disponible"); return s; })())
         ),
         el("div",{class:"row2"},
           el("label",{class:"f"},"Categoría", el("input",{id:"eCat",list:"catList",value:v("eCat",p.categoria||""),placeholder:"Ropa, zapatos…"})),

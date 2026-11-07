@@ -32,7 +32,7 @@ const schema = a.schema({
       categoria: a.string(),
       publico: a.string(),
       descripcion: a.string(),
-      estado: a.enum(['disponible', 'apartado', 'vendido']),
+      estado: a.enum(['disponible', 'apartado', 'vendido', 'oculto']),
       fotosFull: a.string().array(),
       fotosThumb: a.string().array(),
       creado: a.float(),

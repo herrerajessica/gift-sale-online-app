@@ -40,6 +40,7 @@ export const handler: Schema['catalogo']['functionHandler'] = async (event) => {
       ExclusiveStartKey,
     }));
     for (const p of r.Items || []) {
+      if (p.estado === 'oculto') continue; // ocultos: solo los ve la vendedora
       productos.push({
         id: p.id, nombre: p.nombre, precio: p.precio ?? null, categoria: p.categoria || '',
         publico: p.publico || '', descripcion: p.descripcion || '', estado: p.estado || 'disponible',
