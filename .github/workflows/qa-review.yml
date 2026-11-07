@@ -17,8 +17,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-      - run: npm ci
+      - run: npm install --no-audit --no-fund
       - name: Verificar matriz de trazabilidad
         run: node scripts/check-traceability.js
       - run: npx playwright install --with-deps chromium
@@ -28,6 +27,8 @@ jobs:
           BASE_URL: ${{ vars.BASE_URL_QA }}
           TEST_USER: ${{ secrets.TEST_USER }}
           TEST_PASSWORD: ${{ secrets.TEST_PASSWORD }}
+          TEST_STORE: ${{ vars.TEST_STORE }}
+          TEST_PENDING_STORE: ${{ vars.TEST_PENDING_STORE }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:

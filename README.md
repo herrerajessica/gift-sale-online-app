@@ -1,82 +1,75 @@
 # Vitrina USA
 
-Catálogo de productos traídos de USA con subida de fotos en bloque, clasificación por categoría con IA, precios en USD y soles, y pedidos por WhatsApp.
+Plataforma para revendedoras de productos traídos de USA. Cada vendedora crea su cuenta y su vitrina con enlace propio, sube fotos en bloque (la IA les pone categoría, público y nombre), y sus clientes arman un pedido que llega por WhatsApp con precios en dólares y soles.
 
-- `app/vitrina-usa.html`: código de la vitrina. Hoy se ejecuta como Artifact en claude.ai (usa su base de datos, almacenamiento de fotos e IA). Para publicarla fuera de Claude hay que reemplazar esas funciones por servicios propios (por ejemplo S3 + CloudFront para fotos y una API para los productos).
-- Resto del repositorio: kit de pruebas automatizadas (Playwright → GitHub → AWS CodeBuild → S3).
+## Cómo está armada
 
----
+| Parte | Servicio AWS | Archivo |
+|---|---|---|
+| Cuentas de vendedoras y dueña | Cognito (grupo `SUPERADMIN`) | `amplify/auth/resource.ts` |
+| Tiendas y productos, aislados por dueña | AppSync + DynamoDB (`allow.owner()`) | `amplify/data/resource.ts` |
+| Vitrina pública (solo tiendas aprobadas) | Lambda `catalogo` | `amplify/functions/catalogo/` |
+| Fotos, cada vendedora en su carpeta | S3 + CloudFront | `amplify/storage/resource.ts`, `amplify/backend.ts` |
+| Clasificación de fotos con IA | Lambda `clasificar` + Bedrock (Claude Haiku 5.5) | `amplify/functions/clasificar/` |
+| Web | Amplify Hosting (Vite) | `index.html`, `src/` |
 
-# Kit de pruebas automatizadas
+**Aislamiento de datos:** las reglas de autorización de AppSync y S3 hacen que cada vendedora solo pueda leer y modificar sus propias tiendas, productos y fotos. El campo `estado` de una tienda (pendiente, aprobada, suspendida) solo lo cambia el grupo `SUPERADMIN`. Los clientes no leen las tablas: la Lambda `catalogo` solo devuelve vitrinas aprobadas.
+
+### Rutas de la web
+
+- `/` : inicio, registro e ingreso. Con sesión iniciada: la vitrina de la vendedora (edición).
+- `/?tienda=<enlace>` : vitrina pública que ve el cliente.
+- `/#entrar` : abre el formulario de ingreso.
+- `/#panel` : panel de la dueña (solo `SUPERADMIN`).
+
+## Publicar en AWS (primera vez)
+
+1. **Activar Claude en Bedrock.** En la consola de AWS, región `us-east-1`: Amazon Bedrock › Model catalog › Claude Haiku 5.5. Si es tu primera vez con modelos de Anthropic, completa el formulario de caso de uso.
+2. **Crear la app en Amplify.** AWS Amplify › Create new app › GitHub › repositorio `gift-sale-online-app` › rama `main`. Amplify detecta `amplify.yml`. Despliega (tarda unos 10 minutos la primera vez).
+3. **Crear tu cuenta.** Abre la URL de Amplify (`https://main.xxxx.amplifyapp.com`), toca *Crear mi vitrina* y regístrate con tu correo.
+4. **Darte permisos de dueña.** Amazon Cognito › User pools › (el de la app) › Groups › `SUPERADMIN` › Add user › tu correo. Cierra sesión y vuelve a entrar: aparece el botón *Panel de dueña*.
+5. **Aprobar vitrinas.** Panel de dueña › Pendientes › Aprobar.
+
+Cada merge a `main` vuelve a desplegar backend y web.
+
+## Desarrollo local
+
+```bash
+npm install
+npx ampx sandbox      # backend personal en tu cuenta AWS; genera amplify_outputs.json
+npm run dev           # web en http://localhost:5173
+```
+
+## Pruebas automatizadas
 
 Flujo: **Requerimientos + pruebas manuales → Codex (matriz + scripts) → Revisión QA → Playwright → GitHub → AWS CodeBuild → S3**
 
-## Estructura
-
 ```
-docs/matriz-trazabilidad.csv   Matriz REQ ↔ caso manual ↔ script ↔ aprobación QA
+docs/matriz-trazabilidad.csv   REQ ↔ caso manual ↔ script ↔ aprobación QA
 docs/prompt-codex.md           Prompt listo para Codex
-tests/                         Scripts Playwright (Page Object Model en tests/pages)
-scripts/check-traceability.js  Valida que cada caso automatizable tenga test y aprobación
-playwright.config.ts           Reportes HTML, JUnit y JSON
+tests/                         Playwright (Page Object Model en tests/pages)
+scripts/check-traceability.js  Valida que cada caso automatizable tenga test (y aprobación con --require-approval)
 .github/workflows/qa-review.yml  Corre en cada Pull Request
-.github/CODEOWNERS             Obliga aprobación del equipo QA
 buildspec.yml                  CodeBuild: ejecuta y publica reportes en S3
 ```
 
-## Paso a paso
+Variables para las pruebas (GitHub › Settings › Secrets and variables › Actions, y en CodeBuild):
 
-### 1. Requerimientos + pruebas manuales
-Llena en la matriz `ID_Requerimiento`, descripción, casos manuales, pasos y resultado esperado.
+| Nombre | Tipo | Valor |
+|---|---|---|
+| `BASE_URL_QA` | variable | URL de Amplify a probar |
+| `TEST_USER` / `TEST_PASSWORD` | secret | vendedora de prueba con vitrina creada |
+| `TEST_STORE` | variable | enlace de una vitrina aprobada con productos con precio |
+| `TEST_PENDING_STORE` | variable | enlace de una vitrina pendiente |
 
-### 2. Codex
-Abre `docs/prompt-codex.md`, pégalo en Codex junto con tus requerimientos. Codex completa la matriz y genera los `.spec.ts`. Cada test lleva el ID del caso y el tag del requerimiento en el título (`CP-001 ... @REQ-001`), así puedes correr por requerimiento: `npx playwright test --grep @REQ-001`.
+Las pruebas que necesitan una variable que no esté definida se marcan como omitidas en lugar de fallar.
 
-### 3. Revisión y aprobación QA
-- Codex sube los cambios en una rama y abre un Pull Request.
-- `qa-review.yml` valida la trazabilidad y ejecuta las pruebas.
-- QA revisa, cambia `Estado_Revision_QA` a `Aprobado`, llena `Aprobado_Por` y `Fecha_Aprobacion`, y aprueba el PR.
-- En GitHub → Settings → Branches, protege `main` con: *Require pull request approval*, *Require review from Code Owners* y *Require status checks* (`trazabilidad-y-pruebas`).
+Correr por requerimiento: `npx playwright test --grep @REQ-004`.
 
-### 4. Playwright local
-```bash
-npm ci
-npx playwright install chromium
-BASE_URL=https://qa.tuapp.com TEST_USER=... TEST_PASSWORD=... npm test
-npm run report
-```
+### CodeBuild → S3
 
-### 5. GitHub → AWS CodeBuild
-1. CodeBuild → Create project → Source: GitHub (conexión OAuth o CodeConnections).
-2. Webhook: evento `PUSH`, filtro `HEAD_REF` = `^refs/heads/main$`.
-3. Environment: imagen `aws/codebuild/standard:7.0` (Ubuntu, Node 20).
-4. Buildspec: usar `buildspec.yml` del repositorio.
-5. Variables de entorno: `REPORT_BUCKET`, `BASE_URL`.
-6. Secrets Manager: secreto `qa/playwright` con llaves `TEST_USER` y `TEST_PASSWORD`.
+Ver `buildspec.yml`. Necesita `REPORT_BUCKET`, `BASE_URL` y el secreto `qa/playwright` en Secrets Manager con `TEST_USER` y `TEST_PASSWORD`. Cada ejecución guarda el reporte HTML, el JUnit y la matriz en `s3://<bucket>/reportes/<fecha>-<commit>/`.
 
-El `pre_build` corre `check-traceability.js --require-approval`: si algún caso automatizable no está **Aprobado** por QA, el build se detiene.
+## Versión anterior
 
-### 6. S3
-Crea el bucket (privado, con bloqueo de acceso público). Cada ejecución queda en:
-```
-s3://<bucket>/reportes/<fecha>-<commit>/html/index.html
-s3://<bucket>/reportes/<fecha>-<commit>/results/junit.xml
-s3://<bucket>/reportes/<fecha>-<commit>/matriz-trazabilidad.csv
-s3://<bucket>/reportes/latest/html/index.html
-```
-Para verlo en navegador sin hacerlo público, usa CloudFront con OAC o URLs prefirmadas.
-
-Política mínima para el rol de servicio de CodeBuild:
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    { "Effect": "Allow", "Action": ["s3:PutObject", "s3:DeleteObject", "s3:ListBucket"],
-      "Resource": ["arn:aws:s3:::<bucket>", "arn:aws:s3:::<bucket>/reportes/*"] },
-    { "Effect": "Allow", "Action": "secretsmanager:GetSecretValue",
-      "Resource": "arn:aws:secretsmanager:<region>:<cuenta>:secret:qa/playwright-*" }
-  ]
-}
-```
-
-Los reportes JUnit también aparecen en CodeBuild → *Report groups* con historial de pasados/fallidos.
+`app/vitrina-usa.html` es la primera versión, que funciona como Artifact dentro de claude.ai (una sola tienda).

@@ -1,4 +1,8 @@
 node_modules/
+dist/
 playwright-report/
 test-results/
 .env
+# Generados por Amplify en cada despliegue
+amplify_outputs*
+.amplify/

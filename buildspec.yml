@@ -3,6 +3,7 @@
 # Variables a configurar en el proyecto CodeBuild:
 #   REPORT_BUCKET  -> nombre del bucket S3 (texto plano)
 #   BASE_URL       -> URL del ambiente a probar (texto plano)
+#   TEST_STORE / TEST_PENDING_STORE -> enlaces de vitrinas de prueba (texto plano)
 #   TEST_USER / TEST_PASSWORD -> desde AWS Secrets Manager (ver env.secrets-manager)
 version: 0.2
 
@@ -18,7 +19,7 @@ phases:
     runtime-versions:
       nodejs: 20
     commands:
-      - npm ci
+      - npm install --no-audit --no-fund
       - npx playwright install --with-deps chromium
 
   pre_build:

@@ -1,0 +1,609 @@
+import {
+  FOTOS_BASE, db, assets, ai, sesion, usarModoPublico, usarModoVendedora, estadoCatalogo,
+  miTienda, crearTienda, listarTiendas, cambiarEstadoTienda, limpiarSlug, SLUG_RE,
+  signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn,
+} from './amplify-adapter.js';
+
+// Lógica de la Vitrina USA (misma que la versión de Claude).
+
+  const $ = id => document.getElementById(id);
+  const S = { db:null, assets:null, canEdit:false, products:[], config:{}, q:"", cat:"", mode:"each", pub:"",
+              selecting:false, sel:new Set(), pending:[] };
+  const money = n => (typeof n === "number" && isFinite(n)) ? "$" + n.toLocaleString("en-US",{minimumFractionDigits: n%1?2:0, maximumFractionDigits:2}) : "";
+  const rate = () => { const r = parseFloat(S.config.tipoCambio); return isFinite(r) && r>0 ? r : null; };
+  const soles = n => { const r=rate(); return (r && typeof n==="number" && isFinite(n)) ? "S/ " + Math.round(n*r).toLocaleString("es-PE") : ""; };
+  const dual = n => { const a=money(n), b=soles(n); return a && b ? a+" · "+b : a; };
+  const parsePrice = v => { const n = parseFloat(String(v||"").replace(/[^0-9.]/g,"")); return isFinite(n) ? Math.round(n*100)/100 : null; };
+  const src = id => FOTOS_BASE + "/" + id;
+  let toastT;
+  function toast(msg){ const t=$("toast"); t.textContent=msg; t.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>t.hidden=true,2800); }
+  function el(tag, attrs, ...kids){ const e=document.createElement(tag); for(const k in (attrs||{})){ if(k==="class") e.className=attrs[k]; else if(k.startsWith("on")) e.addEventListener(k.slice(2),attrs[k]); else if(attrs[k]!==false && attrs[k]!=null) e.setAttribute(k,attrs[k]); } for(const c of kids){ if(c==null) continue; e.append(c.nodeType?c:document.createTextNode(c)); } return e; }
+
+  function nameFromFile(f){
+    let n = f.name.replace(/\.[^.]+$/,"").replace(/[_\-]+/g," ").replace(/\s+/g," ").trim();
+    const rest = n.replace(/^(whatsapp image|screenshot|captura de pantalla|captura|img|dscn?|pxl|photo|image|foto)/i,"").replace(/\b(at|a las|de|\d+)\b/gi,"").replace(/[\s.:()]/g,"");
+    if(!n || !/[a-záéíóúñ]{3,}/i.test(rest)) return "Producto nuevo";
+    return n.charAt(0).toUpperCase() + n.slice(1);
+  }
+
+  // ---------- Compresión ----------
+  async function decode(file){
+    if (window.createImageBitmap) { try { return await createImageBitmap(file, {imageOrientation:"from-image"}); } catch(e){} }
+    return await new Promise((res,rej)=>{ const u=URL.createObjectURL(file); const i=new Image(); i.onload=()=>{res(i);}; i.onerror=()=>{URL.revokeObjectURL(u);rej(new Error("decode"));}; i.src=u; });
+  }
+  function toBlob(img, max, q){
+    const w = img.width, h = img.height, s = Math.min(1, max/Math.max(w,h));
+    const c = document.createElement("canvas"); c.width=Math.round(w*s); c.height=Math.round(h*s);
+    const x = c.getContext("2d"); x.fillStyle="#fff"; x.fillRect(0,0,c.width,c.height); x.drawImage(img,0,0,c.width,c.height);
+    return new Promise((res,rej)=>c.toBlob(b=>b?res(b):rej(new Error("encode")),"image/jpeg",q));
+  }
+  async function processPhoto(file){
+    let img;
+    try { img = await decode(file); }
+    catch(e){ throw new Error(/heic|heif/i.test(file.type+file.name) ? "formato HEIC: expórtala como JPG (en iPhone: Ajustes › Cámara › Formatos › Más compatible)" : "no se pudo leer la imagen"); }
+    const [full, thumb] = [await toBlob(img,1600,.82), await toBlob(img,520,.78)];
+    const up = async b => { try { return await S.assets.upload(b,{type:"image/jpeg"}); } catch(e){ if(e&&e.code==="store_unavailable"){ await new Promise(r=>setTimeout(r,800)); return await S.assets.upload(b,{type:"image/jpeg"}); } throw e; } };
+    const f = await up(full); const t = await up(thumb);
+    return { full:f.id, thumb:t.id, _blob:thumb };
+  }
+  function errText(e){
+    const c = e && e.code;
+    if(c==="too_large") return "archivo demasiado grande";
+    if(c==="quota_or_state") return "se llenó el espacio de la vitrina; borra productos viejos";
+    if(c==="rate_limited") return "demasiadas subidas seguidas; reintenta en un minuto";
+    if(c==="not_granted"||c==="capability_disabled") return "no tienes permiso para subir aquí";
+    return (e && e.message) || "error al subir";
+  }
+
+  // ---------- Subida en bloque ----------
+  async function handleFiles(list){
+    const files = [...list].filter(f => f.type.startsWith("image/") || /\.(heic|heif)$/i.test(f.name));
+    if(!files.length){ toast("Ninguno de esos archivos es una foto"); return; }
+    if(!S.assets || !S.db){ toast("Solo quien administra la vitrina puede subir fotos"); return; }
+    const price = parsePrice($("defPrice").value), cat = $("defCat").value.trim();
+    const useAI = S.ai && $("aiToggle").checked;
+    const total = files.length; let done = 0, ok = 0; const errs = $("errs"); errs.textContent="";
+    $("progress").hidden=false; setProg(0,total,"Subiendo fotos…");
+    const col = S.db.collection("productos"); const base = Date.now();
+    const group = S.mode==="group" && files.length>1; const groupPhotos = new Array(files.length);
+    const toClassify = [];
+    let i = 0;
+    async function worker(){
+      while(i < files.length){
+        const idx = i++; const f = files[idx];
+        try{
+          const ph = await processPhoto(f); const blob = ph.thumb; delete ph._blob;
+          if(group){ groupPhotos[idx]={ph,blob}; }
+          else {
+            const nombre = nameFromFile(f), ref = col.doc();
+            await ref.set({ nombre, precio:price, categoria:cat, publico:"", descripcion:"", estado:"disponible", fotos:[ph], creado: base + (total-idx) });
+            if(useAI) toClassify.push({ id:ref.id, blob, name:nombre==="Producto nuevo", cat:!cat });
+          }
+          ok++;
+        }catch(e){ errs.append(el("li",null,f.name+": "+errText(e))); }
+        done++; setProg(done,total, done<total ? "Subiendo fotos…" : "");
+      }
+    }
+    await Promise.all(Array.from({length:Math.min(4,files.length)}, worker));
+    if(group){
+      const got = groupPhotos.filter(Boolean);
+      if(got.length){ try{ const nombre=nameFromFile(files[0]), ref=col.doc(); await ref.set({ nombre, precio:price, categoria:cat, publico:"", descripcion:"", estado:"disponible", fotos:got.map(g=>g.ph), creado:base }); if(useAI) toClassify.push({ id:ref.id, blob:got[0].blob, name:nombre==="Producto nuevo", cat:!cat }); }catch(e){ errs.append(el("li",null,"No se pudo crear el producto: "+errText(e))); ok=0; } }
+    }
+    const fail = total-ok;
+    const doneMsg = fail ? `Listo: ${ok} subidas, ${fail} con problema` : (group ? `Listo: 1 producto con ${ok} fotos` : `Listo: ${ok} productos publicados`);
+    setProg(total,total, doneMsg);
+    $("fileInput").value="";
+    if(toClassify.length){ await classify(toClassify); setProg(total,total, doneMsg + (S.aiMsg?` · ${S.aiMsg}`:"")); }
+    else toast(group ? "Producto publicado" : `${ok} productos publicados`);
+  }
+
+  // ---------- Clasificación con IA ----------
+  const CATS = ["Ropa","Zapatos","Carteras y bolsos","Accesorios","Relojes y joyería","Perfumes y belleza","Electrónica","Hogar","Juguetes","Otros"];
+  const PUBLICOS = ["Mujer","Hombre","Niños","Unisex"];
+  async function classify(items){
+    if(!S.ai || !items.length) return;
+    const per = Math.max(1, Math.min(8, S.aiMax||1));
+    let n = 0, fails = 0; S.aiMsg = "";
+    for(let k=0; k<items.length; k+=per){
+      const batch = items.slice(k, k+per);
+      setProg(n, items.length, "Detectando categorías con IA…");
+      const prompt = `Eres el asistente de una tienda en Perú que revende productos traídos de Estados Unidos. Te paso ${batch.length} foto(s) de producto, en orden, numeradas desde 0.
+Para cada foto responde un objeto con:
+- "i": el número de la foto
+- "categoria": exactamente una de: ${CATS.join(", ")}
+- "publico": exactamente uno de: ${PUBLICOS.join(", ")} (usa Unisex si no se distingue)
+- "nombre": nombre corto de venta en español, de 2 a 6 palabras, que describa tipo, estilo y color (ej. "Jean wide leg con cordón", "Zapatillas running negras"). Incluye la marca solo si su logo o diseño es claramente visible.
+Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publico":"Mujer","nombre":"Jean wide leg con cordón"}]`;
+      let res;
+      try { res = await S.ai.json(prompt, { images: batch.map(b=>b.blob), modelTier:"quick" }); }
+      catch(e){
+        const c = e && e.code;
+        if(c==="not_granted"||c==="sampling_disabled"||c==="images_unavailable"||c==="capability_disabled"||c==="capability_removed"||c==="not_declared"){ S.ai=null; $("aiRow").hidden=true; $("bulkAI").hidden=true; S.aiMsg="la IA no está disponible; pon las categorías a mano"; return; }
+        if(c==="rate_limited"){ S.aiMsg=`IA en pausa: ${items.length-n} sin clasificar (usa "Editar varios" › Clasificar con IA más tarde)`; return; }
+        fails += batch.length; n += batch.length; continue;
+      }
+      const arr = Array.isArray(res) ? res : [];
+      await Promise.all(batch.map(async (b, j)=>{
+        const r = arr.find(x=>x && Number(x.i)===j) || arr[j]; if(!r) { fails++; return; }
+        const patch = {};
+        if(b.cat && CATS.includes(r.categoria)) patch.categoria = r.categoria;
+        if(PUBLICOS.includes(r.publico)) patch.publico = r.publico;
+        if(b.name && typeof r.nombre==="string" && r.nombre.trim()) patch.nombre = r.nombre.trim().slice(0,80);
+        if(Object.keys(patch).length){ try{ await S.db.doc("productos/"+b.id).update(patch); }catch(e){ fails++; } }
+      }));
+      n += batch.length; setProg(n, items.length, "Detectando categorías con IA…");
+    }
+    S.aiMsg = fails ? `IA: ${items.length-fails} clasificados, ${fails} sin clasificar` : `IA: ${items.length} clasificados`;
+    toast(S.aiMsg);
+  }
+  async function classifySelected(){
+    const ids=[...S.sel]; if(!ids.length) return;
+    $("progress").hidden=false; $("errs").textContent="";
+    setProg(0, ids.length, "Preparando fotos…");
+    const items=[];
+    for(const id of ids){
+      const p=S.products.find(x=>x.id===id), f=p&&p.fotos&&p.fotos[0]; if(!f) continue;
+      items.push({ id, blob:f.thumb||f.full, name:true, cat:true });
+    }
+    if(!items.length){ toast("Esos productos no tienen fotos"); return; }
+    await classify(items); setProg(items.length, items.length, S.aiMsg||"Listo");
+  }
+
+  function setProg(d,t,msg){ $("progBar").style.width = (t? d/t*100:0)+"%"; $("progCount").textContent = d+" / "+t; if(msg) $("progText").textContent = msg; }
+
+  // ---------- Render ----------
+  function filtered(){
+    const q = S.q.toLowerCase();
+    return S.products.filter(p => (!S.cat || p.categoria===S.cat) && (!S.pub || p.publico===S.pub || (S.pub!=="Niños" && p.publico==="Unisex")) && (!q || (p.nombre+" "+(p.categoria||"")+" "+(p.publico||"")+" "+(p.descripcion||"")).toLowerCase().includes(q)));
+  }
+  function renderCats(){
+    const counts = {}; S.products.forEach(p=>{ if(p.categoria) counts[p.categoria]=(counts[p.categoria]||0)+1; });
+    const order = c => { const i=CATS.indexOf(c); return i<0 ? CATS.length-1.5 : i; };
+    const cats = Object.keys(counts).sort((a,b)=>order(a)-order(b) || a.localeCompare(b,"es"));
+    const pubs = PUBLICOS.filter(x=>x!=="Unisex" && S.products.some(p=>p.publico===x));
+    const box=$("cats"); box.textContent="";
+    if(cats.length){
+      box.append(el("button",{class:"chip","aria-pressed":String(!S.cat),onclick:()=>{S.cat="";render();}},"Todo"));
+      cats.forEach(c=>box.append(el("button",{class:"chip","aria-pressed":String(S.cat===c),onclick:()=>{S.cat=S.cat===c?"":c;render();}}, c+" ", el("span",{class:"cn"},String(counts[c])))));
+    }
+    const pb=$("pubs"); pb.textContent="";
+    if(pubs.length>1) pubs.forEach(x=>pb.append(el("button",{class:"chip sub","aria-pressed":String(S.pub===x),onclick:()=>{S.pub=S.pub===x?"":x;render();}},x)));
+    const dl=$("catList"); dl.textContent=""; [...new Set([...CATS,...cats])].forEach(c=>dl.append(el("option",{value:c})));
+    if(S.cat && !cats.includes(S.cat)) S.cat="";
+    if(S.pub && !pubs.includes(S.pub)) S.pub="";
+  }
+  function render(){
+    renderCats();
+    const list = filtered(), grid=$("grid"); grid.textContent="";
+    for(const p of list){
+      const cover = p.fotos && p.fotos[0];
+      const st = p.estado||"disponible";
+      const card = el("div",{class:"card "+st+(S.sel.has(p.id)?" sel":"")});
+      const open = el("button",{class:"open",type:"button","aria-label":(S.selecting?"Seleccionar ":"Ver ")+(p.nombre||"producto"),onclick:()=>{ if(S.selecting){ toggleSel(p.id); } else openProduct(p.id); }});
+      const ph = el("div",{class:"ph"});
+      if(cover) ph.append(el("img",{src:src(cover.thumb||cover.full),alt:"",loading:"lazy",decoding:"async",onerror:function(){this.remove();}}));
+      ph.append(el("span",{class:"price"+(p.precio==null?" none":"")}, p.precio==null ? "Consultar" : money(p.precio), p.precio!=null && soles(p.precio) ? el("small",null, soles(p.precio)) : null));
+      if(st!=="disponible") ph.append(el("span",{class:"status "+st}, st==="vendido"?"Vendido":"Apartado"));
+      if(S.selecting) ph.append(el("span",{class:"check","aria-hidden":"true"}, S.sel.has(p.id)?"✓":""));
+      else if(p.fotos && p.fotos.length>1) ph.append(el("span",{class:"multi"}, p.fotos.length+" fotos"));
+      open.append(ph, el("div",{class:"info",style:"padding-bottom:0"}, el("span",{class:"name"},p.nombre||"Sin nombre"), el("span",{class:"meta"}, el("span",null,p.categoria||""), el("span",null,p.publico||""))));
+      card.append(open);
+      if(!S.selecting) card.append(el("div",{class:"info",style:"padding-top:0"}, addButton(p)));
+      grid.append(card);
+    }
+    const n = S.products.length;
+    $("count").textContent = n ? (list.length===n ? `${n} productos` : `${list.length} de ${n} productos`) : "";
+    const empty=$("empty");
+    if(S.loaded && !n){ empty.hidden=false; $("emptyTitle").textContent = S.canEdit ? "Tu vitrina está vacía" : "Pronto habrá productos aquí"; $("emptyText").textContent = S.canEdit ? "Arrastra todas tus fotos al recuadro de arriba. Cada foto se convierte en un producto listo para vender, y después le pones nombre y precio." : "Esta tienda todavía no ha publicado productos. Vuelve en un rato."; }
+    else if(S.loaded && !list.length){ empty.hidden=false; $("emptyTitle").textContent="Nada coincide con tu búsqueda"; $("emptyText").textContent="Prueba con otra palabra o quita el filtro de categoría."; }
+    else empty.hidden = S.loaded;
+    renderBulk();
+    renderCartBar();
+  }
+
+  // ---------- Selección en bloque ----------
+  function toggleSel(id){ S.sel.has(id)?S.sel.delete(id):S.sel.add(id); render(); }
+  function renderBulk(){
+    $("bulk").hidden = !S.selecting;
+    $("bulkCount").textContent = S.sel.size + (S.sel.size===1?" seleccionado":" seleccionados");
+    $("bulkApply").disabled = $("bulkDel").disabled = $("bulkAI").disabled = !S.sel.size;
+  }
+  $("selectBtn").onclick = ()=>{ S.selecting=true; S.sel.clear(); render(); $("bulk").scrollIntoView({block:"nearest"}); };
+  $("bulkDone").onclick = ()=>{ S.selecting=false; S.sel.clear(); $("bulkConfirm").hidden=true; render(); };
+  $("bulkAll").onclick = ()=>{ const ids=filtered().map(p=>p.id); const all=ids.every(id=>S.sel.has(id)); ids.forEach(id=>all?S.sel.delete(id):S.sel.add(id)); render(); };
+  async function runPool(ids, fn){ let i=0, fails=0; await Promise.all(Array.from({length:Math.min(4,ids.length)},async()=>{ while(i<ids.length){ const id=ids[i++]; try{ await fn(id); }catch(e){ fails++; } } })); return fails; }
+  $("bulkApply").onclick = async ()=>{
+    const patch={}; const pv=$("bulkPrice").value.trim(), cv=$("bulkCat").value.trim(), sv=$("bulkStatus").value, pb=$("bulkPub").value;
+    if(pv) patch.precio=parsePrice(pv); if(cv) patch.categoria=cv; if(sv) patch.estado=sv; if(pb) patch.publico=pb;
+    if(!Object.keys(patch).length){ toast("Escribe un precio, una categoría o elige un estado"); return; }
+    const ids=[...S.sel]; $("bulkApply").disabled=true;
+    const fails = await runPool(ids, id=>S.db.doc("productos/"+id).update(patch));
+    $("bulkPrice").value=$("bulkCat").value=""; $("bulkStatus").value=""; $("bulkPub").value="";
+    toast(fails ? `Actualizados ${ids.length-fails}; ${fails} fallaron` : `${ids.length} productos actualizados`); renderBulk();
+  };
+  $("bulkAI").onclick = ()=>classifySelected();
+  $("bulkDel").onclick = ()=>{ $("bulkN").textContent=S.sel.size; $("bulkConfirm").hidden=false; };
+  $("bulkDelNo").onclick = ()=>{ $("bulkConfirm").hidden=true; };
+  $("bulkDelYes").onclick = async ()=>{
+    $("bulkConfirm").hidden=true; const ids=[...S.sel];
+    const fails = await runPool(ids, async id=>{ const p=S.products.find(x=>x.id===id); await S.db.doc("productos/"+id).delete(); if(p) await deletePhotos(p.fotos||[]); });
+    S.sel.clear(); toast(fails ? `${fails} no se pudieron borrar` : `${ids.length} productos borrados`); render();
+  };
+  async function deletePhotos(fotos){ for(const f of fotos){ for(const id of [f.full,f.thumb]){ if(id){ try{ await S.assets.delete(id); }catch(e){} } } } }
+
+  // ---------- Detalle / edición ----------
+  let openId=null, photoIdx=0;
+  function openProduct(id){ openId=id; photoIdx=0; drawSheet(); $("overlay").hidden=false; }
+  function closeSheet(){ openId=null; $("overlay").hidden=true; $("overlay").textContent=""; }
+  $("overlay").addEventListener("click", e=>{ if(e.target.id==="overlay") (cartOpen?closeCart:closeSheet)(); });
+  document.addEventListener("keydown", e=>{ if(e.key==="Escape"){ if(cartOpen) closeCart(); else if(openId) closeSheet(); } });
+  function drawSheet(){
+    const p = S.products.find(x=>x.id===openId); const ov=$("overlay");
+    if(!p){ closeSheet(); return; }
+    const fotos = p.fotos||[]; if(photoIdx>=fotos.length) photoIdx=0;
+    const keep = {}; ov.querySelectorAll("input,textarea,select").forEach(i=>{ if(i.id) keep[i.id]=i.value; });
+    ov.textContent="";
+    const gal = el("div",{class:"gal"});
+    if(fotos[photoIdx]) gal.append(el("img",{class:"main",src:src(fotos[photoIdx].full),alt:p.nombre||""}));
+    const th = el("div",{class:"thumbs"});
+    fotos.forEach((f,i)=>{
+      const t = el("button",{class:"t"+(i===photoIdx?" on":""),type:"button","aria-label":"Foto "+(i+1),onclick:()=>{photoIdx=i;drawSheet();}}, el("img",{src:src(f.thumb||f.full),alt:""}));
+      if(S.canEdit && fotos.length>1){
+        t.append(el("span",{class:"x",role:"button",tabindex:"0","aria-label":"Quitar foto",onclick:async ev=>{ ev.stopPropagation(); const nf=fotos.filter((_,j)=>j!==i); await S.db.doc("productos/"+p.id).update({fotos:nf}); deletePhotos([f]); toast("Foto quitada"); }},"×"));
+      }
+      th.append(t);
+    });
+    if(fotos.length>1 || S.canEdit) gal.append(th);
+    if(S.canEdit && photoIdx>0) gal.append(el("button",{class:"btn",type:"button",onclick:async()=>{ const nf=[fotos[photoIdx],...fotos.filter((_,j)=>j!==photoIdx)]; await S.db.doc("productos/"+p.id).update({fotos:nf}); photoIdx=0; toast("Portada cambiada"); }},"Usar como portada"));
+    if(S.canEdit){
+      const add = el("input",{type:"file",accept:"image/*",multiple:"",hidden:"",id:"addPh"});
+      add.onchange = async ()=>{ const fs=[...add.files]; if(!fs.length) return; toast("Subiendo "+fs.length+" foto(s)…"); const nuevas=[]; for(const f of fs){ try{ nuevas.push(await processPhoto(f)); }catch(e){ toast(f.name+": "+errText(e)); } } const cur=(S.products.find(x=>x.id===p.id)||p).fotos||[]; if(nuevas.length){ await S.db.doc("productos/"+p.id).update({fotos:[...cur,...nuevas]}); toast("Fotos agregadas"); } };
+      gal.append(add, el("button",{class:"btn",type:"button",onclick:()=>add.click()},"+ Agregar fotos"));
+    }
+    const side = el("div",{class:"side"});
+    if(S.canEdit){
+      const v = (id,def)=> keep[id]!==undefined ? keep[id] : def;
+      side.append(
+        el("label",{class:"f"},"Nombre", el("input",{id:"eName",value:v("eName",p.nombre||""),maxlength:"120"})),
+        el("div",{class:"row2"},
+          el("label",{class:"f"},"Precio (USD)", el("input",{id:"ePrice",inputmode:"decimal",value:v("ePrice",p.precio==null?"":String(p.precio)),placeholder:"Consultar"})),
+          el("label",{class:"f"},"Estado", (()=>{ const s=el("select",{id:"eStatus"}); [["disponible","Disponible"],["apartado","Apartado"],["vendido","Vendido"]].forEach(([k,l])=>s.append(el("option",{value:k},l))); s.value=v("eStatus",p.estado||"disponible"); return s; })())
+        ),
+        el("div",{class:"row2"},
+          el("label",{class:"f"},"Categoría", el("input",{id:"eCat",list:"catList",value:v("eCat",p.categoria||""),placeholder:"Ropa, zapatos…"})),
+          el("label",{class:"f"},"Para", (()=>{ const s=el("select",{id:"ePub"}); [["","—"],...PUBLICOS.map(x=>[x,x])].forEach(([k,l])=>s.append(el("option",{value:k},l))); s.value=v("ePub",p.publico||""); return s; })())),
+        (()=>{ const ta=el("textarea",{id:"eDesc",rows:"4",placeholder:"Talla, marca, estado, si es original…"}); ta.value=v("eDesc",p.descripcion||""); return el("label",{class:"f"},"Descripción", ta); })()
+      );
+      const conf = el("span",{class:"confirm",hidden:""},"¿Borrar este producto?", el("button",{class:"btn danger",type:"button",onclick:async()=>{ await S.db.doc("productos/"+p.id).delete(); deletePhotos(fotos); closeSheet(); toast("Producto borrado"); }},"Sí, borrar"), el("button",{class:"btn",type:"button",onclick:()=>{conf.hidden=true;}},"No"));
+      side.append(el("div",{class:"actions"},
+        el("button",{class:"btn danger",type:"button",onclick:()=>{conf.hidden=false;}},"Borrar"),
+        el("div",{style:"display:flex;gap:8px"}, el("button",{class:"btn",type:"button",onclick:closeSheet},"Cerrar"),
+          el("button",{class:"btn primary",type:"button",onclick:async()=>{ const patch={ nombre:$("eName").value.trim()||"Producto nuevo", precio:parsePrice($("ePrice").value), estado:$("eStatus").value, categoria:$("eCat").value.trim(), publico:$("ePub").value, descripcion:$("eDesc").value.trim() }; try{ await S.db.doc("productos/"+p.id).update(patch); toast("Guardado"); closeSheet(); }catch(e){ toast("No se pudo guardar. Revisa tu conexión e intenta de nuevo."); } }},"Guardar"))
+      ), conf);
+    } else {
+      const st=p.estado||"disponible";
+      side.append(el("h2",null,p.nombre||"Producto"),
+        el("div",{class:"bigprice"}, p.precio==null?"Precio a consultar":money(p.precio), p.precio!=null && soles(p.precio) ? el("span",{class:"bigsol"}, soles(p.precio)) : null),
+        st!=="disponible" ? el("span",{class:"status "+st,style:"position:static;justify-self:start"}, st==="vendido"?"Vendido":"Apartado") : null,
+        (p.categoria||p.publico) ? el("span",{class:"note",style:"margin:0"}, [p.categoria,p.publico].filter(Boolean).join(" · ")) : null,
+        p.descripcion ? el("p",{class:"desc"}, p.descripcion) : null);
+      if(st!=="vendido"){
+        const b = addButton(p, true); b.classList.add("btn"); b.style.cssText="justify-self:start;padding:10px 16px;font-size:15px";
+        side.append(b);
+        if(cartCount()) side.append(el("button",{class:"btn tag",type:"button",style:"justify-self:start",onclick:openCart},"Ver mi pedido y enviar por WhatsApp"));
+      }
+      side.append(el("button",{class:"btn",type:"button",style:"justify-self:start",onclick:closeSheet},"Seguir viendo"));
+    }
+    ov.append(el("div",{class:"sheet",role:"dialog","aria-modal":"true","aria-label":p.nombre||"Producto"}, gal, side));
+  }
+
+  // ---------- Pedido por WhatsApp ----------
+  const CART_KEY = "vitrina-pedido";
+  let cart = {}, buyer = { nombre:"", nota:"" };
+  try { const raw = JSON.parse(localStorage.getItem(CART_KEY)||"{}"); cart = raw.items||{}; buyer = Object.assign(buyer, raw.buyer||{}); } catch(e){}
+  function saveCart(){ try{ localStorage.setItem(CART_KEY, JSON.stringify({items:cart, buyer})); }catch(e){} }
+  const cartLines = () => Object.entries(cart).map(([id,q])=>({ p:S.products.find(x=>x.id===id), id, q })).filter(l=>l.p);
+  const cartCount = () => cartLines().reduce((s,l)=>s+(l.p.estado==="vendido"?0:l.q),0);
+  function cartTotals(){ let total=0, consultar=0; for(const l of cartLines()){ if(l.p.estado==="vendido") continue; if(l.p.precio==null) consultar++; else total+=l.p.precio*l.q; } return {total, consultar}; }
+  function addButton(p, big){
+    const inCart = !!cart[p.id], sold = p.estado==="vendido";
+    return el("button",{class:"addbtn"+(inCart?" in":""),type:"button",disabled:sold?"":false,
+      onclick:e=>{ e.stopPropagation(); if(cart[p.id]) delete cart[p.id]; else { cart[p.id]=1; toast("Agregado a tu pedido"); } saveCart(); render(); if(openId) drawSheet(); }},
+      sold ? "Vendido" : inCart ? (big?"✓ En tu pedido (quitar)":"✓ En tu pedido") : "+ Agregar al pedido");
+  }
+  function renderCartBar(){
+    const n = cartCount(), {total, consultar} = cartTotals();
+    $("cartbar").hidden = !n || S.selecting;
+    $("cartN").textContent = n;
+    $("cartT").textContent = total ? dual(total) + (consultar?" +":"") : (consultar?"Consultar":"");
+  }
+  $("cartbar").onclick = ()=>openCart();
+  function buildMessage(){
+    const lines = cartLines().filter(l=>l.p.estado!=="vendido");
+    const {total, consultar} = cartTotals();
+    let m = `Hola${S.config.nombre?" "+S.config.nombre:""}, quiero hacer este pedido:\n\n`;
+    lines.forEach((l,i)=>{
+      const pr = l.p.precio==null ? "precio a consultar" : (l.q>1 ? `${l.q} × ${money(l.p.precio)} = ${dual(l.p.precio*l.q)}` : dual(l.p.precio));
+      m += `${i+1}. ${l.p.nombre}${l.q>1&&l.p.precio==null?` (${l.q} unidades)`:""} — ${pr}\n`;
+    });
+    m += `\nTotal: ${dual(total)||"$0"}${consultar?` + ${consultar} producto(s) a consultar`:""}`;
+    if(buyer.nombre.trim()) m += `\nMi nombre: ${buyer.nombre.trim()}`;
+    if(buyer.nota.trim()) m += `\nNota: ${buyer.nota.trim()}`;
+    return m;
+  }
+  let cartOpen=false;
+  function openCart(){ openId=null; cartOpen=true; drawCart(); $("overlay").hidden=false; }
+  function drawCart(){
+    const ov=$("overlay"); ov.textContent="";
+    const lines = cartLines();
+    const box = el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":"Mi pedido"});
+    box.append(el("div",{class:"cart-head"}, el("h2",null,"Mi pedido"), el("button",{class:"btn",type:"button",onclick:closeCart},"Seguir viendo")));
+    if(!lines.length){
+      box.append(el("p",{class:"note",style:"margin:0"},"Tu pedido está vacío. Toca \"+ Agregar al pedido\" en los productos que quieras."));
+      ov.append(box); return;
+    }
+    const ul = el("ul",{class:"items"});
+    for(const l of lines){
+      const cover = l.p.fotos && l.p.fotos[0], sold = l.p.estado==="vendido";
+      const setQ = q=>{ if(q<1) delete cart[l.id]; else cart[l.id]=Math.min(q,99); saveCart(); drawCart(); render(); };
+      ul.append(el("li",{class:"item"},
+        cover ? el("img",{src:src(cover.thumb||cover.full),alt:""}) : el("span",{class:"noimg"}),
+        el("div",{style:"min-width:0;display:grid;gap:2px"},
+          el("span",{class:"nm"},l.p.nombre||"Producto"),
+          el("span",{class:"pr"}, l.p.precio==null?"Precio a consultar":(l.q>1?`${money(l.p.precio)} × ${l.q} = ${dual(l.p.precio*l.q)}`:dual(l.p.precio))),
+          sold ? el("span",{class:"warn"},"Se vendió; no se incluirá en el mensaje") : null),
+        el("div",{style:"display:grid;gap:4px;justify-items:end"},
+          sold ? null : el("div",{class:"qty"},
+            el("button",{type:"button","aria-label":"Quitar uno",onclick:()=>setQ(l.q-1)},"−"),
+            el("span",null,String(l.q)),
+            el("button",{type:"button","aria-label":"Agregar uno",onclick:()=>setQ(l.q+1)},"+")),
+          el("button",{class:"rm",type:"button",onclick:()=>setQ(0)},"Quitar"))
+      ));
+    }
+    box.append(ul);
+    const {total, consultar} = cartTotals();
+    box.append(el("div",{class:"totals"}, el("span",null,"Total"+(consultar?` (+${consultar} a consultar)`:"")), el("span",{class:"t",style:"text-align:right"},money(total)||"$0", soles(total)?el("span",{class:"bigsol"},soles(total)):null)));
+    const nm = el("input",{id:"buyerName",maxlength:"60",placeholder:"Para saber quién escribe",value:buyer.nombre});
+    const nt = el("textarea",{id:"buyerNote",rows:"2",placeholder:"Talla, color, entrega o recogida…"}); nt.value = buyer.nota;
+    const pv = el("div",{class:"preview","aria-label":"Mensaje que se enviará"}, buildMessage());
+    const upd = ()=>{ buyer.nombre=nm.value; buyer.nota=nt.value; saveCart(); pv.textContent=buildMessage(); link.href=waLink(); };
+    nm.addEventListener("input",upd); nt.addEventListener("input",upd);
+    box.append(el("label",{class:"f"},"Tu nombre (opcional)", nm), el("label",{class:"f"},"Nota (opcional)", nt),
+      el("div",{style:"display:grid;gap:4px"}, el("span",{class:"note",style:"margin:0"},"Este es el mensaje que llegará:"), pv));
+    const wa = waDigits();
+    const waLink = ()=>`https://wa.me/${wa}?text=${encodeURIComponent(buildMessage())}`;
+    const link = el("a",{class:"btn tag",href:wa?waLink():"#",target:"_blank",rel:"noopener"},"Enviar pedido por WhatsApp");
+    const copyBtn = el("button",{class:"btn",type:"button",onclick:async()=>{ try{ await navigator.clipboard.writeText(buildMessage()); toast("Mensaje copiado"); }catch(e){ const r=document.createRange(); r.selectNodeContents(pv); const s=getSelection(); s.removeAllRanges(); s.addRange(r); toast("Selecciona y copia el mensaje"); } }},"Copiar mensaje");
+    const send = el("div",{class:"send"});
+    if(wa){
+      send.append(link, copyBtn, el("span",{class:"note",style:"margin:0;text-align:center"},"Se abre WhatsApp con tu pedido escrito; solo tocas enviar. Si no se abre, copia el mensaje y escríbelo al ", el("span",{class:"copy"},S.config.whatsapp)));
+    } else {
+      send.append(copyBtn, el("span",{class:"note",style:"margin:0;text-align:center"},"La tienda todavía no ha puesto su número de WhatsApp. Copia el mensaje para enviarlo cuando lo tengas."));
+    }
+    box.append(send,
+      el("button",{class:"rm",type:"button",style:"justify-self:center",onclick:()=>{ cart={}; saveCart(); render(); closeCart(); toast("Pedido vaciado"); }},"Vaciar pedido"));
+    ov.append(box);
+  }
+  function closeCart(){ cartOpen=false; $("overlay").hidden=true; $("overlay").textContent=""; }
+
+  // ---------- Tienda ----------
+  function waDigits(){ return String(S.config.whatsapp||"").replace(/\D/g,""); }
+  function renderConfig(){
+    const name = S.config.nombre || "Vitrina USA";
+    $("shopName").textContent = name; document.title = name;
+    const c=$("contact"); c.textContent=""; const wa=waDigits();
+    if(wa){ c.hidden=false; c.append("WhatsApp ", el("a",{href:"https://wa.me/"+wa,target:"_blank",rel:"noopener"}, S.config.whatsapp)); } else c.hidden=true;
+    if(document.activeElement!==$("setName")) $("setName").value = S.config.nombre||"";
+    if(document.activeElement!==$("setWa")) $("setWa").value = S.config.whatsapp||"";
+    if(document.activeElement!==$("setRate")) $("setRate").value = S.config.tipoCambio!=null ? String(S.config.tipoCambio) : "";
+    render(); if(openId) drawSheet();
+  }
+  $("settingsBtn").onclick = ()=>{ $("settings").hidden = !$("settings").hidden; };
+  $("saveSettings").onclick = async ()=>{ try{ await S.db.doc("config/tienda").set({ nombre:$("setName").value.trim(), whatsapp:$("setWa").value.trim(), tipoCambio: parsePrice($("setRate").value) }); $("settings").hidden=true; toast("Datos guardados"); }catch(e){ toast("No se pudo guardar. Intenta de nuevo."); } };
+
+  // ---------- Controles ----------
+  $("q").addEventListener("input", e=>{ S.q=e.target.value; render(); });
+  $("pickBtn").onclick = ()=>$("fileInput").click();
+  $("fileInput").onchange = e=>handleFiles(e.target.files);
+  const setMode = m=>{ S.mode=m; $("modeEach").setAttribute("aria-pressed",String(m==="each")); $("modeGroup").setAttribute("aria-pressed",String(m==="group")); };
+  $("modeEach").onclick=()=>setMode("each"); $("modeGroup").onclick=()=>setMode("group");
+  const drop=$("drop");
+  ["dragenter","dragover"].forEach(t=>drop.addEventListener(t,e=>{e.preventDefault();drop.classList.add("over");}));
+  ["dragleave","drop"].forEach(t=>drop.addEventListener(t,e=>{e.preventDefault();drop.classList.remove("over");}));
+  drop.addEventListener("drop", e=>{ if(e.dataTransfer && e.dataTransfer.files) handleFiles(e.dataTransfer.files); });
+  document.addEventListener("paste", e=>{ if(!S.canEdit) return; const fs=[...(e.clipboardData?.files||[])]; if(fs.length) handleFiles(fs); });
+
+  render();
+
+  // ---------- Conexión (AWS Amplify) ----------
+  const params = new URLSearchParams(location.search);
+  const slugPublico = (params.get("tienda") || "").toLowerCase();
+  const enlaceDe = slug => location.origin + location.pathname + "?tienda=" + encodeURIComponent(slug);
+  const show = (id, on) => { $(id).hidden = !on; };
+  const ESTADO_TXT = { pendiente:"Pendiente de aprobación", aprobada:"Aprobada", suspendida:"Suspendida" };
+
+  // ----- Cuenta: entrar / registrarse / verificar -----
+  let paso = "login", correoPendiente = "";
+  const loginErr = m=>{ const e=$("loginErr"); e.textContent=m; e.hidden=!m; };
+  function pasoAuth(p, hint){
+    paso = p; loginErr("");
+    const t = { login:["Entrar","Entrar"], signup:["Crear cuenta","Crear cuenta"], confirm:["Verifica tu correo","Verificar"], newPassword:["Nueva contraseña","Guardar y entrar"] }[p];
+    $("authTitle").textContent = t[0]; $("loginBtn").textContent = t[1];
+    show("emailRow", p==="login"||p==="signup"); show("passRow", p==="login"||p==="signup");
+    show("codeRow", p==="confirm"); show("resendCode", p==="confirm"); show("newPassRow", p==="newPassword");
+    show("authSwitch", p==="login"||p==="signup");
+    $("authSwitch").textContent = p==="signup" ? "Ya tengo cuenta" : "Crear una cuenta";
+    $("loginPass").autocomplete = p==="signup" ? "new-password" : "current-password";
+    const h=$("authHint"); h.textContent = hint||""; h.hidden = !hint;
+  }
+  function abrirAuth(p){ show("landing", false); show("login", true); pasoAuth(p, p==="signup" ? "Usa tu correo. La contraseña necesita 8 caracteres con mayúscula, minúscula, número y símbolo." : ""); $("login").scrollIntoView({block:"start"}); (p==="confirm"?$("loginCode"):$("loginEmail")).focus(); }
+  $("adminLink").onclick = ()=>abrirAuth("signup");
+  $("goSignup").onclick = ()=>abrirAuth("signup");
+  $("goLogin").onclick = ()=>abrirAuth("login");
+  $("authSwitch").onclick = ()=>pasoAuth(paso==="signup"?"login":"signup");
+  $("loginCancel").onclick = ()=>{ show("login", false); if(!slugPublico) show("landing", true); };
+  $("logoutBtn").onclick = async ()=>{ try{ await signOut(); }finally{ location.href = location.pathname; } };
+  $("resendCode").onclick = async ()=>{ try{ await resendSignUpCode({ username: correoPendiente }); toast("Te enviamos un código nuevo"); }catch(e){ loginErr((e&&e.message)||"No se pudo reenviar el código"); } };
+  const errAuth = err => { const n = err && err.name;
+    return n==="NotAuthorizedException"||n==="UserNotFoundException" ? "Correo o contraseña incorrectos"
+      : n==="UsernameExistsException" ? "Ya existe una cuenta con ese correo. Toca \"Ya tengo cuenta\"."
+      : n==="InvalidPasswordException" ? "La contraseña necesita 8 caracteres con mayúscula, minúscula, número y símbolo"
+      : n==="CodeMismatchException" ? "El código no es correcto. Revísalo o pide uno nuevo."
+      : n==="ExpiredCodeException" ? "El código venció. Toca \"Reenviar código\"."
+      : n==="UserNotConfirmedException" ? "Falta verificar tu correo."
+      : ((err && err.message) || "No se pudo completar. Intenta de nuevo."); };
+  async function trasLogin(r){
+    if(r.isSignedIn){ location.href = location.pathname; return; }
+    const step = r.nextStep && r.nextStep.signInStep;
+    if(step==="CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED") return pasoAuth("newPassword","Es tu primer ingreso: crea una contraseña nueva.");
+    if(step==="CONFIRM_SIGN_UP"){ correoPendiente=$("loginEmail").value.trim(); try{ await resendSignUpCode({username:correoPendiente}); }catch(e){} return pasoAuth("confirm", `Te enviamos un código a ${correoPendiente}.`); }
+    loginErr("Falta un paso para entrar: " + (step||"desconocido"));
+  }
+  $("login").addEventListener("submit", async e=>{
+    e.preventDefault(); loginErr(""); $("loginBtn").disabled=true;
+    const email=$("loginEmail").value.trim(), pass=$("loginPass").value;
+    try{
+      if(paso==="login"){
+        if(!email||!pass) return loginErr("Escribe tu correo y tu contraseña");
+        await trasLogin(await signIn({ username: email, password: pass }));
+      } else if(paso==="signup"){
+        if(!email||!pass) return loginErr("Escribe tu correo y una contraseña");
+        const r = await signUp({ username: email, password: pass, options:{ userAttributes:{ email } } });
+        correoPendiente = email;
+        if(r.nextStep && r.nextStep.signUpStep==="CONFIRM_SIGN_UP") pasoAuth("confirm", `Te enviamos un código a ${email}. Escríbelo aquí.`);
+        else await trasLogin(await signIn({ username: email, password: pass }));
+      } else if(paso==="confirm"){
+        const code=$("loginCode").value.trim(); if(!code) return loginErr("Escribe el código que te llegó por correo");
+        await confirmSignUp({ username: correoPendiente, confirmationCode: code });
+        if(pass) await trasLogin(await signIn({ username: correoPendiente, password: pass }));
+        else { pasoAuth("login","Correo verificado. Ahora entra con tu contraseña."); $("loginEmail").value=correoPendiente; }
+      } else if(paso==="newPassword"){
+        if($("newPass").value.length<8) return loginErr("La nueva contraseña debe tener al menos 8 caracteres");
+        await trasLogin(await confirmSignIn({ challengeResponse: $("newPass").value }));
+      }
+    }catch(err){ loginErr(errAuth(err)); }
+    finally{ $("loginBtn").disabled=false; }
+  });
+
+  // ----- Crear vitrina -----
+  let slugTocado = false;
+  const prevSlug = ()=>{ $("obPreview").textContent = enlaceDe($("obSlug").value || "tu-tienda"); };
+  $("obName").addEventListener("input", ()=>{ if(!slugTocado){ $("obSlug").value = limpiarSlug($("obName").value); prevSlug(); } });
+  $("obSlug").addEventListener("input", ()=>{ slugTocado=true; $("obSlug").value = limpiarSlug($("obSlug").value); prevSlug(); });
+  prevSlug();
+
+  // ----- Vitrina (pública o de la vendedora) -----
+  function iniciarVitrina(){
+    show("vitrina", true);
+    const slow = setTimeout(()=>{ if(!S.loaded){ $("emptyTitle").textContent="La vitrina tarda en responder"; $("emptyText").textContent="Revisa tu conexión. Los productos aparecerán en cuanto se conecte."; } },10000);
+    db.collection("productos").orderBy("creado","desc").onSnapshot(snap=>{
+      S.products = snap.docs.map(d=>({id:d.id, ...d.data()}));
+      if(!snap.metadata.fromCache){ S.loaded=true; clearTimeout(slow); }
+      else if(S.products.length) S.loaded=true;
+      for(const id of [...S.sel]) if(!S.products.some(p=>p.id===id)) S.sel.delete(id);
+      if(!snap.metadata.fromCache){ let ch=false; for(const id of Object.keys(cart)) if(!S.products.some(p=>p.id===id)){ delete cart[id]; ch=true; } if(ch) saveCart(); }
+      render(); if(openId) drawSheet();
+      if(cartOpen && !$("overlay").contains(document.activeElement)) drawCart();
+      if(!S.canEdit) mensajeEstadoPublico();
+    }, ()=>{ clearTimeout(slow); S.loaded=true; $("emptyTitle").textContent="No se pudo cargar la vitrina"; $("emptyText").textContent="Recarga la página en unos minutos."; render(); });
+    db.doc("config/tienda").onSnapshot(s=>{ S.config = s.exists ? s.data() : {}; renderConfig(); }, ()=>{});
+  }
+  function mensajeEstadoPublico(){
+    const c = estadoCatalogo(); if(!c) return;
+    if(c.estado==="no_existe"){ $("emptyTitle").textContent="Esta vitrina no existe"; $("emptyText").textContent="Revisa el enlace que te compartieron."; show("empty", true); }
+    else if(!c.productos){ $("emptyTitle").textContent = c.estado==="suspendida" ? "Esta vitrina no está disponible" : "Esta vitrina abrirá pronto"; $("emptyText").textContent = c.estado==="suspendida" ? "La tienda está pausada por ahora." : "La tienda está terminando de prepararse. Vuelve en un rato."; show("empty", true); }
+    else if(c.vistaPrevia) toast("Vista previa: los clientes aún no ven esta vitrina");
+  }
+  function bannerVendedora(t){
+    const est = t.estado || "pendiente";
+    show("storeBanner", true);
+    const pill=$("bannerPill"); pill.className="pill "+est; pill.textContent=ESTADO_TXT[est];
+    $("bannerText").textContent = est==="aprobada" ? "Tu vitrina está publicada. Comparte este enlace con tus clientes:"
+      : est==="suspendida" ? "Tu vitrina está pausada. Escribe a la administración para reactivarla."
+      : "Ya puedes subir tus productos. Los clientes la verán cuando la administración la apruebe.";
+    $("bannerLink").textContent = enlaceDe(t.id);
+    $("viewStore").href = enlaceDe(t.id);
+    $("copyLink").onclick = async ()=>{ try{ await navigator.clipboard.writeText(enlaceDe(t.id)); toast("Enlace copiado"); }catch(e){ const r=document.createRange(); r.selectNodeContents($("bannerLink")); const sl=getSelection(); sl.removeAllRanges(); sl.addRange(r); toast("Selecciona y copia el enlace"); } };
+  }
+
+  // ----- Panel de la dueña -----
+  let panelFiltro = "pendiente", tiendasCache = [];
+  async function abrirPanel(){
+    show("vitrina", false); show("storeBanner", false); show("onboard", false); show("panel", true);
+    $("panelRows").textContent = ""; $("panelCount").textContent = "Cargando vitrinas…";
+    try{ tiendasCache = await listarTiendas(); }catch(e){ $("panelCount").textContent = "No se pudieron cargar las vitrinas: " + ((e&&e.message)||""); return; }
+    pintarPanel();
+  }
+  function pintarPanel(){
+    const cuenta = { todas: tiendasCache.length };
+    tiendasCache.forEach(t=>{ const e=t.estado||"pendiente"; cuenta[e]=(cuenta[e]||0)+1; });
+    const f=$("panelFilter"); f.textContent="";
+    [["pendiente","Pendientes"],["aprobada","Aprobadas"],["suspendida","Suspendidas"],["todas","Todas"]].forEach(([k,l])=>
+      f.append(el("button",{class:"chip",type:"button","aria-pressed":String(panelFiltro===k),onclick:()=>{panelFiltro=k;pintarPanel();}}, l+" ", el("span",{class:"cn"},String(cuenta[k]||0)))));
+    const lista = tiendasCache.filter(t=>panelFiltro==="todas" || (t.estado||"pendiente")===panelFiltro)
+      .sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||"")));
+    $("panelCount").textContent = `${tiendasCache.length} vitrinas en total`;
+    const tb=$("panelRows"); tb.textContent="";
+    if(!lista.length){ tb.append(el("tr",null, el("td",{colspan:"6",style:"color:var(--muted)"}, "No hay vitrinas en este grupo."))); return; }
+    for(const t of lista){
+      const est=t.estado||"pendiente";
+      const acc = async (nuevo, okMsg)=>{ try{ await cambiarEstadoTienda(t.id, nuevo); t.estado=nuevo; toast(okMsg); pintarPanel(); }catch(e){ toast("No se pudo cambiar el estado: "+((e&&e.message)||"")); } };
+      const acts = el("div",{class:"acts"});
+      if(est!=="aprobada") acts.append(el("button",{class:"btn primary",type:"button",onclick:()=>acc("aprobada","Vitrina aprobada")}, "Aprobar"));
+      if(est!=="suspendida") acts.append(el("button",{class:"btn danger",type:"button",onclick:()=>acc("suspendida","Vitrina suspendida")}, "Suspender"));
+      acts.append(el("a",{class:"btn",href:enlaceDe(t.id),target:"_blank",rel:"noopener",style:"text-decoration:none"},"Ver"));
+      tb.append(el("tr",null,
+        el("td",null, el("strong",null,t.nombre||t.id), el("br"), el("small",null,"?tienda="+t.id)),
+        el("td",null,t.email||"—"), el("td",null,t.whatsapp||"—"),
+        el("td",null, el("span",{class:"pill "+est}, ESTADO_TXT[est])),
+        el("td",null, el("small",null, t.createdAt ? new Date(t.createdAt).toLocaleDateString("es-PE") : "")),
+        el("td",null, acts)));
+    }
+  }
+
+  // ----- Arranque -----
+  (async ()=>{
+    const ses = await sesion();
+    show("logoutBtn", ses.logged); show("adminLink", !ses.logged && !slugPublico);
+    show("panelBtn", !!ses.superadmin);
+    $("panelBtn").onclick = abrirPanel;
+
+    if(slugPublico){
+      // Vista de cliente (también la usa la vendedora con "Ver como cliente")
+      usarModoPublico(slugPublico, ses.logged);
+      S.db = db; S.assets = null; S.ai = null; S.canEdit = false;
+      show("upload", false); show("settingsBtn", false);
+      iniciarVitrina();
+      return;
+    }
+    if(!ses.logged){ show("landing", true); show("vitrina", false); if(location.hash==="#entrar") abrirAuth("login"); return; }
+
+    let tienda = null;
+    try{ tienda = await miTienda(ses.sub); }catch(e){ toast("No se pudo cargar tu cuenta. Recarga la página."); return; }
+    if(location.hash==="#panel" && ses.superadmin && !tienda){ abrirPanel(); return; }
+    if(!tienda){
+      if(ses.superadmin){ abrirPanel(); return; }
+      show("onboard", true); $("obName").focus();
+      $("onboard").addEventListener("submit", async e=>{
+        e.preventDefault(); const er=$("obErr"); er.hidden=true;
+        const nombre=$("obName").value.trim(), slug=limpiarSlug($("obSlug").value), whatsapp=$("obWa").value.trim();
+        if(!nombre){ er.textContent="Escribe el nombre de tu tienda"; er.hidden=false; return; }
+        if(!SLUG_RE.test(slug)){ er.textContent="El enlace debe tener entre 3 y 40 letras, números o guiones"; er.hidden=false; return; }
+        $("obBtn").disabled=true;
+        try{ await crearTienda({ slug, nombre, whatsapp, email: ses.email }); location.reload(); }
+        catch(err){ er.textContent = err && err.code==="exists" ? "Ese enlace ya lo usa otra tienda. Prueba con otro." : err && err.code==="invalid" ? "Ese enlace no está permitido. Prueba con otro." : "No se pudo crear la vitrina: "+((err&&err.message)||""); er.hidden=false; }
+        finally{ $("obBtn").disabled=false; }
+      });
+      return;
+    }
+
+    // Vitrina de la vendedora: solo sus productos y sus fotos
+    usarModoVendedora(tienda.id);
+    S.db = db; S.assets = assets; S.ai = ai; S.aiMax = 8; S.canEdit = true;
+    show("upload", true); show("settingsBtn", true); show("aiRow", true); show("bulkAI", true);
+    show("myStoreBtn", !!ses.superadmin);
+    $("myStoreBtn").onclick = ()=>{ location.hash=""; location.reload(); };
+    bannerVendedora(tienda);
+    if(location.hash==="#panel" && ses.superadmin){ abrirPanel(); return; }
+    iniciarVitrina();
+  })();
