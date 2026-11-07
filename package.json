@@ -1,0 +1,17 @@
+{
+  "name": "qa-automation-kit",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:req": "playwright test --grep",
+    "report": "playwright show-report",
+    "trace:check": "node scripts/check-traceability.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  }
+}

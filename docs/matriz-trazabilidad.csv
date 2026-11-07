@@ -1,0 +1,4 @@
+ID_Requerimiento,Descripcion_Requerimiento,ID_Caso_Manual,Caso_Prueba_Manual,Pasos,Resultado_Esperado,Prioridad,Automatizable,Script_Playwright,Tag,Estado_Revision_QA,Aprobado_Por,Fecha_Aprobacion
+REQ-001,El usuario puede iniciar sesión con credenciales válidas,CP-001,Login exitoso,"1. Abrir /login 2. Ingresar usuario válido 3. Ingresar contraseña válida 4. Clic en Ingresar",Se muestra el dashboard con el nombre del usuario,Alta,Sí,tests/login.spec.ts,@REQ-001,Pendiente,,
+REQ-001,El usuario puede iniciar sesión con credenciales válidas,CP-002,Login con contraseña incorrecta,"1. Abrir /login 2. Ingresar usuario válido 3. Ingresar contraseña inválida 4. Clic en Ingresar",Se muestra mensaje de error y no se accede,Alta,Sí,tests/login.spec.ts,@REQ-001,Pendiente,,
+REQ-002,El usuario puede cerrar sesión,CP-003,Logout,"1. Iniciar sesión 2. Clic en Cerrar sesión",Se redirige a /login,Media,Sí,tests/logout.spec.ts,@REQ-002,Pendiente,,
