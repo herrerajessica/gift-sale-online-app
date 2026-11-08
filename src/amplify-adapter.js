@@ -110,6 +110,7 @@ const toProducto = (it) => ({
   stock: typeof it.stock === 'number' ? it.stock : null,
   costo: typeof it.costo === 'number' ? it.costo : null,
   talla: it.talla || '',
+  huella: it.huella || '',
   categoria: it.categoria || '',
   publico: it.publico || '',
   descripcion: it.descripcion || '',

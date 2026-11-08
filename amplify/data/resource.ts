@@ -48,6 +48,7 @@ const schema = a.schema({
       stock: a.integer(),        // unidades disponibles; vacío = sin control de cantidad
       costo: a.float(),          // lo que pagó la vendedora (USD); privado: el catálogo público no lo devuelve
       talla: a.string(),
+      huella: a.string(),        // huella visual de la foto principal, para detectar fotos repetidas
       categoria: a.string(),
       publico: a.string(),
       descripcion: a.string(),

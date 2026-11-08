@@ -2,7 +2,7 @@ import { defineBackend } from '@aws-amplify/backend';
 import { Stack } from 'aws-cdk-lib';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { FunctionUrlAuthType } from 'aws-cdk-lib/aws-lambda';
-import { CachePolicy, Distribution, ViewerProtocolPolicy } from 'aws-cdk-lib/aws-cloudfront';
+import { CachePolicy, Distribution, ResponseHeadersPolicy, ViewerProtocolPolicy } from 'aws-cdk-lib/aws-cloudfront';
 import { S3BucketOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
 import { auth } from './auth/resource';
 import { data } from './data/resource';
@@ -29,6 +29,8 @@ const cdn = new Distribution(Stack.of(bucket), 'FotosCdn', {
     origin: S3BucketOrigin.withOriginAccessControl(bucket),
     viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
     cachePolicy: CachePolicy.CACHING_OPTIMIZED,
+    // CORS: la web puede leer las miniaturas para comparar fotos repetidas.
+    responseHeadersPolicy: ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS,
   },
 });
 

@@ -198,6 +198,129 @@ import {
     return (e && e.message) || "error al subir";
   }
 
+  // ---------- Fotos repetidas ----------
+  // Huella de cada foto: cómo cambia el brillo en una cuadrícula de 9×8 (64 bits) + color promedio.
+  // Dos fotos iguales (aunque estén comprimidas distinto) dan huellas casi iguales.
+  function huellaDeImagen(img){
+    // Se achica a la mitad varias veces (promedia bien) antes del 9×8 final:
+    // así la misma foto da la misma huella venga del archivo original o de la miniatura.
+    let w = img.width, h = img.height, fuente = img;
+    while(w > 36 || h > 32){
+      const nw = Math.max(9, Math.round(w/2)), nh = Math.max(8, Math.round(h/2));
+      const t = document.createElement("canvas"); t.width = nw; t.height = nh;
+      const tx = t.getContext("2d"); tx.imageSmoothingEnabled = true; tx.imageSmoothingQuality = "high";
+      tx.drawImage(fuente, 0, 0, nw, nh); fuente = t; w = nw; h = nh;
+    }
+    const c = document.createElement("canvas"); c.width = 9; c.height = 8;
+    const x = c.getContext("2d", { willReadFrequently:true }); x.imageSmoothingQuality = "high"; x.drawImage(fuente, 0, 0, 9, 8);
+    const d = x.getImageData(0, 0, 9, 8).data;
+    const lum = i => .299*d[i] + .587*d[i+1] + .114*d[i+2];
+    let bits = "", r = 0, g = 0, b = 0;
+    for(let y=0; y<8; y++) for(let xx=0; xx<8; xx++){ const i = (y*9+xx)*4; bits += lum(i) > lum(i+4) ? "1" : "0"; }
+    for(let i=0; i<d.length; i+=4){ r += d[i]; g += d[i+1]; b += d[i+2]; }
+    const n = d.length/4, hx = v => Math.round(v/n).toString(16).padStart(2,"0");
+    return "h2:" + BigInt("0b"+bits).toString(16).padStart(16,"0") + "-" + hx(r) + hx(g) + hx(b);
+  }
+  function parecidas(a, b){
+    if(!a || !b || !a.startsWith("h2:") || !b.startsWith("h2:")) return false;
+    const [ha, ca] = a.slice(3).split("-"), [hb, cb] = b.slice(3).split("-");
+    let v = BigInt("0x"+ha) ^ BigInt("0x"+hb), dist = 0;
+    while(v){ dist += Number(v & 1n); v >>= 1n; }
+    const col = [0,2,4].reduce((t,k)=>t + Math.abs(parseInt(ca.substr(k,2),16) - parseInt(cb.substr(k,2),16)), 0);
+    return dist <= 5 && col <= 24;
+  }
+  async function huellaDeArchivo(f){ try{ return huellaDeImagen(await decode(f)); }catch(e){ return null; } }
+  function huellaDeUrl(url){
+    return new Promise(res=>{
+      const i = new Image(); i.crossOrigin = "anonymous"; i.decoding = "async";
+      i.onload = ()=>{ try{ res(huellaDeImagen(i)); }catch(e){ res(null); } };
+      i.onerror = ()=>res(null); i.src = url;
+    });
+  }
+  /** Calcula (y guarda) la huella de los productos que todavía no la tienen. */
+  async function asegurarHuellas(onAvance){
+    const faltan = S.products.filter(p=>!(p.huella||"").startsWith("h2:") && p.fotos && p.fotos[0]);
+    let hechas = 0;
+    await runPool(faltan.map(p=>p.id), async id=>{
+      const p = S.products.find(x=>x.id===id); if(!p) return;
+      const h = await huellaDeUrl(src(p.fotos[0].thumb || p.fotos[0].full));
+      if(h){ p.huella = h; try{ await S.db.doc("productos/"+id).update({ huella:h }); }catch(e){} }
+      hechas++; if(onAvance) onAvance(hechas, faltan.length);
+    });
+  }
+  /** Agrupa productos con la misma foto (unión de parecidos). */
+  function gruposRepetidos(lista){
+    const padre = lista.map((_,i)=>i);
+    const raiz = i => padre[i]===i ? i : (padre[i] = raiz(padre[i]));
+    for(let i=0;i<lista.length;i++) for(let j=i+1;j<lista.length;j++)
+      if(parecidas(lista[i].huella, lista[j].huella)) padre[raiz(j)] = raiz(i);
+    const g = {};
+    lista.forEach((p,i)=>{ (g[raiz(i)] = g[raiz(i)] || []).push(p); });
+    return Object.values(g).filter(x=>x.length > 1);
+  }
+  // Se queda el que tiene más datos completos; a igualdad, el más antiguo.
+  const datosLlenos = p => ["precio","marca","descripcion","talla","costo","stock"].filter(k=>p[k]!=null && p[k]!=="").length;
+  async function buscarRepetidos(){
+    toast("Buscando fotos repetidas…");
+    await asegurarHuellas();
+    const grupos = gruposRepetidos(S.products.filter(p=>p.huella));
+    if(!grupos.length){ toast("No encontré fotos repetidas"); return; }
+    const ov = $("planOverlay"); ov.textContent = ""; ov.hidden = false;
+    const cerrar = ()=>{ ov.hidden = true; ov.textContent = ""; ov.onclick = null; };
+    ov.onclick = e=>{ if(e.target===ov) cerrar(); };
+    const marcados = new Set();
+    const lista = el("div",{class:"dups"});
+    grupos.forEach(g=>{
+      g.sort((a,b)=> datosLlenos(b)-datosLlenos(a) || (a.creado||0)-(b.creado||0));
+      const fila = el("div",{class:"dup-grupo"});
+      g.forEach((p,k)=>{
+        if(k>0) marcados.add(p.id);
+        const etiqueta = el("span",{class: k===0 ? "queda" : "va"}, k===0 ? "Se queda" : "Se borra");
+        const item = el("button",{type:"button",class:"dup-item"+(k>0?" borrar":""),"aria-pressed":String(k>0),
+          onclick:()=>{ const b = !marcados.has(p.id); b ? marcados.add(p.id) : marcados.delete(p.id);
+            item.classList.toggle("borrar", b); item.setAttribute("aria-pressed", String(b)); etiqueta.className = b ? "va" : "queda"; etiqueta.textContent = b ? "Se borra" : "Se queda"; pintarBoton(); }},
+          p.fotos && p.fotos[0] ? el("img",{src:src(p.fotos[0].thumb||p.fotos[0].full),alt:""}) : null,
+          el("span",null, p.nombre || "Producto"), etiqueta);
+        fila.append(item);
+      });
+      lista.append(fila);
+    });
+    const borrar = el("button",{class:"btn danger",type:"button"});
+    const pintarBoton = ()=>{ borrar.textContent = `Borrar ${marcados.size} repetido${marcados.size===1?"":"s"}`; borrar.disabled = !marcados.size; };
+    pintarBoton();
+    borrar.onclick = async ()=>{
+      borrar.disabled = true; borrar.textContent = "Borrando…";
+      const ids = [...marcados];
+      const fails = await runPool(ids, async id=>{ const p = S.products.find(x=>x.id===id); await S.db.doc("productos/"+id).delete(); if(p) await deletePhotos(p.fotos||[]); quitarFilaLote(id); });
+      cerrar(); S.sel.clear(); render();
+      toast(fails ? `Se borraron ${ids.length-fails}; ${fails} no se pudieron borrar` : `${ids.length} repetido${ids.length===1?"":"s"} borrado${ids.length===1?"":"s"}`);
+    };
+    ov.append(el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":"Fotos repetidas"},
+      el("div",{class:"cart-head"}, el("h2",null,`${grupos.length} grupo${grupos.length===1?"":"s"} de fotos repetidas`), el("button",{class:"btn",type:"button",onclick:cerrar},"Cancelar")),
+      el("p",{class:"note",style:"margin:0"},"En cada grupo se queda el producto con más datos. Toca una foto para cambiar si se queda o se borra."),
+      lista, el("div",{class:"send"}, borrar)));
+  }
+  /** Antes de subir: avisa si hay fotos que ya están en la tienda o repetidas en el lote. */
+  function preguntarRepetidas(files, repetidas){
+    return new Promise(resolve=>{
+      const ov = $("planOverlay"); ov.textContent = ""; ov.hidden = false;
+      const urls = [];
+      const fin = v=>{ ov.hidden = true; ov.textContent = ""; ov.onclick = null; urls.forEach(u=>URL.revokeObjectURL(u)); resolve(v); };
+      ov.onclick = e=>{ if(e.target===ov) fin(null); };
+      const fila = el("div",{class:"dup-grupo"});
+      repetidas.forEach(r=>{ const u = URL.createObjectURL(files[r.idx]); urls.push(u);
+        fila.append(el("div",{class:"dup-item borrar"}, el("img",{src:u,alt:""}), el("span",null, r.motivo))); });
+      const n = repetidas.length;
+      ov.append(el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":"Fotos repetidas"},
+        el("div",{class:"cart-head"}, el("h2",null,`${n} foto${n===1?"":"s"} repetida${n===1?"":"s"}`), el("button",{class:"btn",type:"button",onclick:()=>fin(null)},"Cancelar")),
+        el("p",{class:"note",style:"margin:0"},"Estas fotos ya están en tu tienda o vienen dos veces en este lote."),
+        el("div",{class:"dups"}, fila),
+        el("div",{class:"send"},
+          el("button",{class:"btn primary",type:"button",onclick:()=>fin("saltar")}, `Saltar las repetidas y subir ${files.length-n}`),
+          el("button",{class:"btn",type:"button",onclick:()=>fin("todas")}, `Subir las ${files.length} igual`))));
+    });
+  }
+
   // ---------- Subida en bloque ----------
   async function handleFiles(list){
     const files = [...list].filter(f => f.type.startsWith("image/") || /\.(heic|heif)$/i.test(f.name));
@@ -206,6 +329,29 @@ import {
     if(!limitarLote(files, S.mode)) return;
     const modoFoto = await elegirModo(files);
     if(!modoFoto) return;
+    // Fotos repetidas: contra la tienda y dentro del mismo lote (no aplica a "varias fotos = 1 producto")
+    let huellas = [];
+    if(!(S.mode==="group" && files.length>1)){
+      $("progress").hidden=false; setProg(0, files.length, "Revisando fotos repetidas…");
+      huellas = await Promise.all(files.map(huellaDeArchivo));
+      await asegurarHuellas();
+      const existentes = S.products.map(p=>p.huella).filter(Boolean);
+      const repetidas = [];
+      huellas.forEach((h, idx)=>{
+        if(!h) return;
+        if(existentes.some(e=>parecidas(e, h))) repetidas.push({ idx, motivo:"Ya está en tu tienda" });
+        else if(huellas.slice(0, idx).some(o=>parecidas(o, h))) repetidas.push({ idx, motivo:"Repetida en este lote" });
+      });
+      if(repetidas.length){
+        const decision = await preguntarRepetidas(files, repetidas);
+        if(!decision){ $("progress").hidden = true; return; }
+        if(decision==="saltar"){
+          const fuera = new Set(repetidas.map(r=>r.idx));
+          for(let k=files.length-1; k>=0; k--) if(fuera.has(k)){ files.splice(k,1); huellas.splice(k,1); }
+          if(!files.length){ $("progress").hidden = true; toast("Todas las fotos ya estaban en tu tienda"); return; }
+        }
+      }
+    }
     S.fondoFallos = 0;
     const price = parsePrice($("defPrice").value), cat = $("defCat").value.trim(), marca = $("defMarca").value.trim(), stock = parseStock($("defStock").value), margen = parseMargen($("defMargen").value);
     const useAI = S.ai && $("aiToggle").checked;
@@ -224,7 +370,7 @@ import {
           if(group){ groupPhotos[idx]={ph,blob}; }
           else {
             const nombre = nameFromFile(f), ref = col.doc();
-            await ref.set({ nombre, marca, precio:price, stock, categoria:cat, publico:"", descripcion:"", estado:"disponible", fotos:[ph], creado: base + (total-idx) });
+            await ref.set({ nombre, marca, precio:price, stock, categoria:cat, publico:"", descripcion:"", estado:"disponible", fotos:[ph], huella: huellas[idx] || "", creado: base + (total-idx) });
             creados.push({ id:ref.id, orden:idx });
             if(useAI) toClassify.push({ id:ref.id, blob, name:nombre==="Producto nuevo", cat:!cat, marca:!marca, margen: price==null ? margen : null });
           }
@@ -275,7 +421,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         const c = e && e.code;
         if(c==="not_granted"||c==="sampling_disabled"||c==="images_unavailable"||c==="capability_disabled"||c==="capability_removed"||c==="not_declared"){ S.ai=null; $("aiRow").hidden=true; $("bulkAI").hidden=true; S.aiMsg="la IA no está disponible; pon las categorías a mano"; return; }
         if(c==="rate_limited"){ S.aiMsg=`IA en pausa: ${items.length-n} sin clasificar (usa "Editar varios" › Clasificar con IA más tarde)`; return; }
-        fails += batch.length; n += batch.length; continue;
+        fails += batch.length; n += batch.length; S.aiError = c || (e && e.message) || "sin respuesta"; continue;
       }
       const arr = Array.isArray(res) ? res : [];
       await Promise.all(batch.map(async (b, j)=>{
@@ -294,7 +440,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       }));
       n += batch.length; setProg(n, items.length, "Detectando categorías con IA…");
     }
-    S.aiMsg = fails ? `IA: ${items.length-fails} clasificados, ${fails} sin clasificar` : `IA: ${items.length} clasificados`;
+    S.aiMsg = fails ? `IA: ${items.length-fails} clasificados, ${fails} sin clasificar${S.aiError ? ` (${S.aiError})` : ""}` : `IA: ${items.length} clasificados`;
+    S.aiError = "";
     toast(S.aiMsg);
   }
   async function classifySelected(){
@@ -399,6 +546,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     toast(fails ? `Actualizados ${ids.length-fails}; ${fails} fallaron` : `${ids.length} productos actualizados`); renderBulk();
   };
   $("bulkAI").onclick = ()=>classifySelected();
+  $("bulkDup").onclick = ()=>buscarRepetidos();
   $("bulkTabla").onclick = ()=>{ if(!S.sel.size){ toast("Selecciona productos o toca Todos"); return; } abrirLote([...S.sel], "seleccion"); };
   $("bulkDel").onclick = ()=>{ $("bulkN").textContent=S.sel.size; $("bulkConfirm").hidden=false; };
   $("bulkDelNo").onclick = ()=>{ $("bulkConfirm").hidden=true; };
@@ -432,7 +580,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const guardar = el("button",{class:"btn primary",type:"button",id:"loteGuardar",onclick:guardarLote},"Guardar todo");
     const cerrar = el("button",{class:"btn",type:"button",onclick:cerrarLote},"Cerrar");
     box.append(el("div",{class:"lote-head"},
-      el("h2",{id:"loteTitulo"}, titulo), cerrar, guardar,
+      el("h2",{id:"loteTitulo"}, titulo), el("button",{class:"btn",type:"button",onclick:buscarRepetidos},"Buscar repetidos"), cerrar, guardar,
       el("p",{class:"note"}, origen==="subida" ? "La IA ya llenó lo que pudo. Completa o corrige el precio, la marca y la descripción, y toca Guardar todo. Enter baja a la siguiente fila." : "Edita varios productos de corrido. Enter baja a la siguiente fila.")));
     const tb = el("tbody");
     loteIds.forEach((id, fila)=>{
@@ -469,14 +617,33 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         }
         tr.append(td);
       });
+      const acc = el("td",{class:"c-acc"});
+      const btnBorrar = el("button",{class:"btn danger",type:"button","aria-label":`Borrar ${p.nombre||"producto"}`},"Borrar");
+      btnBorrar.onclick = ()=>{
+        acc.textContent = "";
+        acc.append(el("div",{class:"borrar-si"}, "¿Borrar?",
+          el("span",{style:"display:flex;gap:6px"},
+            el("button",{class:"btn danger",type:"button",onclick:async()=>{
+              try{ const pr = S.products.find(x=>x.id===id); await S.db.doc("productos/"+id).delete(); if(pr) deletePhotos(pr.fotos||[]); quitarFilaLote(id); toast("Producto borrado"); }
+              catch(e){ toast("No se pudo borrar. Intenta de nuevo."); }
+            }},"Sí"),
+            el("button",{class:"btn",type:"button",onclick:()=>{ acc.textContent=""; acc.append(btnBorrar); }},"No"))));
+      };
+      acc.append(btnBorrar); tr.append(acc);
       tb.append(tr);
     });
     box.append(el("div",{class:"tablewrap"}, el("table",null,
-      el("thead",null, el("tr",null, el("th",null,"Foto"), ...COLS_LOTE.map(c=>el("th",null,c.label)))), tb)));
+      el("thead",null, el("tr",null, el("th",null,"Foto"), ...COLS_LOTE.map(c=>el("th",null,c.label)), el("th",null,""))), tb)));
     box.hidden = false;
     box.scrollIntoView({block:"start", behavior:"smooth"});
     const primero = box.querySelector('[data-fila="0"][data-col="1"]') || box.querySelector("input");
     if(primero) setTimeout(()=>primero.focus({preventScroll:true}), 350);
+  }
+  function quitarFilaLote(id){
+    const tr = document.querySelector(`#lote tr[data-id="${id}"]`); if(!tr) return;
+    tr.remove(); loteIds = loteIds.filter(x=>x!==id); loteSucio.delete(id);
+    if(!loteIds.length){ cerrarLote(); return; }
+    const t = $("loteTitulo"); if(t) t.textContent = t.textContent.replace(/\(\d+ producto(s)?\)|\d+ producto(s)?/, m=> m.startsWith("(") ? `(${loteIds.length} producto${loteIds.length===1?"":"s"})` : `${loteIds.length} producto${loteIds.length===1?"":"s"}`);
   }
   async function guardarLote(){
     const box = $("lote"), btn = $("loteGuardar");
@@ -484,6 +651,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     btn.disabled = true; btn.textContent = "Guardando…";
     const ids = [...loteSucio];
     const fails = await runPool(ids, id=>{
+      if(!box.querySelector(`tr[data-id="${id}"]`)) return Promise.resolve();
       const leer = c => box.querySelector(`tr[data-id="${id}"] [data-col="${COLS_LOTE.indexOf(c)}"]`).value;
       const patch = {};
       for(const c of COLS_LOTE){

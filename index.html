@@ -273,6 +273,16 @@ td small{color:var(--muted);font-family:var(--mono)}
   .lote td.c-foto{grid-row:span 2}.lote td.c-nombre{grid-column:2/4}.lote td.c-desc{grid-column:1/4}
   .lote td[data-label]::before{content:attr(data-label);display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}
 }
+.dups{display:grid;gap:12px;max-height:60vh;overflow:auto}
+.dup-grupo{display:flex;gap:10px;flex-wrap:wrap;padding:10px;border:1px solid var(--line);border-radius:10px}
+.dup-item{display:grid;gap:4px;justify-items:center;width:112px;font-size:12px;text-align:center;cursor:pointer}
+.dup-item img{width:104px;height:104px;object-fit:cover;border-radius:8px;border:2px solid transparent}
+.dup-item.borrar img{border-color:var(--sold);opacity:.75}
+.dup-item .queda{color:var(--ok);font-weight:700}.dup-item .va{color:var(--sold);font-weight:700}
+.lote .c-acc{width:96px;text-align:right}
+.lote .c-acc .btn{padding:6px 10px;font-size:13px}
+.lote .borrar-si{display:grid;gap:4px;justify-items:end;font-size:12px;color:var(--sold);font-weight:600}
+@media (max-width:720px){.lote td.c-acc{grid-column:1/4;text-align:left}.lote .borrar-si{justify-items:start}}
 .recordar{display:flex;gap:8px;align-items:center;font-size:14px}
 .paid{margin-top:16px;border:1.5px solid var(--ok);background:var(--surface);border-radius:12px;padding:14px;display:grid;gap:8px}
 .paid h2{margin:0;font-family:var(--display);font-weight:800;font-size:22px}
@@ -430,6 +440,7 @@ td small{color:var(--muted);font-family:var(--mono)}
     <button class="btn primary" id="bulkApply">Aplicar</button>
     <button class="btn" id="bulkAI" hidden>Clasificar con IA</button>
     <button class="btn" id="bulkTabla">Editar en tabla</button>
+    <button class="btn" id="bulkDup">Buscar repetidos</button>
     <button class="btn danger" id="bulkDel">Borrar</button>
     <span class="confirm" id="bulkConfirm" hidden>¿Borrar <span id="bulkN"></span> productos para siempre? <button class="btn danger" id="bulkDelYes">Sí, borrar</button><button class="btn" id="bulkDelNo">No</button></span>
     <button class="btn" id="bulkDone">Listo</button>
