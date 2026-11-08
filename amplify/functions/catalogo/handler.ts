@@ -1,9 +1,10 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import type { Schema } from '../../data/resource';
+import { PLANES, planVigente } from '../shared/planes';
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
-const MAX_PRODUCTOS = 2000;
+const MAX_PRODUCTOS = 5000;
 
 type Identidad = { sub?: string; groups?: string[] | null } | null | undefined;
 
@@ -11,6 +12,8 @@ type Identidad = { sub?: string; groups?: string[] | null } | null | undefined;
  * Vitrina pública de una vendedora.
  * Devuelve productos solo si la tienda está aprobada, salvo para su dueña
  * o para SUPERADMIN, que pueden previsualizarla en cualquier estado.
+ * El límite del plan se aplica aquí, en el servidor: solo se muestran los
+ * productos más recientes que permite el plan vigente.
  */
 export const handler: Schema['catalogo']['functionHandler'] = async (event) => {
   const slug = String(event.arguments.slug || '').trim().toLowerCase();
@@ -50,10 +53,18 @@ export const handler: Schema['catalogo']['functionHandler'] = async (event) => {
     ExclusiveStartKey = r.LastEvaluatedKey;
   } while (ExclusiveStartKey && productos.length < MAX_PRODUCTOS);
 
+  const plan = planVigente(t);
+  const limite = PLANES[plan].limite;
+  productos.sort((a, b) => Number(b.creado) - Number(a.creado));
+  const fueraDelPlan = limite == null ? 0 : Math.max(0, productos.length - limite);
+  const visibles = limite == null ? productos : productos.slice(0, limite);
+
   return JSON.stringify({
     estado,
     vistaPrevia: estado !== 'aprobada',
-    tienda: { id: t.id, nombre: t.nombre, whatsapp: t.whatsapp || '', tipoCambio: t.tipoCambio ?? null },
-    productos,
+    tienda: { id: t.id, nombre: t.nombre, whatsapp: t.whatsapp || '', tipoCambio: t.tipoCambio ?? null, cobrosActivos: !!t.cobrosActivos },
+    productos: visibles,
+    // Solo la dueña ve cuántos productos quedaron fuera por el límite del plan.
+    ...(esDuena || esSuper ? { fueraDelPlan } : {}),
   });
 };

@@ -29,6 +29,7 @@ jobs:
           TEST_PASSWORD: ${{ secrets.TEST_PASSWORD }}
           TEST_STORE: ${{ vars.TEST_STORE }}
           TEST_PENDING_STORE: ${{ vars.TEST_PENDING_STORE }}
+          TEST_STORE_COBROS: ${{ vars.TEST_STORE_COBROS }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:

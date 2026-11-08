@@ -2,6 +2,8 @@ import {
   FOTOS_BASE, db, assets, ai, sesion, usarModoPublico, usarModoVendedora, estadoCatalogo,
   miTienda, crearTienda, listarTiendas, cambiarEstadoTienda, limpiarSlug, SLUG_RE,
   signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn,
+  PLANES, planVigente, pagarPlan, cancelarPlan, conectarCobros, estadoCobros, pagarPedido,
+  miTiendaActual, listarPedidos, cambiarEstadoPedido, cambiarPlanTienda,
 } from './amplify-adapter.js';
 
 // Lógica de la Vitrina USA (misma que la versión de Claude).
@@ -60,6 +62,7 @@ import {
     const files = [...list].filter(f => f.type.startsWith("image/") || /\.(heic|heif)$/i.test(f.name));
     if(!files.length){ toast("Ninguno de esos archivos es una foto"); return; }
     if(!S.assets || !S.db){ toast("Solo quien administra la vitrina puede subir fotos"); return; }
+    if(!limitarLote(files, S.mode)) return;
     const price = parsePrice($("defPrice").value), cat = $("defCat").value.trim();
     const useAI = S.ai && $("aiToggle").checked;
     const total = files.length; let done = 0, ok = 0; const errs = $("errs"); errs.textContent="";
@@ -375,6 +378,16 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publ
     const link = el("a",{class:"btn tag",href:wa?waLink():"#",target:"_blank",rel:"noopener"},"Enviar pedido por WhatsApp");
     const copyBtn = el("button",{class:"btn",type:"button",onclick:async()=>{ try{ await navigator.clipboard.writeText(buildMessage()); toast("Mensaje copiado"); }catch(e){ const r=document.createRange(); r.selectNodeContents(pv); const s=getSelection(); s.removeAllRanges(); s.addRange(r); toast("Selecciona y copia el mensaje"); } }},"Copiar mensaje");
     const send = el("div",{class:"send"});
+    if(S.config && S.config.cobrosActivos && !S.canEdit){
+      const pagables = lines.filter(l=>l.p.estado!=="vendido");
+      const sinPrecio = pagables.some(l=>l.p.precio==null);
+      const payBtn = el("button",{class:"btn primary",type:"button",disabled:sinPrecio?"":false,onclick:async()=>{
+        payBtn.disabled=true; payBtn.textContent="Abriendo pago seguro…";
+        try{ const r = await pagarPedido(pagables.map(l=>({id:l.id,q:l.q})), buyer.nombre.trim(), buyer.nota.trim()); location.href = r.url; }
+        catch(e){ toast((e&&e.message)||"No se pudo iniciar el pago"); payBtn.disabled=false; payBtn.textContent="Pagar con tarjeta"; }
+      }},"Pagar con tarjeta");
+      send.append(payBtn, el("span",{class:"note",style:"margin:0;text-align:center"}, sinPrecio ? "Algunos productos no tienen precio: consúltalos por WhatsApp o quítalos para pagar con tarjeta." : "Pago seguro con Stripe. El total final se muestra en la página de pago."));
+    }
     if(wa){
       send.append(link, copyBtn, el("span",{class:"note",style:"margin:0;text-align:center"},"Se abre WhatsApp con tu pedido escrito; solo tocas enviar. Si no se abre, copia el mensaje y escríbelo al ", el("span",{class:"copy"},S.config.whatsapp)));
     } else {
@@ -504,9 +517,9 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publ
       if(!snap.metadata.fromCache){ let ch=false; for(const id of Object.keys(cart)) if(!S.products.some(p=>p.id===id)){ delete cart[id]; ch=true; } if(ch) saveCart(); }
       render(); if(openId) drawSheet();
       if(cartOpen && !$("overlay").contains(document.activeElement)) drawCart();
-      if(!S.canEdit) mensajeEstadoPublico();
+      if(!S.canEdit) mensajeEstadoPublico(); else actualizarPlan();
     }, ()=>{ clearTimeout(slow); S.loaded=true; $("emptyTitle").textContent="No se pudo cargar la vitrina"; $("emptyText").textContent="Recarga la página en unos minutos."; render(); });
-    db.doc("config/tienda").onSnapshot(s=>{ S.config = s.exists ? s.data() : {}; renderConfig(); }, ()=>{});
+    db.doc("config/tienda").onSnapshot(s=>{ S.config = s.exists ? s.data() : {}; renderConfig(); if(S.canEdit){ actualizarPlan(); pintarCobros(); } }, ()=>{});
   }
   function mensajeEstadoPublico(){
     const c = estadoCatalogo(); if(!c) return;
@@ -544,7 +557,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publ
       .sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||"")));
     $("panelCount").textContent = `${tiendasCache.length} vitrinas en total`;
     const tb=$("panelRows"); tb.textContent="";
-    if(!lista.length){ tb.append(el("tr",null, el("td",{colspan:"6",style:"color:var(--muted)"}, "No hay vitrinas en este grupo."))); return; }
+    if(!lista.length){ tb.append(el("tr",null, el("td",{colspan:"7",style:"color:var(--muted)"}, "No hay vitrinas en este grupo."))); return; }
     for(const t of lista){
       const est=t.estado||"pendiente";
       const acc = async (nuevo, okMsg)=>{ try{ await cambiarEstadoTienda(t.id, nuevo); t.estado=nuevo; toast(okMsg); pintarPanel(); }catch(e){ toast("No se pudo cambiar el estado: "+((e&&e.message)||"")); } };
@@ -556,9 +569,138 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publ
         el("td",null, el("strong",null,t.nombre||t.id), el("br"), el("small",null,"?tienda="+t.id)),
         el("td",null,t.email||"—"), el("td",null,t.whatsapp||"—"),
         el("td",null, el("span",{class:"pill "+est}, ESTADO_TXT[est])),
+        el("td",null, planSelect(t)),
         el("td",null, el("small",null, t.createdAt ? new Date(t.createdAt).toLocaleDateString("es-PE") : "")),
         el("td",null, acts)));
     }
+  }
+
+  // ----- Planes de la vendedora -----
+  const visiblesEnTienda = () => S.products.filter(p=>p.estado!=="oculto").length;
+  function usoPlan(){
+    const plan = planVigente(S.config || {});
+    const usados = visiblesEnTienda();
+    return { plan, usados, libres: plan.limite==null ? Infinity : Math.max(0, plan.limite - usados) };
+  }
+  function actualizarPlan(){
+    const box=$("planBox"); if(!S.canEdit){ box.hidden=true; return; }
+    const u = usoPlan(), ilimitado = u.plan.limite==null;
+    const pct = ilimitado ? 0 : Math.min(100, Math.round(u.usados / u.plan.limite * 100));
+    const lleno = !ilimitado && u.usados >= u.plan.limite, cerca = !lleno && pct >= 80;
+    box.hidden=false; box.className = "plan" + (lleno ? " full" : cerca ? " near" : ""); box.textContent="";
+    const vence = S.config && S.config.planVence && u.plan.id!=="free" ? new Date(S.config.planVence).toLocaleDateString("es-PE") : "";
+    const msg = ilimitado ? "Puedes publicar todos los productos que quieras."
+      : u.usados > u.plan.limite ? `Tienes ${u.usados - u.plan.limite} producto(s) que los clientes no ven porque superan tu plan.`
+      : lleno ? "Llegaste al límite de tu plan. Mejóralo para seguir publicando."
+      : cerca ? `Te quedan ${u.libres} productos en tu plan.` : `Puedes publicar ${u.libres} productos más.`;
+    const extra = S.config && S.config.planCancelado && vence ? ` Vuelves a Free el ${vence}.` : vence ? ` Se renueva el ${vence}.` : "";
+    const info = el("div",{class:"plan-info"},
+      el("strong",null,"Plan "+u.plan.nombre),
+      el("span",{class:"plan-n"}, ilimitado ? `${u.usados} productos · ilimitado` : `${u.usados} de ${u.plan.limite} productos`));
+    if(!ilimitado){ const bar=el("div",{class:"meter"}); const i=el("i"); i.style.width=pct+"%"; bar.append(i); info.append(bar); }
+    info.append(el("span",{class:"note",style:"margin:0"}, msg + extra));
+    box.append(info, el("button",{class:"btn"+(lleno||cerca?" tag":""),type:"button",onclick:abrirPlanes}, ilimitado ? "Ver planes" : "Mejorar plan"));
+  }
+  function abrirPlanes(){
+    const u = usoPlan(), ov=$("planOverlay"); ov.textContent=""; ov.hidden=false;
+    const cerrar = ()=>{ ov.hidden=true; ov.textContent=""; };
+    ov.onclick = e=>{ if(e.target===ov) cerrar(); };
+    const card = el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":"Planes"},
+      el("div",{class:"cart-head"}, el("h2",null,"Planes"), el("button",{class:"btn",type:"button",onclick:cerrar},"Cerrar")),
+      el("p",{class:"note",style:"margin:0"}, `Hoy tienes ${u.usados} productos visibles. Pagas según cuántos productos se muestran en tu vitrina; los ocultos no cuentan.`));
+    const grid = el("div",{class:"plans"});
+    for(const pl of PLANES){
+      let btn;
+      if(pl.id===u.plan.id) btn = el("button",{class:"btn",type:"button",disabled:""},"Tu plan actual");
+      else if(pl.id==="free") btn = el("button",{class:"btn",type:"button",onclick:async()=>{
+          btn.disabled=true; try{ await cancelarPlan(); toast("Tu plan seguirá activo hasta fin de mes y luego pasarás a Free"); S.config = await miTiendaActual(); actualizarPlan(); cerrar(); }
+          catch(e){ toast((e&&e.message)||"No se pudo cambiar el plan"); btn.disabled=false; } }},"Volver a Free");
+      else btn = el("button",{class:"btn primary",type:"button",onclick:async()=>{
+          btn.disabled=true; btn.textContent="Abriendo pago…";
+          try{ const r = await pagarPlan(pl.id); location.href = r.url; }
+          catch(e){ toast((e&&e.message)||"No se pudo iniciar el pago"); btn.disabled=false; btn.textContent="Elegir este plan"; } }},
+          PLANES.indexOf(pl) > PLANES.indexOf(u.plan) ? "Elegir este plan" : "Cambiar a este plan");
+      grid.append(el("div",{class:"plan-card"+(pl.id===u.plan.id?" on":"")},
+        el("strong",null,pl.nombre),
+        el("div",{class:"plan-price"}, pl.precio ? `S/ ${pl.precio}` : "Gratis", pl.precio ? el("small",null," /mes") : null),
+        el("span",null, pl.limite==null ? "Productos ilimitados" : `Hasta ${pl.limite} productos`), btn));
+    }
+    card.append(grid, el("p",{class:"note",style:"margin:0"},"Pago mensual con tarjeta a través de Stripe. Puedes volver a Free cuando quieras."));
+    ov.append(card);
+  }
+  // Antes de subir: recorta el lote a lo que permite el plan
+  function limitarLote(files, modo){
+    if(!S.canEdit) return true;
+    const u = usoPlan();
+    if(u.libres <= 0){ abrirPlanes(); toast("Llegaste al límite de tu plan"); return false; }
+    if(modo !== "group" && files.length > u.libres){ toast(`Tu plan permite ${u.libres} producto(s) más: se subirán las primeras ${u.libres} fotos`); files.splice(u.libres); }
+    return true;
+  }
+  function planSelect(t){
+    const s = el("select",{"aria-label":"Plan de "+(t.nombre||t.id)});
+    PLANES.forEach(pl=>s.append(el("option",{value:pl.id}, `${pl.nombre} (${pl.limite==null?"ilimitado":pl.limite})`)));
+    s.value = planVigente(t).id;
+    s.onchange = async ()=>{ try{ await cambiarPlanTienda(t.id, s.value); t.plan = s.value; toast(`Plan de ${t.nombre} cambiado a ${s.selectedOptions[0].textContent} por 30 días`); }catch(e){ toast("No se pudo cambiar el plan: "+((e&&e.message)||"")); s.value = planVigente(t).id; } };
+    return s;
+  }
+
+  // ----- Cobros con tarjeta de la vendedora (Stripe Connect) -----
+  function pintarCobros(){
+    if(!S.canEdit){ show("cobrosBox", false); return; }
+    const activos = !!(S.config && S.config.cobrosActivos), empezado = !!(S.config && S.config.stripeAccountId);
+    show("cobrosBox", true);
+    const pill=$("cobrosPill"); pill.className="pill "+(activos?"activos":"inactivos"); pill.textContent = activos ? "Pagos con tarjeta activos" : "Pagos con tarjeta";
+    $("cobrosText").textContent = activos ? "Tus clientes pueden pagar su pedido con tarjeta. El dinero llega a tu cuenta de Stripe."
+      : empezado ? "Falta completar tus datos en Stripe para recibir pagos." : "Activa los pagos con tarjeta para que tus clientes paguen en la web. También pueden seguir pidiendo por WhatsApp.";
+    const b=$("cobrosBtn"); b.hidden = activos; b.textContent = empezado ? "Completar datos en Stripe" : "Activar pagos con tarjeta";
+    b.onclick = async ()=>{ b.disabled=true; try{ const r = await conectarCobros(); location.href = r.url; }catch(e){ toast((e&&e.message)||"No se pudo abrir Stripe"); b.disabled=false; } };
+  }
+
+  // ----- Pedidos pagados (vendedora) -----
+  const PEDIDO_TXT = { pendiente:"Pago pendiente", pagado:"Pagado", entregado:"Entregado", cancelado:"Cancelado" };
+  const montoTxt = (n, moneda) => (moneda==="pen" ? "S/ " : "$") + (n/100).toLocaleString("es-PE",{minimumFractionDigits: n%100?2:0, maximumFractionDigits:2});
+  async function cargarPedidos(){
+    let lista = [];
+    try{ lista = await listarPedidos(); }catch(e){ return; }
+    show("pedidosBox", lista.length > 0);
+    const pagados = lista.filter(p=>p.estado==="pagado").length;
+    $("pedidosCount").textContent = pagados ? `${pagados} por entregar` : `${lista.length}`;
+    const tb=$("pedidosRows"); tb.textContent="";
+    for(const p of lista){
+      let items=[]; try{ items = JSON.parse(p.items||"[]"); }catch(e){}
+      const acts = el("div",{class:"acts"});
+      if(p.estado==="pagado") acts.append(el("button",{class:"btn",type:"button",onclick:async()=>{ try{ await cambiarEstadoPedido(p.id,"entregado"); toast("Pedido marcado como entregado"); cargarPedidos(); }catch(e){ toast("No se pudo actualizar"); } }},"Marcar entregado"));
+      tb.append(el("tr",null,
+        el("td",null, el("small",null, new Date(p.createdAt).toLocaleString("es-PE",{dateStyle:"short",timeStyle:"short"}))),
+        el("td",null, p.cliente||"—", p.email ? el("br") : null, p.email ? el("small",null,p.email) : null, p.nota ? el("br") : null, p.nota ? el("small",null,"Nota: "+p.nota) : null),
+        el("td",null, items.map(i=>`${i.nombre}${i.q>1?" × "+i.q:""}`).join(", ")),
+        el("td",null, montoTxt(p.total||0, p.moneda)),
+        el("td",null, el("span",{class:"pill "+p.estado}, PEDIDO_TXT[p.estado]||p.estado)),
+        el("td",null, acts)));
+    }
+  }
+
+  // ----- Regreso desde Stripe -----
+  function limpiarParams(...k){ const u=new URL(location.href); k.forEach(x=>u.searchParams.delete(x)); history.replaceState(null,"",u.pathname+u.search+u.hash); }
+  function retornoVendedora(){
+    if(params.get("plan")==="ok"){ toast("¡Pago recibido! Tu plan se activa en unos segundos"); setTimeout(async()=>{ try{ S.config = await miTiendaActual(); actualizarPlan(); }catch(e){} }, 4000); }
+    if(params.get("plan")==="cancelado") toast("No se realizó el pago. Tu plan no cambió.");
+    if(params.get("cobros")){ estadoCobros().then(r=>{ S.config = { ...S.config, cobrosActivos: r.cobrosActivos, stripeAccountId: S.config.stripeAccountId || "pendiente" }; pintarCobros(); toast(r.cobrosActivos ? "¡Listo! Ya puedes recibir pagos con tarjeta" : "Stripe todavía está revisando tus datos"); }).catch(()=>{}); }
+    limpiarParams("plan","cobros");
+  }
+  function retornoCliente(){
+    const pago = params.get("pago");
+    if(pago==="ok"){
+      cart = {}; saveCart();
+      const num = (params.get("pedido")||"").slice(0,8).toUpperCase();
+      const aviso = el("section",{class:"paid",role:"status"},
+        el("h2",null,"¡Pago recibido!"),
+        el("p",{style:"margin:0"}, `Tu pedido ${num ? "N.° "+num+" " : ""}está pagado. La tienda se pondrá en contacto contigo para coordinar la entrega.`));
+      $("vitrina").prepend(aviso);
+      setTimeout(()=>{ const wa = waDigits(); if(wa) aviso.append(el("a",{class:"btn tag",href:`https://wa.me/${wa}?text=${encodeURIComponent(`Hola, acabo de pagar mi pedido ${num} en la web.`)}`,target:"_blank",rel:"noopener",style:"justify-self:start;text-decoration:none"},"Avisar por WhatsApp")); }, 1500);
+    }
+    if(pago==="cancelado") toast("No se realizó el pago. Tu pedido sigue guardado.");
+    limpiarParams("pago","pedido");
   }
 
   // ----- Arranque -----
@@ -573,6 +715,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publ
       usarModoPublico(slugPublico, ses.logged);
       S.db = db; S.assets = null; S.ai = null; S.canEdit = false;
       show("upload", false); show("settingsBtn", false);
+      retornoCliente();
       iniciarVitrina();
       return;
     }
@@ -604,6 +747,11 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publ
     show("myStoreBtn", !!ses.superadmin);
     $("myStoreBtn").onclick = ()=>{ location.hash=""; location.reload(); };
     bannerVendedora(tienda);
+    S.config = tienda; actualizarPlan(); pintarCobros(); cargarPedidos();
+    if(tienda.stripeAccountId && !tienda.cobrosActivos && !params.get("cobros")){
+      estadoCobros().then(r=>{ if(r.cobrosActivos){ S.config = { ...S.config, cobrosActivos:true }; pintarCobros(); } }).catch(()=>{});
+    }
+    retornoVendedora();
     if(location.hash==="#panel" && ses.superadmin){ abrirPanel(); return; }
     iniciarVitrina();
   })();

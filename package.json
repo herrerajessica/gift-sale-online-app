@@ -14,7 +14,8 @@
     "trace:check": "node scripts/check-traceability.js"
   },
   "dependencies": {
-    "aws-amplify": "^6.6.0"
+    "aws-amplify": "^6.6.0",
+    "stripe": "^17.7.0"
   },
   "devDependencies": {
     "@aws-amplify/backend": "^1.4.0",

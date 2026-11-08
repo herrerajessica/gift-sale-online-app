@@ -1,15 +1,19 @@
 import { type ClientSchema, a, defineData } from '@aws-amplify/backend';
 import { clasificar } from '../functions/clasificar/resource';
 import { catalogo } from '../functions/catalogo/resource';
+import { pagos } from '../functions/pagos/resource';
 
 /**
  * Aislamiento por vendedora:
- * - Tienda y Producto usan allow.owner(): cada vendedora solo lee y escribe lo suyo.
+ * - Tienda, Producto y Pedido usan allow.owner(): cada vendedora solo lee lo suyo.
  * - SUPERADMIN (la dueña de la plataforma) ve y administra todo.
- * - "estado" de la tienda solo lo cambia SUPERADMIN (la vendedora solo lo lee).
+ * - Estado de aprobación, plan y datos de Stripe solo los cambia SUPERADMIN
+ *   o el webhook de Stripe; la vendedora solo los lee.
  * - Los clientes no leen las tablas: usan la consulta "catalogo", que solo
- *   devuelve vitrinas aprobadas.
+ *   devuelve vitrinas aprobadas y respeta el límite del plan.
  */
+const soloLecturaDueña = (allow: any) => [allow.owner().to(['read']), allow.group('SUPERADMIN')];
+
 const schema = a.schema({
   Tienda: a
     .model({
@@ -18,9 +22,15 @@ const schema = a.schema({
       email: a.string(),
       whatsapp: a.string(),
       tipoCambio: a.float(),
-      estado: a
-        .enum(['pendiente', 'aprobada', 'suspendida'])
-        .authorization((allow) => [allow.owner().to(['read']), allow.group('SUPERADMIN')]),
+      estado: a.enum(['pendiente', 'aprobada', 'suspendida']).authorization(soloLecturaDueña),
+      // Plan: free (10), basico (30), pro (150), plus (ilimitado)
+      plan: a.enum(['free', 'basico', 'pro', 'plus']).authorization(soloLecturaDueña),
+      planVence: a.float().authorization(soloLecturaDueña),
+      planCancelado: a.boolean().authorization(soloLecturaDueña),
+      stripeCustomerId: a.string().authorization(soloLecturaDueña),
+      stripeSubscriptionId: a.string().authorization(soloLecturaDueña),
+      stripeAccountId: a.string().authorization(soloLecturaDueña),
+      cobrosActivos: a.boolean().authorization(soloLecturaDueña),
     })
     .authorization((allow) => [allow.owner(), allow.group('SUPERADMIN')]),
 
@@ -40,6 +50,24 @@ const schema = a.schema({
     .secondaryIndexes((index) => [index('tiendaId').name('byTienda')])
     .authorization((allow) => [allow.owner(), allow.group('SUPERADMIN')]),
 
+  // Pedidos pagados con tarjeta. Los crea la función "pagos" y los confirma el webhook.
+  Pedido: a
+    .model({
+      tiendaId: a.string().required(),
+      items: a.string(),          // JSON: [{id, nombre, q, precioUsd, monto}]
+      total: a.integer(),         // en la unidad mínima de la moneda (céntimos)
+      moneda: a.string(),
+      comision: a.integer(),
+      cliente: a.string(),
+      email: a.string(),
+      telefono: a.string(),
+      nota: a.string(),
+      estado: a.enum(['pendiente', 'pagado', 'entregado', 'cancelado']),
+      stripeSessionId: a.string(),
+    })
+    .secondaryIndexes((index) => [index('tiendaId').name('pedidosByTienda')])
+    .authorization((allow) => [allow.owner().to(['read', 'update']), allow.group('SUPERADMIN')]),
+
   catalogo: a
     .query()
     .arguments({ slug: a.string().required() })
@@ -53,6 +81,48 @@ const schema = a.schema({
     .returns(a.string())
     .handler(a.handler.function(clasificar))
     .authorization((allow) => [allow.authenticated()]),
+
+  // --- Pagos (Stripe) ---
+  pagarPlan: a
+    .mutation()
+    .arguments({ tiendaId: a.string().required(), plan: a.string().required(), origen: a.string().required() })
+    .returns(a.string())
+    .handler(a.handler.function(pagos))
+    .authorization((allow) => [allow.authenticated()]),
+
+  cancelarPlan: a
+    .mutation()
+    .arguments({ tiendaId: a.string().required() })
+    .returns(a.string())
+    .handler(a.handler.function(pagos))
+    .authorization((allow) => [allow.authenticated()]),
+
+  conectarCobros: a
+    .mutation()
+    .arguments({ tiendaId: a.string().required(), origen: a.string().required() })
+    .returns(a.string())
+    .handler(a.handler.function(pagos))
+    .authorization((allow) => [allow.authenticated()]),
+
+  estadoCobros: a
+    .mutation()
+    .arguments({ tiendaId: a.string().required() })
+    .returns(a.string())
+    .handler(a.handler.function(pagos))
+    .authorization((allow) => [allow.authenticated()]),
+
+  pagarPedido: a
+    .mutation()
+    .arguments({
+      tiendaId: a.string().required(),
+      items: a.string().required(),
+      nombre: a.string(),
+      nota: a.string(),
+      origen: a.string().required(),
+    })
+    .returns(a.string())
+    .handler(a.handler.function(pagos))
+    .authorization((allow) => [allow.guest(), allow.authenticated()]),
 });
 
 export type Schema = ClientSchema<typeof schema>;

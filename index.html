@@ -187,7 +187,7 @@ img{max-width:100%}
 .hero h2{margin:0;font-family:var(--display);font-weight:800;font-size:clamp(30px,6vw,48px);line-height:1.05;text-wrap:balance}
 .hero p{margin:0;color:var(--muted);font-size:17px}
 .banner{margin-top:16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
-.pill{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:4px 8px;border-radius:5px;border:1.5px solid currentColor}
+.pill{display:inline-block;white-space:nowrap;font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:4px 8px;border-radius:5px;border:1.5px solid currentColor}
 .pill.pendiente{color:var(--hold)}.pill.aprobada{color:var(--ok)}.pill.suspendida{color:var(--sold)}
 .panel{margin-block:20px 48px;display:grid;gap:12px}
 .panel-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
@@ -198,6 +198,25 @@ th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vert
 th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
 td .acts{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
 td small{color:var(--muted);font-family:var(--mono)}
+.plan{margin-top:12px;display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.plan.near{border-color:var(--hold)}.plan.full{border-color:var(--sold)}
+.plan-info{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;align-items:baseline;flex:1;min-width:220px}
+.plan-info .meter,.plan-info .note{grid-column:1/-1}
+.plan-n{font-family:var(--mono);font-size:13px;color:var(--muted);justify-self:end;font-variant-numeric:tabular-nums}
+.plan.near .meter i{background:var(--hold)}.plan.full .meter i{background:var(--sold)}
+.plans{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+.plan-card{border:1.5px solid var(--line);border-radius:12px;padding:14px;display:grid;gap:6px;align-content:start}
+.plan-card.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 6%,var(--surface))}
+.plan-card strong{font-family:var(--display);font-size:18px}
+.plan-price{font-family:var(--mono);font-weight:700;font-size:22px;font-variant-numeric:tabular-nums}
+.plan-price small{font-size:12px;font-weight:500;color:var(--muted)}
+.plan-card span{color:var(--muted);font-size:14px}
+.pill.activos,.pill.pagado{color:var(--ok)}.pill.inactivos,.pill.pendiente{color:var(--hold)}.pill.entregado{color:var(--accent)}.pill.cancelado{color:var(--muted)}
+.pedidos{margin-top:12px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.pedidos summary{cursor:pointer}
+.pedidos .tablewrap{margin-top:10px;border:0}
+.paid{margin-top:16px;border:1.5px solid var(--ok);background:var(--surface);border-radius:12px;padding:14px;display:grid;gap:8px}
+.paid h2{margin:0;font-family:var(--display);font-weight:800;font-size:22px}
 </style>
 </head>
 <body>
@@ -250,10 +269,23 @@ td small{color:var(--muted);font-family:var(--mono)}
     <a class="btn" id="viewStore" target="_blank" rel="noopener" style="text-decoration:none">Ver como cliente</a>
   </section>
 
+  <section class="plan" id="planBox" hidden></section>
+
+  <section class="banner" id="cobrosBox" hidden>
+    <span class="pill" id="cobrosPill"></span>
+    <span id="cobrosText" style="flex:1;min-width:0"></span>
+    <button class="btn primary" type="button" id="cobrosBtn">Activar pagos con tarjeta</button>
+  </section>
+
+  <details class="pedidos" id="pedidosBox" hidden>
+    <summary><strong>Pedidos pagados con tarjeta</strong> <span class="cn" id="pedidosCount"></span></summary>
+    <div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Productos</th><th>Total</th><th>Estado</th><th></th></tr></thead><tbody id="pedidosRows"></tbody></table></div>
+  </details>
+
   <section class="panel" id="panel" hidden>
     <div class="panel-head"><h2>Panel de la dueña</h2><span class="note" id="panelCount" style="margin:0"></span></div>
     <div class="cats" id="panelFilter"></div>
-    <div class="tablewrap"><table><thead><tr><th>Vitrina</th><th>Correo</th><th>WhatsApp</th><th>Estado</th><th>Creada</th><th></th></tr></thead><tbody id="panelRows"></tbody></table></div>
+    <div class="tablewrap"><table><thead><tr><th>Vitrina</th><th>Correo</th><th>WhatsApp</th><th>Estado</th><th>Plan</th><th>Creada</th><th></th></tr></thead><tbody id="panelRows"></tbody></table></div>
   </section>
 
   <section class="settings" id="settings" hidden>
@@ -327,6 +359,7 @@ td small{color:var(--muted);font-family:var(--mono)}
 
 <div class="overlay" id="overlay" hidden></div>
 <button class="cartbar" id="cartbar" type="button" hidden><span class="n" id="cartN">0</span><span>Mi pedido</span><span class="t" id="cartT"></span></button>
+<div class="overlay" id="planOverlay" hidden></div>
 <div class="toast" id="toast" hidden></div>
 <script type="module" src="/src/main.js"></script>
 </body>

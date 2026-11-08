@@ -213,3 +213,59 @@ export const ai = {
     return typeof d === 'string' ? JSON.parse(d) : d;
   },
 };
+
+// ---------- Planes y pagos (Stripe) ----------
+// Debe coincidir con amplify/functions/shared/planes.ts
+export const PLANES = [
+  { id: 'free', nombre: 'Free', limite: 10, precio: 0 },
+  { id: 'basico', nombre: 'Básico', limite: 30, precio: 19 },
+  { id: 'pro', nombre: 'Pro', limite: 150, precio: 49 },
+  { id: 'plus', nombre: 'Plus', limite: null, precio: 99 },
+];
+const GRACIA_MS = 3 * 24 * 60 * 60 * 1000;
+export function planVigente(t) {
+  const p = PLANES.find((x) => x.id === (t && t.plan)) || PLANES[0];
+  if (p.id === 'free') return p;
+  if (!t.planVence || t.planVence + GRACIA_MS < Date.now()) return PLANES[0];
+  return p;
+}
+
+async function llamar(nombre, args, authMode) {
+  const r = await client.mutations[nombre](args, { authMode });
+  const d = check(r);
+  return typeof d === 'string' ? JSON.parse(d) : d;
+}
+const origen = () => location.origin;
+
+export const pagarPlan = (plan) => llamar('pagarPlan', { tiendaId: TIENDA, plan, origen: origen() }, 'userPool');
+export const cancelarPlan = () => llamar('cancelarPlan', { tiendaId: TIENDA }, 'userPool');
+export const conectarCobros = () => llamar('conectarCobros', { tiendaId: TIENDA, origen: origen() }, 'userPool');
+export const estadoCobros = () => llamar('estadoCobros', { tiendaId: TIENDA }, 'userPool');
+export const pagarPedido = (items, nombre, nota) =>
+  llamar('pagarPedido', { tiendaId: TIENDA, items: JSON.stringify(items), nombre, nota, origen: origen() }, AUTH);
+
+export async function miTiendaActual() {
+  return check(await client.models.Tienda.get({ id: TIENDA }, { authMode: 'userPool' }));
+}
+
+export async function listarPedidos() {
+  const todos = [];
+  let nextToken = null;
+  do {
+    const r = await client.models.Pedido.list({ filter: { tiendaId: { eq: TIENDA } }, authMode: 'userPool', limit: 500, nextToken });
+    todos.push(...(check(r) || []));
+    nextToken = r.nextToken;
+  } while (nextToken);
+  return todos.filter((p) => p.estado !== 'pendiente' || Date.now() - Date.parse(p.createdAt) < 24 * 3600e3)
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+export async function cambiarEstadoPedido(id, estado) {
+  check(await client.models.Pedido.update({ id, estado }, { authMode: 'userPool' }));
+}
+
+// Solo SUPERADMIN: asignar un plan a mano (por ejemplo, cortesía o pago fuera de Stripe) por 30 días.
+export async function cambiarPlanTienda(id, plan) {
+  const planVence = plan === 'free' ? null : Date.now() + 30 * 24 * 3600e3;
+  check(await client.models.Tienda.update({ id, plan, planVence }, { authMode: 'userPool' }));
+  return planVence;
+}
