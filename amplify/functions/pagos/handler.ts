@@ -99,15 +99,14 @@ async function estadoCobros(a: Record<string, any>, ident: Identidad) {
   return { cobrosActivos: activos };
 }
 
-// ---------- Pago de un pedido por el cliente ----------
-async function pagarPedido(a: Record<string, any>) {
-  const origen = origenSeguro(a.origen);
-  const t = await leerTienda(String(a.tiendaId || '').toLowerCase());
-  if (!t || t.estado !== 'aprobada') fallo('Esta tienda no está disponible');
-  if (!t!.cobrosActivos || !t!.stripeAccountId) fallo('Esta tienda todavía no acepta pagos con tarjeta');
+// ---------- Pedidos del cliente ----------
+type Linea = { id: string; nombre: string; q: number; precioUsd: number; monto: number };
+
+/** Valida el pedido y calcula los montos con los precios de la base de datos. */
+async function armarPedido(t: Record<string, any>, itemsJson: unknown, soloSoles: boolean) {
 
   let pedidos: { id: string; q: number }[] = [];
-  try { pedidos = JSON.parse(String(a.items || '[]')); } catch { fallo('Pedido no válido'); }
+  try { pedidos = JSON.parse(String(itemsJson || '[]')); } catch { fallo('Pedido no válido'); }
   pedidos = pedidos
     .map((x) => ({ id: String(x.id), q: Math.min(99, Math.max(1, Math.floor(Number(x.q) || 1))) }))
     .filter((x, i, arr) => x.id && arr.findIndex((y) => y.id === x.id) === i)
@@ -118,12 +117,13 @@ async function pagarPedido(a: Record<string, any>) {
   const r = await ddb.send(new BatchGetCommand({ RequestItems: { [PRODUCTO()]: { Keys: pedidos.map((p) => ({ id: p.id })) } } }));
   const productos = new Map((r.Responses?.[PRODUCTO()] || []).map((p) => [p.id, p]));
 
-  const rate = typeof t!.tipoCambio === 'number' && t!.tipoCambio > 0 ? t!.tipoCambio : null;
+  const rate = typeof t.tipoCambio === 'number' && t.tipoCambio > 0 ? t.tipoCambio : null;
+  if (soloSoles && !rate) fallo('La tienda no tiene tipo de cambio configurado para cobrar en soles');
   const moneda = rate ? 'pen' : 'usd';
-  const lineas: { id: string; nombre: string; q: number; precioUsd: number; monto: number }[] = [];
+  const lineas: Linea[] = [];
   for (const p of pedidos) {
     const prod = productos.get(p.id);
-    if (!prod || prod.tiendaId !== t!.id) fallo('Un producto del pedido ya no existe');
+    if (!prod || prod.tiendaId !== t.id) fallo('Un producto del pedido ya no existe');
     if (prod!.estado === 'vendido' || prod!.estado === 'oculto') fallo(`"${prod!.nombre}" ya no está disponible`);
     if (typeof prod!.precio !== 'number') fallo(`"${prod!.nombre}" no tiene precio; consúltalo por WhatsApp`);
     // Monto en la unidad mínima: soles redondeados como en la tienda, o centavos de dólar.
@@ -131,12 +131,29 @@ async function pagarPedido(a: Record<string, any>) {
     lineas.push({ id: p.id, nombre: prod!.nombre, q: p.q, precioUsd: prod!.precio, monto });
   }
   const total = lineas.reduce((s, l) => s + l.monto, 0);
+  return { lineas, total, moneda };
+}
+
+async function tiendaAbierta(id: unknown) {
+  const t = await leerTienda(String(id || '').toLowerCase());
+  if (!t || t.estado !== 'aprobada') fallo('Esta tienda no está disponible');
+  return t!;
+}
+
+const texto = (v: unknown, max: number) => String(v || '').trim().slice(0, max);
+
+/** Pago con tarjeta: crea la sesión de Stripe y el pedido pendiente. */
+async function pagarPedido(a: Record<string, any>) {
+  const origen = origenSeguro(a.origen);
+  const t = await tiendaAbierta(a.tiendaId);
+  if (!t.cobrosActivos || !t.stripeAccountId) fallo('Esta tienda todavía no acepta pagos con tarjeta');
+  const { lineas, total, moneda } = await armarPedido(t, a.items, false);
   const comision = Math.round(total * Number(process.env.COMISION_PORCENTAJE || 0) / 100);
 
   const pedidoId = randomUUID();
   const ahora = new Date().toISOString();
-  const nombre = String(a.nombre || '').trim().slice(0, 60);
-  const nota = String(a.nota || '').trim().slice(0, 300);
+  const nombre = texto(a.nombre, 60);
+  const nota = texto(a.nota, 300);
 
   const s = await stripe.checkout.sessions.create({
     mode: 'payment',
@@ -159,11 +176,32 @@ async function pagarPedido(a: Record<string, any>) {
     Item: {
       id: pedidoId, __typename: 'Pedido', tiendaId: t!.id, owner: t!.owner,
       items: JSON.stringify(lineas), total, moneda, comision,
-      cliente: nombre, nota, estado: 'pendiente', stripeSessionId: s.id,
+      cliente: nombre, nota, metodo: 'tarjeta', estado: 'pendiente', stripeSessionId: s.id,
       createdAt: ahora, updatedAt: ahora,
     },
   }));
   return { url: s.url, pedidoId };
+}
+
+/** Pago con Yape: el cliente ya pagó con el QR; la vendedora confirma el pago. */
+async function pedidoYape(a: Record<string, any>) {
+  const t = await tiendaAbierta(a.tiendaId);
+  if (!t.yapeNumero && !t.yapeQr) fallo('Esta tienda no acepta pagos con Yape');
+  const nombre = texto(a.nombre, 60);
+  if (!nombre) fallo('Escribe tu nombre para que la tienda identifique tu pago');
+  const { lineas, total, moneda } = await armarPedido(t, a.items, true);
+  const pedidoId = randomUUID();
+  const ahora = new Date().toISOString();
+  await ddb.send(new PutCommand({
+    TableName: PEDIDO(),
+    Item: {
+      id: pedidoId, __typename: 'Pedido', tiendaId: t.id, owner: t.owner,
+      items: JSON.stringify(lineas), total, moneda, comision: 0,
+      cliente: nombre, nota: texto(a.nota, 300), operacion: texto(a.operacion, 40),
+      metodo: 'yape', estado: 'por_confirmar', createdAt: ahora, updatedAt: ahora,
+    },
+  }));
+  return { pedidoId, total, moneda };
 }
 
 export const handler = async (event: Evento) => {
@@ -176,6 +214,7 @@ export const handler = async (event: Evento) => {
     case 'conectarCobros': res = await conectarCobros(a, ident); break;
     case 'estadoCobros': res = await estadoCobros(a, ident); break;
     case 'pagarPedido': res = await pagarPedido(a); break;
+    case 'pedidoYape': res = await pedidoYape(a); break;
     default: fallo('Operación desconocida');
   }
   return JSON.stringify(res);

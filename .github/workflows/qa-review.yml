@@ -30,6 +30,7 @@ jobs:
           TEST_STORE: ${{ vars.TEST_STORE }}
           TEST_PENDING_STORE: ${{ vars.TEST_PENDING_STORE }}
           TEST_STORE_COBROS: ${{ vars.TEST_STORE_COBROS }}
+          TEST_STORE_YAPE: ${{ vars.TEST_STORE_YAPE }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:

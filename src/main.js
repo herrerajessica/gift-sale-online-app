@@ -2,7 +2,7 @@ import {
   FOTOS_BASE, db, assets, ai, sesion, usarModoPublico, usarModoVendedora, estadoCatalogo,
   miTienda, crearTienda, listarTiendas, cambiarEstadoTienda, limpiarSlug, SLUG_RE,
   signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn,
-  PLANES, planVigente, pagarPlan, cancelarPlan, conectarCobros, estadoCobros, pagarPedido,
+  PLANES, planVigente, pagarPlan, cancelarPlan, conectarCobros, estadoCobros, pagarPedido, pedidoYape,
   miTiendaActual, listarPedidos, cambiarEstadoPedido, cambiarPlanTienda,
 } from './amplify-adapter.js';
 
@@ -388,6 +388,14 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publ
       }},"Pagar con tarjeta");
       send.append(payBtn, el("span",{class:"note",style:"margin:0;text-align:center"}, sinPrecio ? "Algunos productos no tienen precio: consúltalos por WhatsApp o quítalos para pagar con tarjeta." : "Pago seguro con Stripe. El total final se muestra en la página de pago."));
     }
+    if(S.config && (S.config.yapeNumero || S.config.yapeQr) && !S.canEdit){
+      const pagables = lines.filter(l=>l.p.estado!=="vendido");
+      const sinPrecio = pagables.some(l=>l.p.precio==null);
+      const sinCambio = !(S.config.tipoCambio > 0);
+      const yBtn = el("button",{class:"btn yape",type:"button",disabled:(sinPrecio||sinCambio)?"":false,onclick:()=>mostrarYape(box, pagables)},"Pagar con Yape");
+      send.append(yBtn);
+      if(sinPrecio) send.append(el("span",{class:"note",style:"margin:0;text-align:center"},"Algunos productos no tienen precio: consúltalos por WhatsApp o quítalos para pagar con Yape."));
+    }
     if(wa){
       send.append(link, copyBtn, el("span",{class:"note",style:"margin:0;text-align:center"},"Se abre WhatsApp con tu pedido escrito; solo tocas enviar. Si no se abre, copia el mensaje y escríbelo al ", el("span",{class:"copy"},S.config.whatsapp)));
     } else {
@@ -399,8 +407,58 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publ
   }
   function closeCart(){ cartOpen=false; $("overlay").hidden=true; $("overlay").textContent=""; }
 
+  // ----- Pago con Yape (QR) -----
+  // El total en soles se muestra aquí, pero el servidor lo vuelve a calcular con los precios guardados.
+  const solesDe = lines => lines.reduce((t,l)=> t + Math.round(l.p.precio * l.q * S.config.tipoCambio), 0);
+  function mostrarYape(box, pagables){
+    const total = solesDe(pagables);
+    box.textContent = "";
+    const volver = el("button",{class:"btn",type:"button",onclick:drawCart},"Volver");
+    const nom = el("input",{id:"yapeNombreCliente",maxlength:"60",autocomplete:"name",placeholder:"Para que la tienda identifique tu pago",value:buyer.nombre});
+    const op = el("input",{id:"yapeOperacion",maxlength:"40",inputmode:"numeric",placeholder:"Aparece en tu constancia de Yape"});
+    const err = el("p",{class:"err",role:"alert",hidden:""});
+    const enviar = el("button",{class:"btn yape",type:"button"},"Ya pagué, enviar pedido");
+    const panel = el("div",{class:"yape-pay"},
+      S.config.yapeQr ? el("img",{src:src(S.config.yapeQr),alt:"Código QR de Yape de la tienda"}) : null,
+      el("span",null,"Yapea exactamente"),
+      el("span",{class:"monto"},"S/ " + total.toLocaleString("es-PE")),
+      S.config.yapeNumero ? el("span",null,"al número ", el("span",{class:"num"}, S.config.yapeNumero)) : null,
+      S.config.yapeNombre ? el("span",{class:"note",style:"margin:0"},"a nombre de " + S.config.yapeNombre) : null);
+    box.append(
+      el("div",{class:"cart-head"}, el("h2",null,"Pagar con Yape"), volver),
+      el("p",{class:"note",style:"margin:0"},"1. Abre Yape y escanea el QR o yapea al número. 2. Vuelve aquí y envía tu pedido. La tienda confirmará tu pago."),
+      panel,
+      el("label",{class:"f"},"Tu nombre", nom),
+      el("label",{class:"f"},"Código de operación (opcional)", op),
+      err, el("div",{class:"send"}, enviar));
+    enviar.onclick = async ()=>{
+      err.hidden = true;
+      const nombre = nom.value.trim();
+      if(!nombre){ err.textContent="Escribe tu nombre para que la tienda reconozca tu pago"; err.hidden=false; nom.focus(); return; }
+      buyer.nombre = nombre; saveCart();
+      enviar.disabled = true; enviar.textContent = "Enviando…";
+      try{
+        const r = await pedidoYape(pagables.map(l=>({id:l.id,q:l.q})), nombre, buyer.nota.trim(), op.value.trim());
+        const num = String(r.pedidoId||"").slice(0,8).toUpperCase();
+        cart = {}; saveCart(); render();
+        const wa = waDigits();
+        const msg = `Hola, acabo de yapear S/ ${(r.total/100).toLocaleString("es-PE")} por mi pedido N.° ${num}${op.value.trim()?` (operación ${op.value.trim()})`:""}. Mi nombre: ${nombre}.`;
+        box.textContent = "";
+        box.append(
+          el("div",{class:"cart-head"}, el("h2",null,"¡Pedido enviado!"), el("button",{class:"btn",type:"button",onclick:closeCart},"Cerrar")),
+          el("p",{style:"margin:0"}, `Tu pedido N.° ${num} quedó registrado. La tienda revisará tu Yape y te confirmará.`),
+          wa ? el("a",{class:"btn tag",href:`https://wa.me/${wa}?text=${encodeURIComponent(msg)}`,target:"_blank",rel:"noopener",style:"text-decoration:none;justify-content:center"},"Avisar por WhatsApp") : null);
+      }catch(e){
+        err.textContent = (e && e.message) || "No se pudo enviar el pedido. Intenta de nuevo."; err.hidden = false;
+        enviar.disabled = false; enviar.textContent = "Ya pagué, enviar pedido";
+      }
+    };
+    nom.focus();
+  }
+
   // ---------- Tienda ----------
   function waDigits(){ return String(S.config.whatsapp||"").replace(/\D/g,""); }
+  let yapeQrNuevo;  // QR de Yape en edición: undefined = sin cambios; "" = quitar; ruta = nuevo QR
   function renderConfig(){
     const name = S.config.nombre || "Vitrina USA";
     $("shopName").textContent = name; document.title = name;
@@ -409,10 +467,37 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publ
     if(document.activeElement!==$("setName")) $("setName").value = S.config.nombre||"";
     if(document.activeElement!==$("setWa")) $("setWa").value = S.config.whatsapp||"";
     if(document.activeElement!==$("setRate")) $("setRate").value = S.config.tipoCambio!=null ? String(S.config.tipoCambio) : "";
+    if(document.activeElement!==$("setYapeNum")) $("setYapeNum").value = S.config.yapeNumero||"";
+    if(document.activeElement!==$("setYapeName")) $("setYapeName").value = S.config.yapeNombre||"";
+    if(yapeQrNuevo===undefined) pintarQrConfig(S.config.yapeQr||"");
     render(); if(openId) drawSheet();
   }
   $("settingsBtn").onclick = ()=>{ $("settings").hidden = !$("settings").hidden; };
-  $("saveSettings").onclick = async ()=>{ try{ await S.db.doc("config/tienda").set({ nombre:$("setName").value.trim(), whatsapp:$("setWa").value.trim(), tipoCambio: parsePrice($("setRate").value) }); $("settings").hidden=true; toast("Datos guardados"); }catch(e){ toast("No se pudo guardar. Intenta de nuevo."); } };
+  // QR de Yape: se sube al elegirlo y se guarda junto con los demás datos.
+  function pintarQrConfig(path){
+    const img=$("setYapeImg");
+    img.hidden = !path; if(path) img.src = src(path); else img.removeAttribute("src");
+    $("setYapeDel").hidden = !path; $("setYapeUp").textContent = path ? "Cambiar QR" : "Subir QR";
+  }
+  $("setYapeUp").onclick = ()=>$("setYapeFile").click();
+  $("setYapeDel").onclick = ()=>{ yapeQrNuevo = ""; pintarQrConfig(""); };
+  $("setYapeFile").onchange = async e=>{
+    const f = e.target.files && e.target.files[0]; e.target.value = ""; if(!f) return;
+    $("setYapeUp").disabled = true; $("setYapeUp").textContent = "Subiendo…";
+    try{ const img = await decode(f); const blob = await toBlob(img, 900, .9); const r = await S.assets.upload(blob, {type:"image/jpeg"}); yapeQrNuevo = r.id; pintarQrConfig(r.id); toast("QR listo. Toca Guardar."); }
+    catch(err){ toast("No se pudo subir el QR: " + errText(err)); pintarQrConfig(S.config.yapeQr||""); }
+    finally{ $("setYapeUp").disabled = false; }
+  };
+  $("saveSettings").onclick = async ()=>{
+    try{
+      await S.db.doc("config/tienda").set({
+        nombre:$("setName").value.trim(), whatsapp:$("setWa").value.trim(), tipoCambio: parsePrice($("setRate").value),
+        yapeNumero:$("setYapeNum").value.trim(), yapeNombre:$("setYapeName").value.trim(),
+        yapeQr: yapeQrNuevo!==undefined ? yapeQrNuevo : (S.config.yapeQr||""),
+      });
+      yapeQrNuevo = undefined; $("settings").hidden=true; toast("Datos guardados");
+    }catch(e){ toast("No se pudo guardar. Intenta de nuevo."); }
+  };
 
   // ---------- Controles ----------
   $("q").addEventListener("input", e=>{ S.q=e.target.value; render(); });
@@ -657,24 +742,30 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publ
   }
 
   // ----- Pedidos pagados (vendedora) -----
-  const PEDIDO_TXT = { pendiente:"Pago pendiente", pagado:"Pagado", entregado:"Entregado", cancelado:"Cancelado" };
+  const PEDIDO_TXT = { pendiente:"Pago pendiente", por_confirmar:"Por confirmar", pagado:"Pagado", entregado:"Entregado", cancelado:"Cancelado" };
   const montoTxt = (n, moneda) => (moneda==="pen" ? "S/ " : "$") + (n/100).toLocaleString("es-PE",{minimumFractionDigits: n%100?2:0, maximumFractionDigits:2});
   async function cargarPedidos(){
     let lista = [];
     try{ lista = await listarPedidos(); }catch(e){ return; }
     show("pedidosBox", lista.length > 0);
-    const pagados = lista.filter(p=>p.estado==="pagado").length;
-    $("pedidosCount").textContent = pagados ? `${pagados} por entregar` : `${lista.length}`;
+    const pagados = lista.filter(p=>p.estado==="pagado").length, porConfirmar = lista.filter(p=>p.estado==="por_confirmar").length;
+    $("pedidosCount").textContent = [porConfirmar ? `${porConfirmar} por confirmar` : "", pagados ? `${pagados} por entregar` : ""].filter(Boolean).join(" · ") || `${lista.length}`;
+    if(porConfirmar) $("pedidosBox").open = true;
     const tb=$("pedidosRows"); tb.textContent="";
     for(const p of lista){
       let items=[]; try{ items = JSON.parse(p.items||"[]"); }catch(e){}
       const acts = el("div",{class:"acts"});
+      const cambiar = (estado, msg)=>async()=>{ try{ await cambiarEstadoPedido(p.id, estado); toast(msg); cargarPedidos(); }catch(e){ toast("No se pudo actualizar"); } };
+      if(p.estado==="por_confirmar") acts.append(
+        el("button",{class:"btn primary",type:"button",onclick:cambiar("pagado","Pago confirmado")},"Confirmar pago"),
+        el("button",{class:"btn danger",type:"button",onclick:cambiar("cancelado","Pedido rechazado")},"No llegó"));
       if(p.estado==="pagado") acts.append(el("button",{class:"btn",type:"button",onclick:async()=>{ try{ await cambiarEstadoPedido(p.id,"entregado"); toast("Pedido marcado como entregado"); cargarPedidos(); }catch(e){ toast("No se pudo actualizar"); } }},"Marcar entregado"));
       tb.append(el("tr",null,
         el("td",null, el("small",null, new Date(p.createdAt).toLocaleString("es-PE",{dateStyle:"short",timeStyle:"short"}))),
         el("td",null, p.cliente||"—", p.email ? el("br") : null, p.email ? el("small",null,p.email) : null, p.nota ? el("br") : null, p.nota ? el("small",null,"Nota: "+p.nota) : null),
         el("td",null, items.map(i=>`${i.nombre}${i.q>1?" × "+i.q:""}`).join(", ")),
         el("td",null, montoTxt(p.total||0, p.moneda)),
+        el("td",null, p.metodo==="yape" ? "Yape" : "Tarjeta", p.operacion ? el("br") : null, p.operacion ? el("small",null,"Op. "+p.operacion) : null),
         el("td",null, el("span",{class:"pill "+p.estado}, PEDIDO_TXT[p.estado]||p.estado)),
         el("td",null, acts)));
     }

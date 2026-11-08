@@ -12,7 +12,7 @@
 /* Layout: mostrador de tienda — barra fija con la marca, zona de carga (solo dueños), filtros, y una vitrina en cuadrícula de etiquetas de precio */
 :root{
   --paper:#f3f5f8; --surface:#ffffff; --ink:#14213d; --muted:#5a6478; --line:#d9dee7;
-  --tag:#ffcc29; --tag-ink:#1b1400; --accent:#1f4fd1; --sold:#b4232a; --hold:#b26a00; --ok:#1d7a46;
+  --tag:#ffcc29; --tag-ink:#1b1400; --accent:#1f4fd1; --sold:#b4232a; --hold:#b26a00; --ok:#1d7a46; --yape:#742284;
   --shadow:0 1px 2px rgb(20 33 61 / .06),0 6px 18px rgb(20 33 61 / .06);
   --display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;
   --body:"Figtree",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
@@ -20,11 +20,11 @@
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
   --paper:#0e1422; --surface:#161e30; --ink:#e8ecf5; --muted:#9aa4ba; --line:#28324a;
-  --tag:#ffd34d; --tag-ink:#1b1400; --accent:#7ea2ff; --sold:#ff7b82; --hold:#ffb84d; --ok:#5fd393;
+  --tag:#ffd34d; --tag-ink:#1b1400; --accent:#7ea2ff; --sold:#ff7b82; --hold:#ffb84d; --ok:#5fd393; --yape:#c48ad6;
   --shadow:0 1px 2px rgb(0 0 0 / .3),0 8px 22px rgb(0 0 0 / .25); color-scheme:dark}}
 :root[data-theme="dark"]{
   --paper:#0e1422; --surface:#161e30; --ink:#e8ecf5; --muted:#9aa4ba; --line:#28324a;
-  --tag:#ffd34d; --tag-ink:#1b1400; --accent:#7ea2ff; --sold:#ff7b82; --hold:#ffb84d; --ok:#5fd393;
+  --tag:#ffd34d; --tag-ink:#1b1400; --accent:#7ea2ff; --sold:#ff7b82; --hold:#ffb84d; --ok:#5fd393; --yape:#c48ad6;
   --shadow:0 1px 2px rgb(0 0 0 / .3),0 8px 22px rgb(0 0 0 / .25); color-scheme:dark}
 
 *{box-sizing:border-box}
@@ -214,7 +214,18 @@ td small{color:var(--muted);font-family:var(--mono)}
 .pill.activos,.pill.pagado{color:var(--ok)}.pill.inactivos,.pill.pendiente{color:var(--hold)}.pill.entregado{color:var(--accent)}.pill.cancelado{color:var(--muted)}
 .pedidos{margin-top:12px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
 .pedidos summary{cursor:pointer}
+.pedidos td:nth-child(4){white-space:nowrap;font-variant-numeric:tabular-nums}
 .pedidos .tablewrap{margin-top:10px;border:0}
+.yape-set{border:1px solid var(--line);border-radius:10px;padding:10px 12px 12px;display:grid;gap:10px;margin:0}
+.yape-set legend{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.04em;text-transform:uppercase;padding:0 4px}
+.yape-qr-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.yape-qr-row img{width:96px;height:96px;object-fit:contain;border-radius:8px;border:1px solid var(--line);background:#fff}
+.yape-pay{display:grid;gap:10px;justify-items:center;text-align:center;border:1.5px solid var(--yape);border-radius:12px;padding:14px}
+.yape-pay img{width:min(240px,100%);aspect-ratio:1;object-fit:contain;background:#fff;border-radius:10px}
+.yape-pay .monto{font-family:var(--mono);font-weight:700;font-size:26px;font-variant-numeric:tabular-nums}
+.yape-pay .num{font-family:var(--mono);font-size:18px;font-weight:700;user-select:all}
+.btn.yape{background:var(--yape);border-color:var(--yape);color:#fff}
+.pill.por_confirmar{color:var(--yape)}
 .paid{margin-top:16px;border:1.5px solid var(--ok);background:var(--surface);border-radius:12px;padding:14px;display:grid;gap:8px}
 .paid h2{margin:0;font-family:var(--display);font-weight:800;font-size:22px}
 </style>
@@ -278,8 +289,8 @@ td small{color:var(--muted);font-family:var(--mono)}
   </section>
 
   <details class="pedidos" id="pedidosBox" hidden>
-    <summary><strong>Pedidos pagados con tarjeta</strong> <span class="cn" id="pedidosCount"></span></summary>
-    <div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Productos</th><th>Total</th><th>Estado</th><th></th></tr></thead><tbody id="pedidosRows"></tbody></table></div>
+    <summary><strong>Pedidos en línea</strong> <span class="cn" id="pedidosCount"></span></summary>
+    <div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Productos</th><th>Total</th><th>Pago</th><th>Estado</th><th></th></tr></thead><tbody id="pedidosRows"></tbody></table></div>
   </details>
 
   <section class="panel" id="panel" hidden>
@@ -294,6 +305,21 @@ td small{color:var(--muted);font-family:var(--mono)}
       <label class="f">WhatsApp (con código de país)<input id="setWa" inputmode="tel" placeholder="+1 305 555 0123"></label>
       <label class="f">Tipo de cambio (S/ por 1 USD)<input id="setRate" inputmode="decimal" placeholder="3.46"></label>
     </div>
+    <fieldset class="yape-set">
+      <legend>Cobrar con Yape</legend>
+      <div class="row2">
+        <label class="f">Número de Yape<input id="setYapeNum" inputmode="tel" placeholder="986 639 533"></label>
+        <label class="f">Nombre del titular<input id="setYapeName" maxlength="60" placeholder="Como aparece en Yape"></label>
+      </div>
+      <div class="yape-qr-row">
+        <img id="setYapeImg" alt="Tu QR de Yape" hidden>
+        <div style="display:grid;gap:6px;min-width:0">
+          <span class="note" style="margin:0">Sube la imagen de tu QR de Yape (captura desde la app: Yape › tu QR). Tus clientes la verán al pagar.</span>
+          <span style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" type="button" id="setYapeUp">Subir QR</button><button class="btn danger" type="button" id="setYapeDel" hidden>Quitar QR</button></span>
+          <input type="file" id="setYapeFile" accept="image/*" hidden>
+        </div>
+      </div>
+    </fieldset>
     <div class="actions"><span class="note" style="margin:0">Pones los precios en dólares y el catálogo muestra también el precio en soles con este tipo de cambio, redondeado al sol.</span><button class="btn primary" id="saveSettings">Guardar</button></div>
   </section>
 

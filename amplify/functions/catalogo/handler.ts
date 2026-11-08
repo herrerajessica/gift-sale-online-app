@@ -62,7 +62,8 @@ export const handler: Schema['catalogo']['functionHandler'] = async (event) => {
   return JSON.stringify({
     estado,
     vistaPrevia: estado !== 'aprobada',
-    tienda: { id: t.id, nombre: t.nombre, whatsapp: t.whatsapp || '', tipoCambio: t.tipoCambio ?? null, cobrosActivos: !!t.cobrosActivos },
+    tienda: { id: t.id, nombre: t.nombre, whatsapp: t.whatsapp || '', tipoCambio: t.tipoCambio ?? null, cobrosActivos: !!t.cobrosActivos,
+      yapeNumero: t.yapeNumero || '', yapeNombre: t.yapeNombre || '', yapeQr: t.yapeQr || '' },
     productos: visibles,
     // Solo la dueña ve cuántos productos quedaron fuera por el límite del plan.
     ...(esDuena || esSuper ? { fueraDelPlan } : {}),

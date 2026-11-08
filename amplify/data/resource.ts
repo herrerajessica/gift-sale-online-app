@@ -22,6 +22,10 @@ const schema = a.schema({
       email: a.string(),
       whatsapp: a.string(),
       tipoCambio: a.float(),
+      // Pago con Yape (QR): lo configura la vendedora
+      yapeNumero: a.string(),
+      yapeNombre: a.string(),
+      yapeQr: a.string(),       // ruta de la imagen del QR en S3
       estado: a.enum(['pendiente', 'aprobada', 'suspendida']).authorization(soloLecturaDueña),
       // Plan: free (10), basico (30), pro (150), plus (ilimitado)
       plan: a.enum(['free', 'basico', 'pro', 'plus']).authorization(soloLecturaDueña),
@@ -50,7 +54,8 @@ const schema = a.schema({
     .secondaryIndexes((index) => [index('tiendaId').name('byTienda')])
     .authorization((allow) => [allow.owner(), allow.group('SUPERADMIN')]),
 
-  // Pedidos pagados con tarjeta. Los crea la función "pagos" y los confirma el webhook.
+  // Pedidos pagados en línea. Los crea la función "pagos".
+  // Tarjeta: los confirma el webhook de Stripe. Yape: los confirma la vendedora.
   Pedido: a
     .model({
       tiendaId: a.string().required(),
@@ -62,7 +67,9 @@ const schema = a.schema({
       email: a.string(),
       telefono: a.string(),
       nota: a.string(),
-      estado: a.enum(['pendiente', 'pagado', 'entregado', 'cancelado']),
+      metodo: a.enum(['tarjeta', 'yape']),
+      operacion: a.string(),      // código de operación Yape que escribe el cliente
+      estado: a.enum(['pendiente', 'por_confirmar', 'pagado', 'entregado', 'cancelado']),
       stripeSessionId: a.string(),
     })
     .secondaryIndexes((index) => [index('tiendaId').name('pedidosByTienda')])
@@ -110,6 +117,19 @@ const schema = a.schema({
     .returns(a.string())
     .handler(a.handler.function(pagos))
     .authorization((allow) => [allow.authenticated()]),
+
+  pedidoYape: a
+    .mutation()
+    .arguments({
+      tiendaId: a.string().required(),
+      items: a.string().required(),
+      nombre: a.string().required(),
+      nota: a.string(),
+      operacion: a.string(),
+    })
+    .returns(a.string())
+    .handler(a.handler.function(pagos))
+    .authorization((allow) => [allow.guest(), allow.authenticated()]),
 
   pagarPedido: a
     .mutation()

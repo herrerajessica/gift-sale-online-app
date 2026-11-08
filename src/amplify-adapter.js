@@ -160,7 +160,10 @@ function configRef() {
       return () => { const i = configListeners.indexOf(emit); if (i >= 0) configListeners.splice(i, 1); };
     },
     async set(d) {
-      const datos = { nombre: d.nombre || TIENDA, whatsapp: d.whatsapp || '', tipoCambio: d.tipoCambio ?? null };
+      const datos = {
+        nombre: d.nombre || TIENDA, whatsapp: d.whatsapp || '', tipoCambio: d.tipoCambio ?? null,
+        yapeNumero: d.yapeNumero || '', yapeNombre: d.yapeNombre || '', yapeQr: d.yapeQr || '',
+      };
       check(await client.models.Tienda.update({ id: TIENDA, ...datos }, { authMode: 'userPool' }));
       emitirConfig();
     },
@@ -241,6 +244,8 @@ export const pagarPlan = (plan) => llamar('pagarPlan', { tiendaId: TIENDA, plan,
 export const cancelarPlan = () => llamar('cancelarPlan', { tiendaId: TIENDA }, 'userPool');
 export const conectarCobros = () => llamar('conectarCobros', { tiendaId: TIENDA, origen: origen() }, 'userPool');
 export const estadoCobros = () => llamar('estadoCobros', { tiendaId: TIENDA }, 'userPool');
+export const pedidoYape = (items, nombre, nota, operacion) =>
+  llamar('pedidoYape', { tiendaId: TIENDA, items: JSON.stringify(items), nombre, nota, operacion }, AUTH);
 export const pagarPedido = (items, nombre, nota) =>
   llamar('pagarPedido', { tiendaId: TIENDA, items: JSON.stringify(items), nombre, nota, origen: origen() }, AUTH);
 
@@ -256,6 +261,7 @@ export async function listarPedidos() {
     todos.push(...(check(r) || []));
     nextToken = r.nextToken;
   } while (nextToken);
+  // Los pagos con tarjeta que nunca se completaron se ocultan después de un día.
   return todos.filter((p) => p.estado !== 'pendiente' || Date.now() - Date.parse(p.createdAt) < 24 * 3600e3)
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 }

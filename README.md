@@ -1,6 +1,6 @@
 # Vitrina USA
 
-Plataforma para revendedoras de productos traídos de USA. Cada vendedora crea su cuenta y su vitrina con enlace propio, sube fotos en bloque (la IA les pone categoría, público y nombre), y sus clientes arman un pedido con precios en dólares y soles que pueden pagar con tarjeta o enviar por WhatsApp. Las vendedoras pagan un plan mensual según cuántos productos publican.
+Plataforma para revendedoras de productos traídos de USA. Cada vendedora crea su cuenta y su vitrina con enlace propio, sube fotos en bloque (la IA les pone categoría, público y nombre), y sus clientes arman un pedido con precios en dólares y soles que pueden pagar con tarjeta (Stripe), con Yape (QR) o enviar por WhatsApp. Las vendedoras pagan un plan mensual según cuántos productos publican.
 
 ## Cómo está armada
 
@@ -35,8 +35,9 @@ Plataforma para revendedoras de productos traídos de USA. Cada vendedora crea s
 
 - **Planes:** suscripción mensual con Stripe Checkout. Los productos ocultos no cuentan. El límite se aplica en el servidor (Lambda `catalogo`): si una vendedora supera su plan o deja de pagar (3 días de gracia), los clientes solo ven sus productos más recientes hasta el límite.
 - **Pedidos:** el cliente puede pagar con tarjeta si la vendedora activó cobros (Stripe Connect Express). El precio se lee de la base de datos, no del navegador. El dinero va a la cuenta Stripe de la vendedora y la plataforma retiene una comisión (`COMISION_PORCENTAJE`, 5 % por defecto). WhatsApp sigue disponible.
+- **Yape (QR):** como Stripe no acepta Yape, cada vendedora configura su número y la imagen de su QR en *Datos de la tienda*. El cliente ve el monto exacto en soles (calculado en el servidor), yapea y envía su pedido con su nombre y, si quiere, el código de operación. El pedido queda **Por confirmar** hasta que la vendedora revisa su app de Yape y toca *Confirmar pago* o *No llegó*. No hay comisión.
 - **Claves:** `STRIPE_SECRET_KEY` y `STRIPE_WEBHOOK_SECRET` se guardan como secretos de Amplify, nunca en el código.
-- **Limitaciones:** Stripe no acepta Yape ni Plin, y no abre cuentas a empresas registradas en Perú. Para la demostración se usa el **modo de prueba**. Para cobrar dinero real en Perú habría que cambiar a Mercado Pago o Culqi, o tener una empresa en un país soportado por Stripe.
+- **Limitaciones:** Stripe no acepta Yape ni Plin (por eso Yape va por QR con confirmación manual), y no abre cuentas a empresas registradas en Perú. Para la demostración se usa el **modo de prueba**. Para cobrar dinero real en Perú habría que cambiar a Mercado Pago o Culqi, o tener una empresa en un país soportado por Stripe.
 
 ### Configurar Stripe (modo de prueba)
 
@@ -90,6 +91,7 @@ Variables para las pruebas (GitHub › Settings › Secrets and variables › Ac
 | `TEST_STORE` | variable | enlace de una vitrina aprobada con productos con precio |
 | `TEST_PENDING_STORE` | variable | enlace de una vitrina pendiente |
 | `TEST_STORE_COBROS` | variable | enlace de una vitrina aprobada con pagos con tarjeta activos |
+| `TEST_STORE_YAPE` | variable | enlace de una vitrina aprobada con Yape configurado |
 
 Las pruebas que necesitan una variable que no esté definida se marcan como omitidas en lugar de fallar.
 
