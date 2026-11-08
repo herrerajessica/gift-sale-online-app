@@ -214,7 +214,7 @@ import {
     $("progress").hidden=false; setProg(0,total,textoSubida);
     const col = S.db.collection("productos"); const base = Date.now();
     const group = S.mode==="group" && files.length>1; const groupPhotos = new Array(files.length);
-    const toClassify = [];
+    const toClassify = [], creados = [];
     let i = 0;
     async function worker(){
       while(i < files.length){
@@ -225,6 +225,7 @@ import {
           else {
             const nombre = nameFromFile(f), ref = col.doc();
             await ref.set({ nombre, marca, precio:price, stock, categoria:cat, publico:"", descripcion:"", estado:"disponible", fotos:[ph], creado: base + (total-idx) });
+            creados.push({ id:ref.id, orden:idx });
             if(useAI) toClassify.push({ id:ref.id, blob, name:nombre==="Producto nuevo", cat:!cat, marca:!marca, margen: price==null ? margen : null });
           }
           ok++;
@@ -235,7 +236,7 @@ import {
     await Promise.all(Array.from({length:Math.min(modoFoto==="fondo"?2:4,files.length)}, worker));
     if(group){
       const got = groupPhotos.filter(Boolean);
-      if(got.length){ try{ const nombre=nameFromFile(files[0]), ref=col.doc(); await ref.set({ nombre, marca, precio:price, stock, categoria:cat, publico:"", descripcion:"", estado:"disponible", fotos:got.map(g=>g.ph), creado:base }); if(useAI) toClassify.push({ id:ref.id, blob:got[0].blob, name:nombre==="Producto nuevo", cat:!cat, marca:!marca, margen: price==null ? margen : null }); }catch(e){ errs.append(el("li",null,"No se pudo crear el producto: "+errText(e))); ok=0; } }
+      if(got.length){ try{ const nombre=nameFromFile(files[0]), ref=col.doc(); creados.push({ id:ref.id, orden:0 }); await ref.set({ nombre, marca, precio:price, stock, categoria:cat, publico:"", descripcion:"", estado:"disponible", fotos:got.map(g=>g.ph), creado:base }); if(useAI) toClassify.push({ id:ref.id, blob:got[0].blob, name:nombre==="Producto nuevo", cat:!cat, marca:!marca, margen: price==null ? margen : null }); }catch(e){ errs.append(el("li",null,"No se pudo crear el producto: "+errText(e))); ok=0; } }
     }
     const fail = total-ok;
     if(S.fondoFallos) errs.append(el("li",null,`${S.fondoFallos} foto(s) se subieron mejoradas pero sin quitar el fondo (la IA no respondió). Puedes reintentarlas más tarde.`));
@@ -244,6 +245,8 @@ import {
     $("fileInput").value="";
     if(toClassify.length){ await classify(toClassify); setProg(total,total, doneMsg + (S.aiMsg?` · ${S.aiMsg}`:"")); }
     else toast(group ? "Producto publicado" : `${ok} productos publicados`);
+    // Revisión del lote: precio, marca, descripción… de todo lo que se acaba de subir
+    if(creados.length){ await new Promise(r=>setTimeout(r, 700)); abrirLote(creados.sort((a,b)=>a.orden-b.orden).map(c=>c.id), "subida"); }
   }
 
   // ---------- Clasificación con IA ----------
@@ -396,6 +399,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     toast(fails ? `Actualizados ${ids.length-fails}; ${fails} fallaron` : `${ids.length} productos actualizados`); renderBulk();
   };
   $("bulkAI").onclick = ()=>classifySelected();
+  $("bulkTabla").onclick = ()=>{ if(!S.sel.size){ toast("Selecciona productos o toca Todos"); return; } abrirLote([...S.sel], "seleccion"); };
   $("bulkDel").onclick = ()=>{ $("bulkN").textContent=S.sel.size; $("bulkConfirm").hidden=false; };
   $("bulkDelNo").onclick = ()=>{ $("bulkConfirm").hidden=true; };
   $("bulkDelYes").onclick = async ()=>{
@@ -404,6 +408,106 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     S.sel.clear(); toast(fails ? `${fails} no se pudieron borrar` : `${ids.length} productos borrados`); render();
   };
   async function deletePhotos(fotos){ for(const f of fotos){ for(const id of [f.full,f.thumb]){ if(id){ try{ await S.assets.delete(id); }catch(e){} } } } }
+
+  // ---------- Revisión del lote en tabla ----------
+  // Una fila por producto: se edita todo de corrido (Tab / Enter) y se guarda junto.
+  let loteIds = [], loteSucio = new Set();
+  const COLS_LOTE = [
+    { k:"nombre", label:"Nombre", cls:"c-nombre", tipo:"text", max:120 },
+    { k:"marca", label:"Marca", cls:"c-marca w-marca", tipo:"text", max:40, list:"marcaList" },
+    { k:"precio", label:"Precio $", cls:"c-precio w-num", tipo:"precio" },
+    { k:"stock", label:"Cantidad", cls:"c-stock w-num", tipo:"stock" },
+    { k:"talla", label:"Talla", cls:"c-talla w-talla", tipo:"text", max:12 },
+    { k:"descripcion", label:"Descripción", cls:"c-desc", tipo:"area" },
+  ];
+  function valorLote(p, c){
+    const v = p[c.k];
+    return v==null ? "" : String(v);
+  }
+  function abrirLote(ids, origen){
+    loteIds = ids.filter(id=>S.products.some(p=>p.id===id)); loteSucio = new Set();
+    const box = $("lote"); box.textContent = "";
+    if(!loteIds.length){ box.hidden = true; return; }
+    const titulo = origen==="subida" ? `Revisa tu lote (${loteIds.length} producto${loteIds.length===1?"":"s"})` : `Editar ${loteIds.length} producto${loteIds.length===1?"":"s"}`;
+    const guardar = el("button",{class:"btn primary",type:"button",id:"loteGuardar",onclick:guardarLote},"Guardar todo");
+    const cerrar = el("button",{class:"btn",type:"button",onclick:cerrarLote},"Cerrar");
+    box.append(el("div",{class:"lote-head"},
+      el("h2",{id:"loteTitulo"}, titulo), cerrar, guardar,
+      el("p",{class:"note"}, origen==="subida" ? "La IA ya llenó lo que pudo. Completa o corrige el precio, la marca y la descripción, y toca Guardar todo. Enter baja a la siguiente fila." : "Edita varios productos de corrido. Enter baja a la siguiente fila.")));
+    const tb = el("tbody");
+    loteIds.forEach((id, fila)=>{
+      const p = S.products.find(x=>x.id===id);
+      const cover = p.fotos && p.fotos[0];
+      const tr = el("tr",{"data-id":id});
+      tr.append(el("td",{class:"c-foto"}, cover ? el("img",{src:src(cover.thumb||cover.full),alt:""}) : el("span",null,"")));
+      COLS_LOTE.forEach((c, col)=>{
+        const attrs = { "data-fila":String(fila), "data-col":String(col), "aria-label":`${c.label} de ${p.nombre||"producto"}`, value: valorLote(p,c) };
+        let inp;
+        if(c.tipo==="area"){ inp = el("textarea",{...attrs, rows:"2", maxlength:"600", placeholder:"Talla, color, estado, si es original…"}); inp.value = valorLote(p,c); }
+        else inp = el("input",{...attrs, maxlength: c.max ? String(c.max) : "12", inputmode: c.tipo==="precio" ? "decimal" : c.tipo==="stock" ? "numeric" : false, list: c.list || false,
+          placeholder: c.tipo==="precio" ? "Consultar" : c.tipo==="stock" ? "—" : "", title: c.tipo==="stock" ? "Vacío = sin control de cantidad" : false});
+        inp.addEventListener("input", ()=>{ loteSucio.add(id); tr.classList.add("cambiado"); if(c.tipo==="precio") pintarHint(); });
+        inp.addEventListener("keydown", e=>{
+          if(e.key==="Enter" && !(c.tipo==="area" && e.shiftKey)){
+            e.preventDefault();
+            const sig = box.querySelector(`[data-fila="${fila+1}"][data-col="${col}"]`);
+            if(sig) sig.focus(); else guardar.focus();
+          }
+        });
+        const td = el("td",{class:c.cls, "data-label":c.label}, inp);
+        let pintarHint = ()=>{};
+        if(c.tipo==="precio"){
+          const hint = el("span",{class:"hint"});
+          pintarHint = ()=>{
+            const v = parsePrice(inp.value);
+            const partes = [];
+            if(v!=null && soles(v)) partes.push(soles(v));
+            if(p.costo!=null) partes.push(`costo ${money(p.costo)}` + (v!=null && p.costo>0 ? ` · ${Math.round((v/p.costo-1)*100)} %` : ""));
+            hint.textContent = partes.join(" · ");
+          };
+          pintarHint(); td.append(hint);
+        }
+        tr.append(td);
+      });
+      tb.append(tr);
+    });
+    box.append(el("div",{class:"tablewrap"}, el("table",null,
+      el("thead",null, el("tr",null, el("th",null,"Foto"), ...COLS_LOTE.map(c=>el("th",null,c.label)))), tb)));
+    box.hidden = false;
+    box.scrollIntoView({block:"start", behavior:"smooth"});
+    const primero = box.querySelector('[data-fila="0"][data-col="1"]') || box.querySelector("input");
+    if(primero) setTimeout(()=>primero.focus({preventScroll:true}), 350);
+  }
+  async function guardarLote(){
+    const box = $("lote"), btn = $("loteGuardar");
+    if(!loteSucio.size){ toast("No hay cambios por guardar"); return; }
+    btn.disabled = true; btn.textContent = "Guardando…";
+    const ids = [...loteSucio];
+    const fails = await runPool(ids, id=>{
+      const leer = c => box.querySelector(`tr[data-id="${id}"] [data-col="${COLS_LOTE.indexOf(c)}"]`).value;
+      const patch = {};
+      for(const c of COLS_LOTE){
+        const v = leer(c);
+        patch[c.k] = c.tipo==="precio" ? parsePrice(v) : c.tipo==="stock" ? parseStock(v) : c.k==="nombre" ? (v.trim() || "Producto nuevo") : v.trim();
+      }
+      return S.db.doc("productos/"+id).update(patch);
+    });
+    btn.disabled = false; btn.textContent = "Guardar todo";
+    if(fails){ toast(`Se guardaron ${ids.length-fails}; ${fails} no se pudieron guardar. Intenta de nuevo.`); return; }
+    loteSucio.clear(); box.querySelectorAll("tr.cambiado").forEach(tr=>tr.classList.remove("cambiado"));
+    toast(`${ids.length} producto${ids.length===1?"":"s"} guardado${ids.length===1?"":"s"}`);
+  }
+  function cerrarLote(){
+    const box = $("lote");
+    if(loteSucio.size && !box.querySelector(".lote-aviso")){
+      box.querySelector(".lote-head").append(el("div",{class:"lote-aviso",role:"alert"},
+        `Tienes ${loteSucio.size} producto(s) con cambios sin guardar.`,
+        el("button",{class:"btn primary",type:"button",onclick:async()=>{ await guardarLote(); if(!loteSucio.size) cerrarLote(); }},"Guardar y cerrar"),
+        el("button",{class:"btn",type:"button",onclick:()=>{ loteSucio.clear(); cerrarLote(); }},"Descartar")));
+      return;
+    }
+    box.hidden = true; box.textContent = ""; loteIds = [];
+  }
 
   // ---------- Detalle / edición ----------
   let openId=null, photoIdx=0;

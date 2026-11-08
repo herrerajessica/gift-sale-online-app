@@ -38,7 +38,7 @@ button{cursor:pointer}
 /* Barra */
 .bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:9;background:var(--ink);color:var(--paper)}
 .bar .wrap{display:flex;align-items:center;gap:12px;padding-block:12px;flex-wrap:wrap}
-.brand{display:flex;align-items:baseline;gap:10px;min-width:0;flex:1}
+.brand{display:flex;align-items:baseline;gap:10px;min-width:0;flex:1 1 230px}
 .brand h1{margin:0;font-family:var(--display);font-weight:800;font-size:clamp(20px,3.2vw,26px);letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .stamp{font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;border:1.5px solid currentColor;padding:2px 7px;border-radius:3px;opacity:.85;white-space:nowrap}
 .contact{font-family:var(--mono);font-size:13px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -81,6 +81,7 @@ button{cursor:pointer}
 /* Selección en bloque */
 .bulk{position:sticky;top:calc(env(safe-area-inset-top,0px) + 62px);z-index:8;margin-top:12px;background:var(--surface);border:1.5px solid var(--accent);border-radius:12px;padding:10px 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;box-shadow:var(--shadow)}
 .bulk strong{margin-right:auto}
+@media (max-width:560px){.bulk{position:static}}
 .bulk input,.bulk select{padding:6px 9px;border:1.5px solid var(--line);border-radius:7px;background:var(--paper);max-width:150px}
 
 /* Vitrina */
@@ -250,6 +251,28 @@ td small{color:var(--muted);font-family:var(--mono)}
 .gbtn{justify-content:center;gap:10px;padding:11px 14px;font-size:15px}
 .google .sep{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
 .google .sep::before,.google .sep::after{content:"";flex:1;height:1px;background:var(--line)}
+.lote{margin-top:16px;background:var(--surface);border:1.5px solid var(--accent);border-radius:14px;padding:14px;display:grid;gap:12px}
+.lote-head{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.lote-head h2{margin:0;font-family:var(--display);font-weight:800;font-size:22px;margin-right:auto}
+.lote-head .note{margin:0;flex-basis:100%}
+.lote .tablewrap{border:1px solid var(--line)}
+.lote table{min-width:880px}
+.lote td{vertical-align:top;padding:8px}
+.lote td img{width:64px;height:64px;object-fit:cover;border-radius:8px;display:block;background:var(--line)}
+.lote input,.lote textarea{width:100%;padding:7px 9px;border:1.5px solid var(--line);border-radius:7px;background:var(--paper);font-size:14px}
+.lote textarea{resize:vertical;min-height:38px}
+.lote input:focus,.lote textarea:focus{border-color:var(--accent)}
+.lote tr.cambiado{background:color-mix(in srgb,var(--accent) 6%,transparent)}
+.lote .hint{display:block;font-size:11.5px;color:var(--muted);margin-top:3px;font-variant-numeric:tabular-nums}
+.lote .w-num{width:90px}.lote .w-talla{width:80px}.lote .w-marca{width:150px}
+.lote-aviso{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-weight:600;color:var(--hold)}
+@media (max-width:720px){
+  .lote table{min-width:0}.lote thead{display:none}
+  .lote tr{display:grid;grid-template-columns:64px 1fr 1fr;gap:6px 10px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .lote td{padding:0;border:0}
+  .lote td.c-foto{grid-row:span 2}.lote td.c-nombre{grid-column:2/4}.lote td.c-desc{grid-column:1/4}
+  .lote td[data-label]::before{content:attr(data-label);display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}
+}
 .recordar{display:flex;gap:8px;align-items:center;font-size:14px}
 .paid{margin-top:16px;border:1.5px solid var(--ok);background:var(--surface);border-radius:12px;padding:14px;display:grid;gap:8px}
 .paid h2{margin:0;font-family:var(--display);font-weight:800;font-size:22px}
@@ -386,6 +409,8 @@ td small{color:var(--muted);font-family:var(--mono)}
   <datalist id="catList"></datalist>
   <datalist id="marcaList"></datalist>
 
+  <section class="lote" id="lote" hidden aria-labelledby="loteTitulo"></section>
+
   <div class="tools">
     <input class="search" id="q" type="search" placeholder="Buscar producto…" aria-label="Buscar producto">
     <div class="cats" id="cats"></div>
@@ -404,6 +429,7 @@ td small{color:var(--muted);font-family:var(--mono)}
     <select id="bulkPub" aria-label="Público para seleccionados"><option value="">Para…</option><option>Mujer</option><option>Hombre</option><option>Niños</option><option>Unisex</option></select>
     <button class="btn primary" id="bulkApply">Aplicar</button>
     <button class="btn" id="bulkAI" hidden>Clasificar con IA</button>
+    <button class="btn" id="bulkTabla">Editar en tabla</button>
     <button class="btn danger" id="bulkDel">Borrar</button>
     <span class="confirm" id="bulkConfirm" hidden>¿Borrar <span id="bulkN"></span> productos para siempre? <button class="btn danger" id="bulkDelYes">Sí, borrar</button><button class="btn" id="bulkDelNo">No</button></span>
     <button class="btn" id="bulkDone">Listo</button>
