@@ -621,8 +621,10 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   function renderConfig(){
     const name = S.config.nombre || "Vitrina USA";
     $("shopName").textContent = name; document.title = name;
-    const c=$("contact"); c.textContent=""; const wa=waDigits();
-    if(wa){ c.hidden=false; c.append("WhatsApp ", el("a",{href:"https://wa.me/"+wa,target:"_blank",rel:"noopener"}, S.config.whatsapp)); } else c.hidden=true;
+    // El WhatsApp de la tienda va en un botón flotante (solo para clientes), no en la barra.
+    const c=$("contact"); c.textContent=""; c.hidden=true; const wa=waDigits();
+    const fl=$("waFloat"); fl.hidden = !wa || S.canEdit;
+    if(wa) fl.href = `https://wa.me/${wa}?text=${encodeURIComponent(`Hola${S.config.nombre?" "+S.config.nombre:""}, vi tu tienda online y tengo una consulta.`)}`;
     if(document.activeElement!==$("setName")) $("setName").value = S.config.nombre||"";
     if(document.activeElement!==$("setWa")) $("setWa").value = S.config.whatsapp||"";
     if(document.activeElement!==$("setRate")) $("setRate").value = S.config.tipoCambio!=null ? String(S.config.tipoCambio) : "";
