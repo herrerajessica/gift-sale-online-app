@@ -11,6 +11,7 @@ Plataforma para revendedoras de productos traídos de USA. Cada vendedora crea s
 | Vitrina pública (solo tiendas aprobadas) | Lambda `catalogo` | `amplify/functions/catalogo/` |
 | Fotos, cada vendedora en su carpeta | S3 + CloudFront | `amplify/storage/resource.ts`, `amplify/backend.ts` |
 | Clasificación de fotos con IA | Lambda `clasificar` + Bedrock (Claude Haiku 5.5) | `amplify/functions/clasificar/` |
+| Fondo blanco con IA (plan Plus) | Lambda `fondo` + Bedrock (Amazon Nova Canvas) | `amplify/functions/fondo/` |
 | Planes y pago de pedidos | Lambda `pagos` + Stripe (Checkout, Billing, Connect) | `amplify/functions/pagos/` |
 | Confirmación de pagos | Lambda `stripe-webhook` (URL pública con firma) | `amplify/functions/stripe-webhook/` |
 | Web | Amplify Hosting (Vite) | `index.html`, `src/` |
@@ -28,6 +29,8 @@ Plataforma para revendedoras de productos traídos de USA. Cada vendedora crea s
 
 La idea central es **subir muchas fotos de una vez**. Al arrastrar el lote se puede escribir en *Aplicar a todas* el precio, la categoría, la marca y la cantidad de cada producto; la IA completa categoría, público, nombre y marca (sin sobrescribir lo que la vendedora escribió). Después, *Editar varios* cambia cualquiera de esos campos en muchos productos a la vez.
 
+- **Fotos originales o mejoradas:** al soltar un lote se pregunta una sola vez cómo subirlo, con una muestra de antes y después: *Tal cual*, *Mejoradas* (luz, color y nitidez en el navegador, sin costo) o *Fondo blanco (IA)* (Amazon Nova Canvas en Bedrock, Lambda `fondo`). La elección se puede recordar para los próximos lotes.
+- **Fondo blanco solo en plan Plus:** cada foto procesada por Nova Canvas tiene costo en AWS, así que la Lambda `fondo` lo rechaza si la tienda no tiene el plan Plus vigente. Requiere activar **Amazon Nova Canvas** en Bedrock (`us-east-1`).
 - **Cantidad (stock):** opcional; vacío significa "sin control". El cliente ve "Quedan N" o "¡Última unidad!" cuando quedan 3 o menos, y "Agotado" en 0. No puede pedir más unidades de las disponibles: lo valida la pantalla y también el servidor.
 - **Descuento automático:** al pagar con tarjeta, el webhook descuenta las unidades una sola vez (aunque Stripe reenvíe el aviso). Al confirmar un Yape, se descuentan cuando la vendedora toca *Confirmar pago*. Los pedidos por WhatsApp se ajustan a mano.
 
@@ -38,7 +41,7 @@ La idea central es **subir muchas fotos de una vez**. Al arrastrar el lote se pu
 | Free | 10 | Gratis |
 | Básico | 30 | S/ 19 al mes |
 | Pro | 150 | S/ 49 al mes |
-| Plus | ilimitados | S/ 99 al mes |
+| Plus | ilimitados + fondo blanco con IA | S/ 99 al mes |
 
 - **Planes:** suscripción mensual con Stripe Checkout. Los productos ocultos no cuentan. El límite se aplica en el servidor (Lambda `catalogo`): si una vendedora supera su plan o deja de pagar (3 días de gracia), los clientes solo ven sus productos más recientes hasta el límite.
 - **Pedidos:** el cliente puede pagar con tarjeta si la vendedora activó cobros (Stripe Connect Express). El precio se lee de la base de datos, no del navegador. El dinero va a la cuenta Stripe de la vendedora y la plataforma retiene una comisión (`COMISION_PORCENTAJE`, 5 % por defecto). WhatsApp sigue disponible.
@@ -60,7 +63,7 @@ Tarjeta de prueba: `4242 4242 4242 4242`, cualquier fecha futura y cualquier CVC
 
 ## Publicar en AWS (primera vez)
 
-1. **Activar Claude en Bedrock.** En la consola de AWS, región `us-east-1`: Amazon Bedrock › Model catalog › Claude Haiku 5.5. Si es tu primera vez con modelos de Anthropic, completa el formulario de caso de uso.
+1. **Activar los modelos en Bedrock.** En la consola de AWS, región `us-east-1`: Amazon Bedrock › Model catalog › **Claude Haiku 5.5** (clasificación) y **Amazon Nova Canvas** (fondo blanco). Si es tu primera vez con modelos de Anthropic, completa el formulario de caso de uso.
 2. **Crear la app en Amplify.** AWS Amplify › Create new app › GitHub › repositorio `gift-sale-online-app` › rama `main`. Amplify detecta `amplify.yml`. Despliega (tarda unos 10 minutos la primera vez).
 3. **Crear tu cuenta.** Abre la URL de Amplify (`https://main.xxxx.amplifyapp.com`), toca *Crear mi vitrina* y regístrate con tu correo.
 4. **Darte permisos de dueña.** Amazon Cognito › User pools › (el de la app) › Groups › `SUPERADMIN` › Add user › tu correo. Cierra sesión y vuelve a entrar: aparece el botón *Panel de dueña*.

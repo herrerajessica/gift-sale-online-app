@@ -231,6 +231,18 @@ td small{color:var(--muted);font-family:var(--mono)}
 .yape-pay .num{font-family:var(--mono);font-size:18px;font-weight:700;user-select:all}
 .btn.yape{background:var(--yape);border-color:var(--yape);color:#fff}
 .pill.por_confirmar{color:var(--yape)}
+.muestras{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.muestras .par{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.muestras figure{margin:0;display:grid;gap:4px}
+.muestras canvas{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;border:1px solid var(--line);background:#fff}
+.muestras figcaption{font-size:12px;color:var(--muted);text-align:center}
+.modos{display:grid;gap:8px}
+.modo{display:grid;gap:2px;text-align:left;border:1.5px solid var(--line);background:var(--surface);border-radius:10px;padding:10px 12px}
+.modo span{font-size:13px;color:var(--muted)}
+.modo[aria-checked="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 7%,var(--surface))}
+.modo.bloqueado{opacity:.75;border-style:dashed}
+.plan-card .extra{color:var(--accent);font-weight:600}
+.recordar{display:flex;gap:8px;align-items:center;font-size:14px}
 .paid{margin-top:16px;border:1.5px solid var(--ok);background:var(--surface);border-radius:12px;padding:14px;display:grid;gap:8px}
 .paid h2{margin:0;font-family:var(--display);font-weight:800;font-size:22px}
 </style>
@@ -344,6 +356,7 @@ td small{color:var(--muted);font-family:var(--mono)}
         <input id="defMarca" placeholder="Marca" list="marcaList">
         <input id="defStock" inputmode="numeric" placeholder="Cantidad c/u">
       </div>
+      <p class="defaults" id="modoFotoInfo" hidden style="margin:0"><span id="modoFotoTxt"></span> · <button class="linkish" type="button" id="modoFotoCambiar" style="font-size:13px">Cambiar</button></p>
       <label class="defaults" id="aiRow" hidden><input type="checkbox" id="aiToggle" checked style="width:auto"> Detectar categoría, público y nombre con IA</label>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
         <button class="btn primary" id="pickBtn">Elegir fotos</button>

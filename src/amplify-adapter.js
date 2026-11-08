@@ -225,8 +225,10 @@ export const PLANES = [
   { id: 'free', nombre: 'Free', limite: 10, precio: 0 },
   { id: 'basico', nombre: 'Básico', limite: 30, precio: 19 },
   { id: 'pro', nombre: 'Pro', limite: 150, precio: 49 },
-  { id: 'plus', nombre: 'Plus', limite: null, precio: 99 },
+  { id: 'plus', nombre: 'Plus', limite: null, precio: 99, extra: 'Fotos con fondo blanco (IA)' },
 ];
+// Funciones con costo por uso: solo en el plan Plus.
+export const tieneFondoIA = (t) => planVigente(t).id === 'plus';
 const GRACIA_MS = 3 * 24 * 60 * 60 * 1000;
 export function planVigente(t) {
   const p = PLANES.find((x) => x.id === (t && t.plan)) || PLANES[0];
@@ -242,6 +244,8 @@ async function llamar(nombre, args, authMode) {
 }
 const origen = () => location.origin;
 
+// Quita el fondo de una foto ya subida; devuelve un PNG transparente en base64.
+export const quitarFondo = (path) => llamar('quitarFondo', { tiendaId: TIENDA, path }, 'userPool');
 export const pagarPlan = (plan) => llamar('pagarPlan', { tiendaId: TIENDA, plan, origen: origen() }, 'userPool');
 export const cancelarPlan = () => llamar('cancelarPlan', { tiendaId: TIENDA }, 'userPool');
 export const conectarCobros = () => llamar('conectarCobros', { tiendaId: TIENDA, origen: origen() }, 'userPool');

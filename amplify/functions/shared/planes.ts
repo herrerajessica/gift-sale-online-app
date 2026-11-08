@@ -1,6 +1,7 @@
 // Planes de las vendedoras. Fuente única para el cobro, el webhook y el catálogo.
 // limite: cantidad máxima de productos visibles en la tienda (null = ilimitado).
 // precio: en soles por mes (0 = gratis).
+// Fondo blanco con IA (Nova Canvas): solo en Plus, porque cada foto tiene costo.
 export type PlanId = 'free' | 'basico' | 'pro' | 'plus';
 
 export const PLANES: Record<PlanId, { nombre: string; limite: number | null; precio: number }> = {

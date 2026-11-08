@@ -11,8 +11,9 @@ import { clasificar } from './functions/clasificar/resource';
 import { catalogo } from './functions/catalogo/resource';
 import { pagos } from './functions/pagos/resource';
 import { stripeWebhook } from './functions/stripe-webhook/resource';
+import { fondo } from './functions/fondo/resource';
 
-const backend = defineBackend({ auth, data, storage, clasificar, catalogo, pagos, stripeWebhook });
+const backend = defineBackend({ auth, data, storage, clasificar, catalogo, pagos, stripeWebhook, fondo });
 
 const bucket = backend.storage.resources.bucket;
 const tablas = backend.data.resources.tables;
@@ -67,6 +68,17 @@ backend.addOutput({
     stripeWebhookUrl: webhookUrl.url,
   },
 });
+
+// --- Fondo blanco: lee la foto y llama a Nova Canvas en Bedrock ---
+const fondoFn = backend.fondo.resources.lambda;
+bucket.grantRead(fondoFn, 'productos/*');
+tablaTienda.grantReadData(fondoFn);
+backend.fondo.addEnvironment('BUCKET_NAME', bucket.bucketName);
+backend.fondo.addEnvironment('TIENDA_TABLE', tablaTienda.tableName);
+fondoFn.addToRolePolicy(new PolicyStatement({
+  actions: ['bedrock:InvokeModel'],
+  resources: ['arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-canvas-v1:0'],
+}));
 
 // --- Clasificación con IA: lee miniaturas y llama a Claude en Bedrock ---
 const clasificarFn = backend.clasificar.resources.lambda;

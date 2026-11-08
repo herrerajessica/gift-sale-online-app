@@ -2,7 +2,7 @@ import {
   FOTOS_BASE, db, assets, ai, sesion, usarModoPublico, usarModoVendedora, estadoCatalogo,
   miTienda, crearTienda, listarTiendas, cambiarEstadoTienda, limpiarSlug, SLUG_RE,
   signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn,
-  PLANES, planVigente, pagarPlan, cancelarPlan, conectarCobros, estadoCobros, pagarPedido, pedidoYape,
+  PLANES, planVigente, tieneFondoIA, pagarPlan, quitarFondo, cancelarPlan, conectarCobros, estadoCobros, pagarPedido, pedidoYape,
   miTiendaActual, listarPedidos, cambiarEstadoPedido, cambiarPlanTienda,
 } from './amplify-adapter.js';
 
@@ -37,19 +37,153 @@ import {
     return await new Promise((res,rej)=>{ const u=URL.createObjectURL(file); const i=new Image(); i.onload=()=>{res(i);}; i.onerror=()=>{URL.revokeObjectURL(u);rej(new Error("decode"));}; i.src=u; });
   }
   function toBlob(img, max, q){
-    const w = img.width, h = img.height, s = Math.min(1, max/Math.max(w,h));
-    const c = document.createElement("canvas"); c.width=Math.round(w*s); c.height=Math.round(h*s);
-    const x = c.getContext("2d"); x.fillStyle="#fff"; x.fillRect(0,0,c.width,c.height); x.drawImage(img,0,0,c.width,c.height);
-    return new Promise((res,rej)=>c.toBlob(b=>b?res(b):rej(new Error("encode")),"image/jpeg",q));
+    return aBlob(lienzo(img, max), max, q);
   }
-  async function processPhoto(file){
+  // Dibuja la imagen sobre fondo blanco, reducida a "max" píxeles por lado.
+  function lienzo(img, max){
+    const w = img.width, h = img.height, s = Math.min(1, max/Math.max(w,h));
+    const c = document.createElement("canvas"); c.width=Math.max(1,Math.round(w*s)); c.height=Math.max(1,Math.round(h*s));
+    const x = c.getContext("2d"); x.fillStyle="#fff"; x.fillRect(0,0,c.width,c.height); x.drawImage(img,0,0,c.width,c.height);
+    return c;
+  }
+  function aBlob(c, max, q){
+    let src = c;
+    const s = Math.min(1, max/Math.max(c.width,c.height));
+    if(s < 1){ src = document.createElement("canvas"); src.width=Math.round(c.width*s); src.height=Math.round(c.height*s); const x=src.getContext("2d"); x.imageSmoothingQuality="high"; x.drawImage(c,0,0,src.width,src.height); }
+    return new Promise((res,rej)=>src.toBlob(b=>b?res(b):rej(new Error("encode")),"image/jpeg",q));
+  }
+
+  // ---------- Mejora automática de fotos (en el navegador, sin costo) ----------
+  // Corrige luz y color (niveles por canal), aclara fotos oscuras, sube un poco la saturación y la nitidez.
+  function mejorarPixeles(c){
+    const x = c.getContext("2d"), w = c.width, h = c.height;
+    const d = x.getImageData(0,0,w,h), a = d.data, n = w*h;
+    const H = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)];
+    let lum = 0;
+    for(let i=0;i<a.length;i+=4){ H[0][a[i]]++; H[1][a[i+1]]++; H[2][a[i+2]]++; lum += .299*a[i]+.587*a[i+1]+.114*a[i+2]; }
+    const pct = (hh,p)=>{ let acc=0; const t=n*p; for(let v=0;v<256;v++){ acc+=hh[v]; if(acc>=t) return v; } return 255; };
+    const lo = H.map(hh=>pct(hh,.005)), hi = H.map(hh=>pct(hh,.995));
+    const gLo = Math.min(...lo), gHi = Math.max(...hi);
+    const media = lum/n;
+    const gamma = media < 95 ? .8 : media < 120 ? .9 : 1;
+    const LUT = [0,1,2].map(k=>{
+      // mezcla nivel por canal (balance de blancos) con nivel global, para no exagerar colores dominantes
+      const l = (lo[k]+gLo)/2, hgh = (hi[k]+gHi)/2;
+      const esc = hgh-l < 40 ? 1 : Math.min(255/(hgh-l), 1.8);
+      const t = new Uint8ClampedArray(256);
+      for(let v=0;v<256;v++){ const y = Math.min(1, Math.max(0, ((v-l)*esc)/255)); t[v] = Math.round(Math.pow(y, gamma)*255); }
+      return t;
+    });
+    const orig = new Uint8ClampedArray(a.length);
+    for(let i=0;i<a.length;i+=4){
+      let r=LUT[0][a[i]], g=LUT[1][a[i+1]], b=LUT[2][a[i+2]];
+      const gr = .299*r+.587*g+.114*b;
+      orig[i]=gr+(r-gr)*1.12; orig[i+1]=gr+(g-gr)*1.12; orig[i+2]=gr+(b-gr)*1.12; orig[i+3]=a[i+3];
+    }
+    // nitidez suave (máscara de enfoque con los 4 vecinos)
+    const k = .35, fila = w*4;
+    for(let yy=0; yy<h; yy++) for(let xx=0; xx<w; xx++){
+      const i = yy*fila + xx*4;
+      if(yy===0||xx===0||yy===h-1||xx===w-1){ a[i]=orig[i]; a[i+1]=orig[i+1]; a[i+2]=orig[i+2]; continue; }
+      for(let ch=0; ch<3; ch++){
+        const v = orig[i+ch], m = (orig[i+ch-4]+orig[i+ch+4]+orig[i+ch-fila]+orig[i+ch+fila])/4;
+        a[i+ch] = v + (v-m)*k;
+      }
+    }
+    x.putImageData(d,0,0);
+    return c;
+  }
+  const cargarImagen = src => new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=()=>rej(new Error("imagen")); i.src=src; });
+
+  const MODOS_FOTO = {
+    original: { nombre:"Tal cual", desc:"Se suben las fotos originales, solo comprimidas." },
+    mejorar:  { nombre:"Mejoradas", desc:"Luz, color y nitidez automáticos. Gratis e instantáneo." },
+    fondo:    { nombre:"Fondo blanco (IA)", desc:"Mejoradas y con el fondo quitado por IA. Más lento; tiene un pequeño costo por foto." },
+  };
+  const MODO_KEY = "vitrina-modo-foto";
+  const fondoPermitido = ()=> !!S.quitarFondo && tieneFondoIA(S.config||{});
+  const modoGuardado = ()=>{ try{ const m = localStorage.getItem(MODO_KEY); return MODOS_FOTO[m] ? m : ""; }catch(e){ return ""; } };
+  function pintarModoFoto(){
+    const m = modoGuardado(), box = $("modoFotoInfo"); if(!box) return;
+    box.hidden = !m; if(!m) return;
+    $("modoFotoTxt").textContent = "Fotos: " + MODOS_FOTO[m].nombre;
+  }
+
+  /** Pregunta una vez por lote cómo subir las fotos, con muestra de antes y después. */
+  function elegirModo(files){
+    const recordado = modoGuardado();
+    if(recordado && (recordado!=="fondo" || fondoPermitido())) return Promise.resolve(recordado);
+    return new Promise(resolve=>{
+      const ov = $("planOverlay"); ov.textContent=""; ov.hidden=false;
+      let elegido = "mejorar";
+      const cerrar = v=>{ ov.hidden=true; ov.textContent=""; ov.onclick=null; resolve(v); };
+      ov.onclick = e=>{ if(e.target===ov) cerrar(null); };
+      const muestras = el("div",{class:"muestras"});
+      const opciones = el("div",{class:"modos",role:"radiogroup","aria-label":"Cómo subir las fotos"});
+      const pintar = ()=>[...opciones.children].forEach(b=>b.setAttribute("aria-checked", String(b.dataset.modo===elegido)));
+      for(const [k,v] of Object.entries(MODOS_FOTO)){
+        if(k==="fondo" && !S.quitarFondo) continue;
+        const bloqueado = k==="fondo" && !fondoPermitido();
+        const b = el("button",{type:"button",class:"modo"+(bloqueado?" bloqueado":""),role:"radio","data-modo":k,"aria-disabled":bloqueado?"true":false,
+          onclick:()=>{ if(bloqueado){ cerrar(null); abrirPlanes(); toast("El fondo blanco con IA está en el plan Plus"); return; } elegido=k; pintar(); }},
+          el("strong",null, v.nombre + (k==="mejorar" ? " · recomendado" : "") + (bloqueado ? " · plan Plus" : "")),
+          el("span",null, bloqueado ? "Disponible en el plan Plus. Toca para ver los planes." : v.desc));
+        opciones.append(b);
+      }
+      pintar();
+      const recordar = el("input",{type:"checkbox",id:"modoRecordar"});
+      const subir = el("button",{class:"btn primary",type:"button",onclick:()=>{ if(recordar.checked){ try{ localStorage.setItem(MODO_KEY, elegido); }catch(e){} pintarModoFoto(); } cerrar(elegido); }}, `Subir ${files.length} foto${files.length===1?"":"s"}`);
+      ov.append(el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":"Cómo subir las fotos"},
+        el("div",{class:"cart-head"}, el("h2",null,`¿Cómo subimos tus ${files.length} foto${files.length===1?"":"s"}?`), el("button",{class:"btn",type:"button",onclick:()=>cerrar(null)},"Cancelar")),
+        el("p",{class:"note",style:"margin:0"},"La elección vale para todo el lote. Así se ven con la mejora automática:"),
+        muestras, opciones,
+        el("label",{class:"recordar"}, recordar, " Recordar mi elección para los próximos lotes"),
+        el("div",{class:"send"}, subir)));
+      // Muestras de antes y después (hasta 3 fotos del lote)
+      files.slice(0,3).forEach(async f=>{
+        const par = el("div",{class:"par"}); muestras.append(par);
+        try{
+          const img = await decode(f);
+          const a = lienzo(img, 260), b = mejorarPixeles(lienzo(img, 260));
+          par.append(el("figure",null, a, el("figcaption",null,"Antes")), el("figure",null, b, el("figcaption",null,"Después")));
+        }catch(e){ par.remove(); }
+      });
+    });
+  }
+
+  async function processPhoto(file, modo="original"){
     let img;
     try { img = await decode(file); }
     catch(e){ throw new Error(/heic|heif/i.test(file.type+file.name) ? "formato HEIC: expórtala como JPG (en iPhone: Ajustes › Cámara › Formatos › Más compatible)" : "no se pudo leer la imagen"); }
-    const [full, thumb] = [await toBlob(img,1600,.82), await toBlob(img,520,.78)];
     const up = async b => { try { return await S.assets.upload(b,{type:"image/jpeg"}); } catch(e){ if(e&&e.code==="store_unavailable"){ await new Promise(r=>setTimeout(r,800)); return await S.assets.upload(b,{type:"image/jpeg"}); } throw e; } };
+    if(modo==="fondo" && fondoPermitido()){
+      try { return await fotoSinFondo(img, up); }
+      catch(e){ S.fondoFallos = (S.fondoFallos||0) + 1; modo = "mejorar"; }
+    }
+    const c = lienzo(img, 1600);
+    if(modo==="mejorar" || modo==="fondo") mejorarPixeles(c);
+    const full = await aBlob(c,1600,.82), thumb = await aBlob(c,520,.78);
     const f = await up(full); const t = await up(thumb);
     return { full:f.id, thumb:t.id, _blob:thumb };
+  }
+  // Fondo blanco: sube una copia de trabajo, la IA devuelve un PNG sin fondo
+  // y aquí se pone sobre blanco con un margen, para la foto final y la miniatura.
+  async function fotoSinFondo(img, up){
+    const c = mejorarPixeles(lienzo(img, 1024));
+    if(Math.min(c.width, c.height) < 320) throw new Error("foto muy pequeña para quitar el fondo");
+    const trabajo = await up(await aBlob(c, 1024, .9));
+    try{
+      const r = await S.quitarFondo(trabajo.id);
+      const png = await cargarImagen("data:image/png;base64," + r.png);
+      const pad = Math.round(Math.max(png.width, png.height) * .06);
+      const out = document.createElement("canvas"); out.width = png.width + pad*2; out.height = png.height + pad*2;
+      const x = out.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0,0,out.width,out.height); x.drawImage(png, pad, pad);
+      const full = await aBlob(out, 1600, .86), thumb = await aBlob(out, 520, .8);
+      const f = await up(full); const t = await up(thumb);
+      return { full:f.id, thumb:t.id, _blob:thumb };
+    } finally {
+      S.assets.delete(trabajo.id).catch(()=>{});
+    }
   }
   function errText(e){
     const c = e && e.code;
@@ -66,10 +200,14 @@ import {
     if(!files.length){ toast("Ninguno de esos archivos es una foto"); return; }
     if(!S.assets || !S.db){ toast("Solo quien administra la vitrina puede subir fotos"); return; }
     if(!limitarLote(files, S.mode)) return;
+    const modoFoto = await elegirModo(files);
+    if(!modoFoto) return;
+    S.fondoFallos = 0;
     const price = parsePrice($("defPrice").value), cat = $("defCat").value.trim(), marca = $("defMarca").value.trim(), stock = parseStock($("defStock").value);
     const useAI = S.ai && $("aiToggle").checked;
     const total = files.length; let done = 0, ok = 0; const errs = $("errs"); errs.textContent="";
-    $("progress").hidden=false; setProg(0,total,"Subiendo fotos…");
+    const textoSubida = modoFoto==="fondo" ? "Quitando fondos con IA y subiendo…" : modoFoto==="mejorar" ? "Mejorando y subiendo fotos…" : "Subiendo fotos…";
+    $("progress").hidden=false; setProg(0,total,textoSubida);
     const col = S.db.collection("productos"); const base = Date.now();
     const group = S.mode==="group" && files.length>1; const groupPhotos = new Array(files.length);
     const toClassify = [];
@@ -78,7 +216,7 @@ import {
       while(i < files.length){
         const idx = i++; const f = files[idx];
         try{
-          const ph = await processPhoto(f); const blob = ph.thumb; delete ph._blob;
+          const ph = await processPhoto(f, modoFoto); const blob = ph.thumb; delete ph._blob;
           if(group){ groupPhotos[idx]={ph,blob}; }
           else {
             const nombre = nameFromFile(f), ref = col.doc();
@@ -87,15 +225,16 @@ import {
           }
           ok++;
         }catch(e){ errs.append(el("li",null,f.name+": "+errText(e))); }
-        done++; setProg(done,total, done<total ? "Subiendo fotos…" : "");
+        done++; setProg(done,total, done<total ? textoSubida : "");
       }
     }
-    await Promise.all(Array.from({length:Math.min(4,files.length)}, worker));
+    await Promise.all(Array.from({length:Math.min(modoFoto==="fondo"?2:4,files.length)}, worker));
     if(group){
       const got = groupPhotos.filter(Boolean);
       if(got.length){ try{ const nombre=nameFromFile(files[0]), ref=col.doc(); await ref.set({ nombre, marca, precio:price, stock, categoria:cat, publico:"", descripcion:"", estado:"disponible", fotos:got.map(g=>g.ph), creado:base }); if(useAI) toClassify.push({ id:ref.id, blob:got[0].blob, name:nombre==="Producto nuevo", cat:!cat, marca:!marca }); }catch(e){ errs.append(el("li",null,"No se pudo crear el producto: "+errText(e))); ok=0; } }
     }
     const fail = total-ok;
+    if(S.fondoFallos) errs.append(el("li",null,`${S.fondoFallos} foto(s) se subieron mejoradas pero sin quitar el fondo (la IA no respondió). Puedes reintentarlas más tarde.`));
     const doneMsg = fail ? `Listo: ${ok} subidas, ${fail} con problema` : (group ? `Listo: 1 producto con ${ok} fotos` : `Listo: ${ok} productos publicados`);
     setProg(total,total, doneMsg);
     $("fileInput").value="";
@@ -274,7 +413,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     if(S.canEdit && photoIdx>0) gal.append(el("button",{class:"btn",type:"button",onclick:async()=>{ const nf=[fotos[photoIdx],...fotos.filter((_,j)=>j!==photoIdx)]; await S.db.doc("productos/"+p.id).update({fotos:nf}); photoIdx=0; toast("Portada cambiada"); }},"Usar como portada"));
     if(S.canEdit){
       const add = el("input",{type:"file",accept:"image/*",multiple:"",hidden:"",id:"addPh"});
-      add.onchange = async ()=>{ const fs=[...add.files]; if(!fs.length) return; toast("Subiendo "+fs.length+" foto(s)…"); const nuevas=[]; for(const f of fs){ try{ nuevas.push(await processPhoto(f)); }catch(e){ toast(f.name+": "+errText(e)); } } const cur=(S.products.find(x=>x.id===p.id)||p).fotos||[]; if(nuevas.length){ await S.db.doc("productos/"+p.id).update({fotos:[...cur,...nuevas]}); toast("Fotos agregadas"); } };
+      add.onchange = async ()=>{ const fs=[...add.files]; if(!fs.length) return; toast("Subiendo "+fs.length+" foto(s)…"); const nuevas=[]; for(const f of fs){ try{ nuevas.push(await processPhoto(f, modoGuardado()||"mejorar")); }catch(e){ toast(f.name+": "+errText(e)); } } const cur=(S.products.find(x=>x.id===p.id)||p).fotos||[]; if(nuevas.length){ await S.db.doc("productos/"+p.id).update({fotos:[...cur,...nuevas]}); toast("Fotos agregadas"); } };
       gal.append(add, el("button",{class:"btn",type:"button",onclick:()=>add.click()},"+ Agregar fotos"));
     }
     const side = el("div",{class:"side"});
@@ -727,7 +866,9 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       grid.append(el("div",{class:"plan-card"+(pl.id===u.plan.id?" on":"")},
         el("strong",null,pl.nombre),
         el("div",{class:"plan-price"}, pl.precio ? `S/ ${pl.precio}` : "Gratis", pl.precio ? el("small",null," /mes") : null),
-        el("span",null, pl.limite==null ? "Productos ilimitados" : `Hasta ${pl.limite} productos`), btn));
+        el("span",null, pl.limite==null ? "Productos ilimitados" : `Hasta ${pl.limite} productos`),
+        el("span",null, "Fotos mejoradas automáticamente"),
+        pl.extra ? el("span",{class:"extra"}, "+ " + pl.extra) : null, btn));
     }
     card.append(grid, el("p",{class:"note",style:"margin:0"},"Pago mensual con tarjeta a través de Stripe. Puedes volver a Free cuando quieras."));
     ov.append(card);
@@ -866,7 +1007,9 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
 
     // Vitrina de la vendedora: solo sus productos y sus fotos
     usarModoVendedora(tienda.id);
-    S.db = db; S.assets = assets; S.ai = ai; S.aiMax = 8; S.canEdit = true;
+    S.db = db; S.assets = assets; S.ai = ai; S.aiMax = 8; S.canEdit = true; S.quitarFondo = quitarFondo;
+    pintarModoFoto();
+    $("modoFotoCambiar").onclick = ()=>{ try{ localStorage.removeItem(MODO_KEY); }catch(e){} pintarModoFoto(); toast("Te preguntaremos en la próxima subida"); };
     show("upload", true); show("settingsBtn", true); show("aiRow", true); show("bulkAI", true);
     show("myStoreBtn", !!ses.superadmin);
     $("myStoreBtn").onclick = ()=>{ location.hash=""; location.reload(); };

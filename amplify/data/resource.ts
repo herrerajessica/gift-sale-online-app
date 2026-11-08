@@ -2,6 +2,7 @@ import { type ClientSchema, a, defineData } from '@aws-amplify/backend';
 import { clasificar } from '../functions/clasificar/resource';
 import { catalogo } from '../functions/catalogo/resource';
 import { pagos } from '../functions/pagos/resource';
+import { fondo } from '../functions/fondo/resource';
 
 /**
  * Aislamiento por vendedora:
@@ -89,6 +90,14 @@ const schema = a.schema({
     .arguments({ paths: a.string().array().required() })
     .returns(a.string())
     .handler(a.handler.function(clasificar))
+    .authorization((allow) => [allow.authenticated()]),
+
+  // Foto con fondo blanco: quita el fondo con Nova Canvas (Bedrock)
+  quitarFondo: a
+    .mutation()
+    .arguments({ tiendaId: a.string().required(), path: a.string().required() })
+    .returns(a.string())
+    .handler(a.handler.function(fondo))
     .authorization((allow) => [allow.authenticated()]),
 
   // --- Pagos (Stripe) ---
