@@ -6,7 +6,7 @@ Plataforma para revendedoras de productos traídos de USA. Cada vendedora crea s
 
 | Parte | Servicio AWS | Archivo |
 |---|---|---|
-| Cuentas de vendedoras y dueña | Cognito (grupo `SUPERADMIN`) | `amplify/auth/resource.ts` |
+| Cuentas de vendedoras y dueña | Cognito (correo o Google, grupo `SUPERADMIN`) | `amplify/auth/resource.ts` |
 | Tiendas y productos, aislados por dueña | AppSync + DynamoDB (`allow.owner()`) | `amplify/data/resource.ts` |
 | Vitrina pública (solo tiendas aprobadas) | Lambda `catalogo` | `amplify/functions/catalogo/` |
 | Fotos, cada vendedora en su carpeta | S3 + CloudFront | `amplify/storage/resource.ts`, `amplify/backend.ts` |
@@ -60,6 +60,21 @@ La idea central es **subir muchas fotos de una vez**. Al arrastrar el lote se pu
 7. Copia el **Signing secret** (`whsec_...`), actualiza el secreto `STRIPE_WEBHOOK_SECRET` en Amplify y vuelve a desplegar.
 
 Tarjeta de prueba: `4242 4242 4242 4242`, cualquier fecha futura y cualquier CVC.
+
+## Iniciar sesión con Google (opcional)
+
+Las vendedoras pueden entrar con **Continuar con Google** además de su correo. Se activa después del primer despliegue:
+
+1. En [Google Cloud Console](https://console.cloud.google.com/) crea un proyecto › *APIs y servicios* › **Pantalla de consentimiento de OAuth** (tipo *Externo*, nombre de la app, correo de soporte).
+2. *Credenciales* › **Crear ID de cliente de OAuth** › *Aplicación web*. Copia el **ID de cliente** y el **secreto**.
+3. En Amplify › Hosting › **Secrets**, crea `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET`. En **Environment variables**, crea `GOOGLE_LOGIN` = `si` y `SITE_URL` = la URL de tu app (ej. `https://main.d123.amplifyapp.com`). Vuelve a desplegar.
+4. Copia el dominio de Cognito (en `amplify_outputs.json` › `auth.oauth.domain`, o Cognito › App integration › Domain). En el cliente de Google agrega:
+   - *Orígenes de JavaScript autorizados:* `https://<dominio-de-cognito>`
+   - *URI de redirección autorizados:* `https://<dominio-de-cognito>/oauth2/idpresponse`
+
+Mientras `GOOGLE_LOGIN` no sea `si`, el botón no aparece y el despliegue no necesita los secretos de Google.
+
+Nota: si una vendedora ya tenía cuenta con correo y contraseña y luego entra con Google usando el mismo correo, Cognito crea una cuenta separada. Para unirlas haría falta un disparador *pre sign-up* que enlace ambas identidades.
 
 ## Publicar en AWS (primera vez)
 

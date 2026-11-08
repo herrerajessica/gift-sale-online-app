@@ -6,14 +6,28 @@ import { Amplify } from 'aws-amplify';
 import { generateClient } from 'aws-amplify/data';
 import { uploadData, remove } from 'aws-amplify/storage';
 import {
-  signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn, fetchAuthSession,
+  signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn, fetchAuthSession, signInWithRedirect,
 } from 'aws-amplify/auth';
+import { Hub } from 'aws-amplify/utils';
+import 'aws-amplify/auth/enable-oauth-listener';
 import outputs from '../amplify_outputs.json';
 
 Amplify.configure(outputs);
 const client = generateClient();
 
 export const FOTOS_BASE = (outputs.custom && outputs.custom.fotosUrl) || '';
+
+// ---------- Inicio de sesión con Google ----------
+export const googleDisponible = !!(outputs.auth && outputs.auth.oauth
+  && (outputs.auth.oauth.identity_providers || []).includes('GOOGLE'));
+export const entrarConGoogle = () => signInWithRedirect({ provider: 'Google' });
+/** Al volver de Google: avisa cuando la sesión quedó lista o si falló. */
+export function alVolverDeGoogle(ok, error) {
+  return Hub.listen('auth', ({ payload }) => {
+    if (payload.event === 'signInWithRedirect') ok();
+    if (payload.event === 'signInWithRedirect_failure') error(payload.data && payload.data.error);
+  });
+}
 export { signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn };
 
 // ---------- Sesión ----------

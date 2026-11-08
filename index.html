@@ -104,7 +104,7 @@ button{cursor:pointer}
 .card.agotado .ph img{filter:grayscale(.85);opacity:.6}
 .stockpill{font-size:12px;font-weight:600;color:var(--hold)}
 .stockpill.ok{color:var(--muted);font-weight:500}
-.brand{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.marca-tag{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 .status.oculto{color:var(--muted);border:1.5px dashed currentColor}
 .card.oculto .ph img{opacity:.45}
 .status.apartado{color:var(--hold);border:1.5px solid currentColor}
@@ -242,6 +242,10 @@ td small{color:var(--muted);font-family:var(--mono)}
 .modo[aria-checked="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 7%,var(--surface))}
 .modo.bloqueado{opacity:.75;border-style:dashed}
 .plan-card .extra{color:var(--accent);font-weight:600}
+.google{display:grid;gap:10px}
+.gbtn{justify-content:center;gap:10px;padding:11px 14px;font-size:15px}
+.google .sep{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.google .sep::before,.google .sep::after{content:"";flex:1;height:1px;background:var(--line)}
 .recordar{display:flex;gap:8px;align-items:center;font-size:14px}
 .paid{margin-top:16px;border:1.5px solid var(--ok);background:var(--surface);border-radius:12px;padding:14px;display:grid;gap:8px}
 .paid h2{margin:0;font-family:var(--display);font-weight:800;font-size:22px}
@@ -269,6 +273,10 @@ td small{color:var(--muted);font-family:var(--mono)}
 
   <form class="login" id="login" hidden novalidate>
     <h2 id="authTitle">Entrar</h2>
+    <div class="google" id="googleBox" hidden>
+      <button class="btn gbtn" type="button" id="googleBtn"><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18"><path fill="#4285F4" d="M22.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.4h5.9a5 5 0 0 1-2.2 3.3v2.7h3.5c2.1-1.9 3.3-4.7 3.3-8.1z"/><path fill="#34A853" d="M12 23c3 0 5.5-1 7.3-2.7l-3.5-2.7c-1 .7-2.3 1.1-3.8 1.1-2.9 0-5.4-2-6.3-4.6H2.1v2.8A11 11 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.7 14.1a6.6 6.6 0 0 1 0-4.2V7.1H2.1a11 11 0 0 0 0 9.8z"/><path fill="#EA4335" d="M12 5.4c1.6 0 3.1.6 4.2 1.7l3.1-3.1A11 11 0 0 0 2.1 7.1l3.6 2.8C6.6 7.4 9.1 5.4 12 5.4z"/></svg>Continuar con Google</button>
+      <span class="sep">o con tu correo</span>
+    </div>
     <p class="note" id="authHint" style="margin:0" hidden></p>
     <label class="f" id="emailRow">Correo<input id="loginEmail" type="email" autocomplete="username" required></label>
     <label class="f" id="passRow">Contraseña<input id="loginPass" type="password" autocomplete="current-password" required></label>

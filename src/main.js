@@ -2,6 +2,7 @@ import {
   FOTOS_BASE, db, assets, ai, sesion, usarModoPublico, usarModoVendedora, estadoCatalogo,
   miTienda, crearTienda, listarTiendas, cambiarEstadoTienda, limpiarSlug, SLUG_RE,
   signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn,
+  googleDisponible, entrarConGoogle, alVolverDeGoogle,
   PLANES, planVigente, tieneFondoIA, pagarPlan, quitarFondo, cancelarPlan, conectarCobros, estadoCobros, pagarPedido, pedidoYape,
   miTiendaActual, listarPedidos, cambiarEstadoPedido, cambiarPlanTienda,
 } from './amplify-adapter.js';
@@ -342,7 +343,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       else if(p.stock===0) ph.append(el("span",{class:"status agotado"},"Agotado"));
       if(S.selecting) ph.append(el("span",{class:"check","aria-hidden":"true"}, S.sel.has(p.id)?"✓":""));
       else if(p.fotos && p.fotos.length>1) ph.append(el("span",{class:"multi"}, p.fotos.length+" fotos"));
-      open.append(ph, el("div",{class:"info",style:"padding-bottom:0"}, p.marca ? el("span",{class:"brand"},p.marca) : null, el("span",{class:"name"},p.nombre||"Sin nombre"), el("span",{class:"meta"}, el("span",null,p.categoria||""), el("span",null,p.publico||"")), stockTxt(p) ? el("span",{class:"stockpill"+(S.canEdit && p.stock>3?" ok":"")}, stockTxt(p)) : null));
+      open.append(ph, el("div",{class:"info",style:"padding-bottom:0"}, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, el("span",{class:"name"},p.nombre||"Sin nombre"), el("span",{class:"meta"}, el("span",null,p.categoria||""), el("span",null,p.publico||"")), stockTxt(p) ? el("span",{class:"stockpill"+(S.canEdit && p.stock>3?" ok":"")}, stockTxt(p)) : null));
       card.append(open);
       if(!S.selecting) card.append(el("div",{class:"info",style:"padding-top:0"}, addButton(p)));
       grid.append(card);
@@ -441,7 +442,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       ), conf);
     } else {
       const st=p.estado||"disponible";
-      side.append(p.marca ? el("span",{class:"brand"},p.marca) : null, el("h2",null,p.nombre||"Producto"),
+      side.append(p.marca ? el("span",{class:"marca-tag"},p.marca) : null, el("h2",null,p.nombre||"Producto"),
         el("div",{class:"bigprice"}, p.precio==null?"Precio a consultar":money(p.precio), p.precio!=null && soles(p.precio) ? el("span",{class:"bigsol"}, soles(p.precio)) : null),
         st!=="disponible" ? el("span",{class:"status "+st,style:"position:static;justify-self:start"}, st==="vendido"?"Vendido":"Apartado") : p.stock===0 ? el("span",{class:"status agotado",style:"position:static;justify-self:start"},"Agotado") : null,
         stockTxt(p) ? el("span",{class:"stockpill"}, stockTxt(p)) : null,
@@ -688,11 +689,17 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     show("emailRow", p==="login"||p==="signup"); show("passRow", p==="login"||p==="signup");
     show("codeRow", p==="confirm"); show("resendCode", p==="confirm"); show("newPassRow", p==="newPassword");
     show("authSwitch", p==="login"||p==="signup");
+    show("googleBox", googleDisponible && (p==="login"||p==="signup"));
     $("authSwitch").textContent = p==="signup" ? "Ya tengo cuenta" : "Crear una cuenta";
     $("loginPass").autocomplete = p==="signup" ? "new-password" : "current-password";
     const h=$("authHint"); h.textContent = hint||""; h.hidden = !hint;
   }
   function abrirAuth(p){ show("landing", false); show("login", true); pasoAuth(p, p==="signup" ? "Usa tu correo. La contraseña necesita 8 caracteres con mayúscula, minúscula, número y símbolo." : ""); $("login").scrollIntoView({block:"start"}); (p==="confirm"?$("loginCode"):$("loginEmail")).focus(); }
+  $("googleBtn").onclick = async ()=>{
+    $("googleBtn").disabled = true; loginErr("");
+    try{ await entrarConGoogle(); }   // la página se va a Google y vuelve sola
+    catch(e){ $("googleBtn").disabled = false; loginErr(e && e.name==="UserAlreadyAuthenticatedException" ? "Ya tienes una sesión abierta. Recarga la página." : "No se pudo abrir Google. Intenta de nuevo."); }
+  };
   $("adminLink").onclick = ()=>abrirAuth("signup");
   $("goSignup").onclick = ()=>abrirAuth("signup");
   $("goLogin").onclick = ()=>abrirAuth("login");
@@ -970,6 +977,17 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
 
   // ----- Arranque -----
   (async ()=>{
+    // Regreso desde Google: esperar a que Amplify termine de abrir la sesión.
+    if(params.has("code") && params.has("state")){
+      show("landing", false); show("vitrina", false);
+      toast("Entrando con tu cuenta de Google…");
+      await new Promise(res=>{
+        const listo = ()=>{ parar(); res(); };
+        const parar = alVolverDeGoogle(listo, ()=>{ parar(); toast("No se pudo entrar con Google. Intenta de nuevo."); res(); });
+        setTimeout(listo, 8000);
+      });
+      history.replaceState(null, "", location.pathname);
+    }
     const ses = await sesion();
     show("logoutBtn", ses.logged); show("adminLink", !ses.logged && !slugPublico);
     show("panelBtn", !!ses.superadmin);
