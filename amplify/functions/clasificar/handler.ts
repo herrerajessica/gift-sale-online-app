@@ -12,7 +12,7 @@ export const CATEGORIAS = [
 export const PUBLICOS = ['Mujer', 'Hombre', 'Niños', 'Unisex'];
 const MAX_FOTOS = 8;
 
-type Resultado = { i: number; categoria?: string; publico?: string; nombre?: string; marca?: string };
+type Resultado = { i: number; categoria?: string; publico?: string; nombre?: string; marca?: string; costo?: number; talla?: string };
 
 async function leerFoto(path: string): Promise<string> {
   if (!path.startsWith('productos/')) throw new Error('Ruta no permitida');
@@ -29,7 +29,9 @@ Para cada foto responde un objeto con:
 - "publico": exactamente uno de: ${PUBLICOS.join(', ')} (usa Unisex si no se distingue)
 - "nombre": nombre corto de venta en español, de 2 a 6 palabras, que describa tipo, estilo y color, sin la marca (ej. "Jean wide leg con cordón", "Zapatillas running negras").
 - "marca": la marca solo si su logo, etiqueta o diseño característico se ve claramente en la foto; si no, "".
-Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","publico":"Hombre","nombre":"Zapatillas running negras","marca":"Adidas"}]`;
+- "costo": el precio en dólares que se lee en la etiqueta de precio de la tienda (si hay varios, el más bajo o el de liquidación), como número; si no se ve claro, null.
+- "talla": la talla si se lee en la etiqueta o en el producto (ej. "8", "M", "32x30"); si no, "".
+Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","publico":"Mujer","nombre":"Mocasines rosados con lazo","marca":"","costo":19.99,"talla":"8"}]`;
 }
 
 function limpiar(arr: unknown, n: number): Resultado[] {
@@ -42,6 +44,8 @@ function limpiar(arr: unknown, n: number): Resultado[] {
       publico: PUBLICOS.includes(String(r.publico)) ? String(r.publico) : undefined,
       nombre: typeof r.nombre === 'string' && r.nombre.trim() ? r.nombre.trim().slice(0, 80) : undefined,
       marca: typeof r.marca === 'string' && r.marca.trim() ? r.marca.trim().slice(0, 40) : undefined,
+      costo: typeof r.costo === 'number' && r.costo > 0 && r.costo < 10000 ? Math.round(r.costo * 100) / 100 : undefined,
+      talla: typeof r.talla === 'string' && r.talla.trim() ? r.talla.trim().slice(0, 12) : undefined,
     }))
     .filter((r) => r.i >= 0 && r.i < n);
 }

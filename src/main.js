@@ -19,6 +19,9 @@ import {
   const parseStock = v => { const t=String(v??"").trim(); if(t==="") return null; const n=parseInt(t.replace(/\D/g,""),10); return isFinite(n) ? Math.min(n, 99999) : null; };
   // Un producto no se puede pedir si está vendido o su cantidad llegó a 0.
   const agotado = p => p.estado==="vendido" || p.stock===0;
+  // Precio de venta = costo + margen, redondeado hacia arriba al dólar.
+  const conMargen = (costo, margen) => Math.max(1, Math.ceil(costo * (1 + margen/100)));
+  const parseMargen = v => { const n = parseFloat(String(v||"").replace(",",".").replace(/[^0-9.]/g,"")); return isFinite(n) && n>=0 && n<1000 ? n : null; };
   const parsePrice = v => { const n = parseFloat(String(v||"").replace(/[^0-9.]/g,"")); return isFinite(n) ? Math.round(n*100)/100 : null; };
   const src = id => FOTOS_BASE + "/" + id;
   let toastT;
@@ -204,7 +207,7 @@ import {
     const modoFoto = await elegirModo(files);
     if(!modoFoto) return;
     S.fondoFallos = 0;
-    const price = parsePrice($("defPrice").value), cat = $("defCat").value.trim(), marca = $("defMarca").value.trim(), stock = parseStock($("defStock").value);
+    const price = parsePrice($("defPrice").value), cat = $("defCat").value.trim(), marca = $("defMarca").value.trim(), stock = parseStock($("defStock").value), margen = parseMargen($("defMargen").value);
     const useAI = S.ai && $("aiToggle").checked;
     const total = files.length; let done = 0, ok = 0; const errs = $("errs"); errs.textContent="";
     const textoSubida = modoFoto==="fondo" ? "Quitando fondos con IA y subiendo…" : modoFoto==="mejorar" ? "Mejorando y subiendo fotos…" : "Subiendo fotos…";
@@ -217,12 +220,12 @@ import {
       while(i < files.length){
         const idx = i++; const f = files[idx];
         try{
-          const ph = await processPhoto(f, modoFoto); const blob = ph.thumb; delete ph._blob;
+          const ph = await processPhoto(f, modoFoto); const blob = ph.full; delete ph._blob; // foto grande: la IA lee mejor las etiquetas
           if(group){ groupPhotos[idx]={ph,blob}; }
           else {
             const nombre = nameFromFile(f), ref = col.doc();
             await ref.set({ nombre, marca, precio:price, stock, categoria:cat, publico:"", descripcion:"", estado:"disponible", fotos:[ph], creado: base + (total-idx) });
-            if(useAI) toClassify.push({ id:ref.id, blob, name:nombre==="Producto nuevo", cat:!cat, marca:!marca });
+            if(useAI) toClassify.push({ id:ref.id, blob, name:nombre==="Producto nuevo", cat:!cat, marca:!marca, margen: price==null ? margen : null });
           }
           ok++;
         }catch(e){ errs.append(el("li",null,f.name+": "+errText(e))); }
@@ -232,7 +235,7 @@ import {
     await Promise.all(Array.from({length:Math.min(modoFoto==="fondo"?2:4,files.length)}, worker));
     if(group){
       const got = groupPhotos.filter(Boolean);
-      if(got.length){ try{ const nombre=nameFromFile(files[0]), ref=col.doc(); await ref.set({ nombre, marca, precio:price, stock, categoria:cat, publico:"", descripcion:"", estado:"disponible", fotos:got.map(g=>g.ph), creado:base }); if(useAI) toClassify.push({ id:ref.id, blob:got[0].blob, name:nombre==="Producto nuevo", cat:!cat, marca:!marca }); }catch(e){ errs.append(el("li",null,"No se pudo crear el producto: "+errText(e))); ok=0; } }
+      if(got.length){ try{ const nombre=nameFromFile(files[0]), ref=col.doc(); await ref.set({ nombre, marca, precio:price, stock, categoria:cat, publico:"", descripcion:"", estado:"disponible", fotos:got.map(g=>g.ph), creado:base }); if(useAI) toClassify.push({ id:ref.id, blob:got[0].blob, name:nombre==="Producto nuevo", cat:!cat, marca:!marca, margen: price==null ? margen : null }); }catch(e){ errs.append(el("li",null,"No se pudo crear el producto: "+errText(e))); ok=0; } }
     }
     const fail = total-ok;
     if(S.fondoFallos) errs.append(el("li",null,`${S.fondoFallos} foto(s) se subieron mejoradas pero sin quitar el fondo (la IA no respondió). Puedes reintentarlas más tarde.`));
@@ -260,7 +263,9 @@ Para cada foto responde un objeto con:
 - "publico": exactamente uno de: ${PUBLICOS.join(", ")} (usa Unisex si no se distingue)
 - "nombre": nombre corto de venta en español, de 2 a 6 palabras, que describa tipo, estilo y color, sin la marca (ej. "Jean wide leg con cordón", "Zapatillas running negras").
 - "marca": la marca solo si su logo, etiqueta o diseño característico se ve claramente en la foto; si no, "".
-Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","publico":"Hombre","nombre":"Zapatillas running negras","marca":"Adidas"}]`;
+- "costo": el precio en dólares que se lee en la etiqueta de precio de la tienda (si hay varios, el más bajo o el de liquidación), como número; si no se ve claro, null.
+- "talla": la talla si se lee en la etiqueta o en el producto (ej. "8", "M", "32x30"); si no, "".
+Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","publico":"Mujer","nombre":"Mocasines rosados con lazo","marca":"","costo":19.99,"talla":"8"}]`;
       let res;
       try { res = await S.ai.json(prompt, { images: batch.map(b=>b.blob), modelTier:"quick" }); }
       catch(e){
@@ -277,6 +282,11 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         if(PUBLICOS.includes(r.publico)) patch.publico = r.publico;
         if(b.name && typeof r.nombre==="string" && r.nombre.trim()) patch.nombre = r.nombre.trim().slice(0,80);
         if(b.marca!==false && typeof r.marca==="string" && r.marca.trim()) patch.marca = r.marca.trim().slice(0,40);
+        if(typeof r.costo==="number" && r.costo>0 && r.costo<10000){
+          patch.costo = Math.round(r.costo*100)/100;
+          if(b.margen!=null) patch.precio = conMargen(patch.costo, b.margen);
+        }
+        if(typeof r.talla==="string" && r.talla.trim()) patch.talla = r.talla.trim().slice(0,12);
         if(Object.keys(patch).length){ try{ await S.db.doc("productos/"+b.id).update(patch); }catch(e){ fails++; } }
       }));
       n += batch.length; setProg(n, items.length, "Detectando categorías con IA…");
@@ -291,7 +301,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const items=[];
     for(const id of ids){
       const p=S.products.find(x=>x.id===id), f=p&&p.fotos&&p.fotos[0]; if(!f) continue;
-      items.push({ id, blob:f.thumb||f.full, name:true, cat:true });
+      items.push({ id, blob:f.full||f.thumb, name:true, cat:true });
     }
     if(!items.length){ toast("Esos productos no tienen fotos"); return; }
     await classify(items); setProg(items.length, items.length, S.aiMsg||"Listo");
@@ -302,7 +312,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   // ---------- Render ----------
   function filtered(){
     const q = S.q.toLowerCase();
-    return S.products.filter(p => (!S.cat || p.categoria===S.cat) && (!S.pub || p.publico===S.pub || (S.pub!=="Niños" && p.publico==="Unisex")) && (!q || (p.nombre+" "+(p.marca||"")+" "+(p.categoria||"")+" "+(p.publico||"")+" "+(p.descripcion||"")).toLowerCase().includes(q)));
+    return S.products.filter(p => (!S.cat || p.categoria===S.cat) && (!S.pub || p.publico===S.pub || (S.pub!=="Niños" && p.publico==="Unisex")) && (!q || (p.nombre+" "+(p.marca||"")+" "+(p.talla?"talla "+p.talla:"")+" "+(p.categoria||"")+" "+(p.publico||"")+" "+(p.descripcion||"")).toLowerCase().includes(q)));
   }
   function renderCats(){
     const counts = {}; S.products.forEach(p=>{ if(p.categoria) counts[p.categoria]=(counts[p.categoria]||0)+1; });
@@ -343,7 +353,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       else if(p.stock===0) ph.append(el("span",{class:"status agotado"},"Agotado"));
       if(S.selecting) ph.append(el("span",{class:"check","aria-hidden":"true"}, S.sel.has(p.id)?"✓":""));
       else if(p.fotos && p.fotos.length>1) ph.append(el("span",{class:"multi"}, p.fotos.length+" fotos"));
-      open.append(ph, el("div",{class:"info",style:"padding-bottom:0"}, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, el("span",{class:"name"},p.nombre||"Sin nombre"), el("span",{class:"meta"}, el("span",null,p.categoria||""), el("span",null,p.publico||"")), stockTxt(p) ? el("span",{class:"stockpill"+(S.canEdit && p.stock>3?" ok":"")}, stockTxt(p)) : null));
+      open.append(ph, el("div",{class:"info",style:"padding-bottom:0"}, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, el("span",{class:"name"},p.nombre||"Sin nombre"), el("span",{class:"meta"}, el("span",null,[p.categoria, p.talla ? "Talla "+p.talla : ""].filter(Boolean).join(" · ")), el("span",null,p.publico||"")), S.canEdit && p.costo!=null ? el("span",{class:"costo"}, `Costo ${money(p.costo)}`+(p.precio!=null && p.costo>0 ? ` · margen ${Math.round((p.precio/p.costo-1)*100)} %` : "")) : null, stockTxt(p) ? el("span",{class:"stockpill"+(S.canEdit && p.stock>3?" ok":"")}, stockTxt(p)) : null));
       card.append(open);
       if(!S.selecting) card.append(el("div",{class:"info",style:"padding-top:0"}, addButton(p)));
       grid.append(card);
@@ -370,12 +380,19 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   $("bulkAll").onclick = ()=>{ const ids=filtered().map(p=>p.id); const all=ids.every(id=>S.sel.has(id)); ids.forEach(id=>all?S.sel.delete(id):S.sel.add(id)); render(); };
   async function runPool(ids, fn){ let i=0, fails=0; await Promise.all(Array.from({length:Math.min(4,ids.length)},async()=>{ while(i<ids.length){ const id=ids[i++]; try{ await fn(id); }catch(e){ fails++; } } })); return fails; }
   $("bulkApply").onclick = async ()=>{
-    const patch={}; const pv=$("bulkPrice").value.trim(), cv=$("bulkCat").value.trim(), sv=$("bulkStatus").value, pb=$("bulkPub").value, mv=$("bulkMarca").value.trim(), qv=$("bulkStock").value.trim();
+    const patch={}; const pv=$("bulkPrice").value.trim(), cv=$("bulkCat").value.trim(), sv=$("bulkStatus").value, pb=$("bulkPub").value, mv=$("bulkMarca").value.trim(), qv=$("bulkStock").value.trim(), mg=parseMargen($("bulkMargen").value);
     if(pv) patch.precio=parsePrice(pv); if(cv) patch.categoria=cv; if(sv) patch.estado=sv; if(pb) patch.publico=pb; if(mv) patch.marca=mv; if(qv) patch.stock=parseStock(qv);
-    if(!Object.keys(patch).length){ toast("Escribe un precio, marca, cantidad o categoría, o elige un estado"); return; }
+    if(!Object.keys(patch).length && mg==null){ toast("Escribe un precio, margen, marca, cantidad o categoría, o elige un estado"); return; }
+    if(pv && mg!=null){ toast("Usa precio fijo o margen, no los dos"); return; }
     const ids=[...S.sel]; $("bulkApply").disabled=true;
-    const fails = await runPool(ids, id=>S.db.doc("productos/"+id).update(patch));
-    $("bulkPrice").value=$("bulkCat").value=$("bulkMarca").value=$("bulkStock").value=""; $("bulkStatus").value=""; $("bulkPub").value="";
+    let sinCosto = 0;
+    const fails = await runPool(ids, id=>{
+      const p = S.products.find(x=>x.id===id); const cambio = { ...patch };
+      if(mg!=null){ if(p && p.costo>0) cambio.precio = conMargen(p.costo, mg); else sinCosto++; }
+      return Object.keys(cambio).length ? S.db.doc("productos/"+id).update(cambio) : Promise.resolve();
+    });
+    if(sinCosto) toast(`${sinCosto} producto(s) sin costo: el margen no se aplicó a esos`);
+    $("bulkPrice").value=$("bulkCat").value=$("bulkMarca").value=$("bulkStock").value=$("bulkMargen").value=""; $("bulkStatus").value=""; $("bulkPub").value="";
     toast(fails ? `Actualizados ${ids.length-fails}; ${fails} fallaron` : `${ids.length} productos actualizados`); renderBulk();
   };
   $("bulkAI").onclick = ()=>classifySelected();
@@ -426,6 +443,9 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
           el("label",{class:"f"},"Marca", el("input",{id:"eMarca",list:"marcaList",maxlength:"40",value:v("eMarca",p.marca||""),placeholder:"Ej. Michael Kors"})),
           el("label",{class:"f"},"Cantidad disponible", el("input",{id:"eStock",inputmode:"numeric",value:v("eStock",p.stock==null?"":String(p.stock)),placeholder:"Sin control"}))),
         el("div",{class:"row2"},
+          el("label",{class:"f"},"Costo USD (privado)", el("input",{id:"eCosto",inputmode:"decimal",value:v("eCosto",p.costo==null?"":String(p.costo)),placeholder:"Precio de la etiqueta"})),
+          el("label",{class:"f"},"Talla", el("input",{id:"eTalla",maxlength:"12",value:v("eTalla",p.talla||""),placeholder:"Ej. 8, M, 32x30"}))),
+        el("div",{class:"row2"},
           el("label",{class:"f"},"Precio (USD)", el("input",{id:"ePrice",inputmode:"decimal",value:v("ePrice",p.precio==null?"":String(p.precio)),placeholder:"Consultar"})),
           el("label",{class:"f"},"Estado", (()=>{ const s=el("select",{id:"eStatus"}); [["disponible","Disponible"],["apartado","Apartado"],["vendido","Vendido"],["oculto","Oculto (no se muestra en la tienda)"]].forEach(([k,l])=>s.append(el("option",{value:k},l))); s.value=v("eStatus",p.estado||"disponible"); return s; })())
         ),
@@ -438,13 +458,14 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       side.append(el("div",{class:"actions"},
         el("button",{class:"btn danger",type:"button",onclick:()=>{conf.hidden=false;}},"Borrar"),
         el("div",{style:"display:flex;gap:8px"}, el("button",{class:"btn",type:"button",onclick:closeSheet},"Cerrar"),
-          el("button",{class:"btn primary",type:"button",onclick:async()=>{ const patch={ nombre:$("eName").value.trim()||"Producto nuevo", marca:$("eMarca").value.trim(), stock:parseStock($("eStock").value), precio:parsePrice($("ePrice").value), estado:$("eStatus").value, categoria:$("eCat").value.trim(), publico:$("ePub").value, descripcion:$("eDesc").value.trim() }; try{ await S.db.doc("productos/"+p.id).update(patch); toast("Guardado"); closeSheet(); }catch(e){ toast("No se pudo guardar. Revisa tu conexión e intenta de nuevo."); } }},"Guardar"))
+          el("button",{class:"btn primary",type:"button",onclick:async()=>{ const patch={ nombre:$("eName").value.trim()||"Producto nuevo", marca:$("eMarca").value.trim(), stock:parseStock($("eStock").value), costo:parsePrice($("eCosto").value), talla:$("eTalla").value.trim(), precio:parsePrice($("ePrice").value), estado:$("eStatus").value, categoria:$("eCat").value.trim(), publico:$("ePub").value, descripcion:$("eDesc").value.trim() }; try{ await S.db.doc("productos/"+p.id).update(patch); toast("Guardado"); closeSheet(); }catch(e){ toast("No se pudo guardar. Revisa tu conexión e intenta de nuevo."); } }},"Guardar"))
       ), conf);
     } else {
       const st=p.estado||"disponible";
       side.append(p.marca ? el("span",{class:"marca-tag"},p.marca) : null, el("h2",null,p.nombre||"Producto"),
         el("div",{class:"bigprice"}, p.precio==null?"Precio a consultar":money(p.precio), p.precio!=null && soles(p.precio) ? el("span",{class:"bigsol"}, soles(p.precio)) : null),
         st!=="disponible" ? el("span",{class:"status "+st,style:"position:static;justify-self:start"}, st==="vendido"?"Vendido":"Apartado") : p.stock===0 ? el("span",{class:"status agotado",style:"position:static;justify-self:start"},"Agotado") : null,
+        p.talla ? el("span",null, el("strong",null,"Talla: "), p.talla) : null,
         stockTxt(p) ? el("span",{class:"stockpill"}, stockTxt(p)) : null,
         (p.categoria||p.publico) ? el("span",{class:"note",style:"margin:0"}, [p.categoria,p.publico].filter(Boolean).join(" · ")) : null,
         p.descripcion ? el("p",{class:"desc"}, p.descripcion) : null);

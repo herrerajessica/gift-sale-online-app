@@ -104,6 +104,7 @@ button{cursor:pointer}
 .card.agotado .ph img{filter:grayscale(.85);opacity:.6}
 .stockpill{font-size:12px;font-weight:600;color:var(--hold)}
 .stockpill.ok{color:var(--muted);font-weight:500}
+.costo{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
 .marca-tag{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 .status.oculto{color:var(--muted);border:1.5px dashed currentColor}
 .card.oculto .ph img{opacity:.45}
@@ -366,6 +367,7 @@ td small{color:var(--muted);font-family:var(--mono)}
         <input id="defCat" placeholder="Categoría" list="catList">
         <input id="defMarca" placeholder="Marca" list="marcaList">
         <input id="defStock" inputmode="numeric" placeholder="Cantidad c/u">
+        <input id="defMargen" inputmode="decimal" placeholder="Margen %" title="Precio = costo de la etiqueta + este margen">
       </div>
       <p class="defaults" id="modoFotoInfo" hidden style="margin:0"><span id="modoFotoTxt"></span> · <button class="linkish" type="button" id="modoFotoCambiar" style="font-size:13px">Cambiar</button></p>
       <label class="defaults" id="aiRow" hidden><input type="checkbox" id="aiToggle" checked style="width:auto"> Detectar categoría, público y nombre con IA</label>
@@ -397,6 +399,7 @@ td small{color:var(--muted);font-family:var(--mono)}
     <input id="bulkCat" placeholder="Categoría" list="catList" aria-label="Categoría para seleccionados">
     <input id="bulkMarca" placeholder="Marca" list="marcaList" aria-label="Marca para seleccionados">
     <input id="bulkStock" inputmode="numeric" placeholder="Cantidad" aria-label="Cantidad para seleccionados">
+    <input id="bulkMargen" inputmode="decimal" placeholder="Margen %" aria-label="Margen sobre el costo para seleccionados">
     <select id="bulkStatus" aria-label="Estado para seleccionados"><option value="">Estado…</option><option value="disponible">Disponible</option><option value="apartado">Apartado</option><option value="vendido">Vendido</option><option value="oculto">Ocultar de la tienda</option></select>
     <select id="bulkPub" aria-label="Público para seleccionados"><option value="">Para…</option><option>Mujer</option><option>Hombre</option><option>Niños</option><option>Unisex</option></select>
     <button class="btn primary" id="bulkApply">Aplicar</button>

@@ -46,6 +46,8 @@ const schema = a.schema({
       marca: a.string(),
       precio: a.float(),
       stock: a.integer(),        // unidades disponibles; vacío = sin control de cantidad
+      costo: a.float(),          // lo que pagó la vendedora (USD); privado: el catálogo público no lo devuelve
+      talla: a.string(),
       categoria: a.string(),
       publico: a.string(),
       descripcion: a.string(),
