@@ -45,7 +45,8 @@ export const handler: Schema['catalogo']['functionHandler'] = async (event) => {
     for (const p of r.Items || []) {
       if (p.estado === 'oculto') continue; // ocultos: solo los ve la vendedora
       productos.push({
-        id: p.id, nombre: p.nombre, precio: p.precio ?? null, categoria: p.categoria || '',
+        id: p.id, nombre: p.nombre, marca: p.marca || '', precio: p.precio ?? null,
+        stock: typeof p.stock === 'number' ? p.stock : null, categoria: p.categoria || '',
         publico: p.publico || '', descripcion: p.descripcion || '', estado: p.estado || 'disponible',
         fotosFull: p.fotosFull || [], fotosThumb: p.fotosThumb || [], creado: p.creado || 0,
       });

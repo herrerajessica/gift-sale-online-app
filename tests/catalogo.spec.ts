@@ -50,3 +50,14 @@ test.describe('REQ-006 Aprobación de vitrinas', () => {
     await expect(page.locator('#grid .card')).toHaveCount(0);
   });
 });
+
+test.describe('REQ-010 Marca y cantidad por producto', () => {
+  test.skip(!TIENDA, 'Define TEST_STORE');
+
+  test('CP-019 Un producto agotado no se puede agregar al pedido @REQ-010', async ({ page }) => {
+    await page.goto(`/?tienda=${TIENDA}`);
+    const agotados = page.locator('#grid .card.agotado');
+    test.skip((await agotados.count()) === 0, 'La vitrina de prueba no tiene productos con cantidad 0');
+    await expect(agotados.first().getByRole('button', { name: 'Agotado' })).toBeDisabled();
+  });
+});

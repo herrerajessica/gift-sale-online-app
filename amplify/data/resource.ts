@@ -42,7 +42,9 @@ const schema = a.schema({
     .model({
       tiendaId: a.string().required(),
       nombre: a.string().required(),
+      marca: a.string(),
       precio: a.float(),
+      stock: a.integer(),        // unidades disponibles; vacío = sin control de cantidad
       categoria: a.string(),
       publico: a.string(),
       descripcion: a.string(),

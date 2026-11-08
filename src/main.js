@@ -15,6 +15,9 @@ import {
   const rate = () => { const r = parseFloat(S.config.tipoCambio); return isFinite(r) && r>0 ? r : null; };
   const soles = n => { const r=rate(); return (r && typeof n==="number" && isFinite(n)) ? "S/ " + Math.round(n*r).toLocaleString("es-PE") : ""; };
   const dual = n => { const a=money(n), b=soles(n); return a && b ? a+" · "+b : a; };
+  const parseStock = v => { const t=String(v??"").trim(); if(t==="") return null; const n=parseInt(t.replace(/\D/g,""),10); return isFinite(n) ? Math.min(n, 99999) : null; };
+  // Un producto no se puede pedir si está vendido o su cantidad llegó a 0.
+  const agotado = p => p.estado==="vendido" || p.stock===0;
   const parsePrice = v => { const n = parseFloat(String(v||"").replace(/[^0-9.]/g,"")); return isFinite(n) ? Math.round(n*100)/100 : null; };
   const src = id => FOTOS_BASE + "/" + id;
   let toastT;
@@ -63,7 +66,7 @@ import {
     if(!files.length){ toast("Ninguno de esos archivos es una foto"); return; }
     if(!S.assets || !S.db){ toast("Solo quien administra la vitrina puede subir fotos"); return; }
     if(!limitarLote(files, S.mode)) return;
-    const price = parsePrice($("defPrice").value), cat = $("defCat").value.trim();
+    const price = parsePrice($("defPrice").value), cat = $("defCat").value.trim(), marca = $("defMarca").value.trim(), stock = parseStock($("defStock").value);
     const useAI = S.ai && $("aiToggle").checked;
     const total = files.length; let done = 0, ok = 0; const errs = $("errs"); errs.textContent="";
     $("progress").hidden=false; setProg(0,total,"Subiendo fotos…");
@@ -79,8 +82,8 @@ import {
           if(group){ groupPhotos[idx]={ph,blob}; }
           else {
             const nombre = nameFromFile(f), ref = col.doc();
-            await ref.set({ nombre, precio:price, categoria:cat, publico:"", descripcion:"", estado:"disponible", fotos:[ph], creado: base + (total-idx) });
-            if(useAI) toClassify.push({ id:ref.id, blob, name:nombre==="Producto nuevo", cat:!cat });
+            await ref.set({ nombre, marca, precio:price, stock, categoria:cat, publico:"", descripcion:"", estado:"disponible", fotos:[ph], creado: base + (total-idx) });
+            if(useAI) toClassify.push({ id:ref.id, blob, name:nombre==="Producto nuevo", cat:!cat, marca:!marca });
           }
           ok++;
         }catch(e){ errs.append(el("li",null,f.name+": "+errText(e))); }
@@ -90,7 +93,7 @@ import {
     await Promise.all(Array.from({length:Math.min(4,files.length)}, worker));
     if(group){
       const got = groupPhotos.filter(Boolean);
-      if(got.length){ try{ const nombre=nameFromFile(files[0]), ref=col.doc(); await ref.set({ nombre, precio:price, categoria:cat, publico:"", descripcion:"", estado:"disponible", fotos:got.map(g=>g.ph), creado:base }); if(useAI) toClassify.push({ id:ref.id, blob:got[0].blob, name:nombre==="Producto nuevo", cat:!cat }); }catch(e){ errs.append(el("li",null,"No se pudo crear el producto: "+errText(e))); ok=0; } }
+      if(got.length){ try{ const nombre=nameFromFile(files[0]), ref=col.doc(); await ref.set({ nombre, marca, precio:price, stock, categoria:cat, publico:"", descripcion:"", estado:"disponible", fotos:got.map(g=>g.ph), creado:base }); if(useAI) toClassify.push({ id:ref.id, blob:got[0].blob, name:nombre==="Producto nuevo", cat:!cat, marca:!marca }); }catch(e){ errs.append(el("li",null,"No se pudo crear el producto: "+errText(e))); ok=0; } }
     }
     const fail = total-ok;
     const doneMsg = fail ? `Listo: ${ok} subidas, ${fail} con problema` : (group ? `Listo: 1 producto con ${ok} fotos` : `Listo: ${ok} productos publicados`);
@@ -115,8 +118,9 @@ Para cada foto responde un objeto con:
 - "i": el número de la foto
 - "categoria": exactamente una de: ${CATS.join(", ")}
 - "publico": exactamente uno de: ${PUBLICOS.join(", ")} (usa Unisex si no se distingue)
-- "nombre": nombre corto de venta en español, de 2 a 6 palabras, que describa tipo, estilo y color (ej. "Jean wide leg con cordón", "Zapatillas running negras"). Incluye la marca solo si su logo o diseño es claramente visible.
-Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publico":"Mujer","nombre":"Jean wide leg con cordón"}]`;
+- "nombre": nombre corto de venta en español, de 2 a 6 palabras, que describa tipo, estilo y color, sin la marca (ej. "Jean wide leg con cordón", "Zapatillas running negras").
+- "marca": la marca solo si su logo, etiqueta o diseño característico se ve claramente en la foto; si no, "".
+Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","publico":"Hombre","nombre":"Zapatillas running negras","marca":"Adidas"}]`;
       let res;
       try { res = await S.ai.json(prompt, { images: batch.map(b=>b.blob), modelTier:"quick" }); }
       catch(e){
@@ -132,6 +136,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publ
         if(b.cat && CATS.includes(r.categoria)) patch.categoria = r.categoria;
         if(PUBLICOS.includes(r.publico)) patch.publico = r.publico;
         if(b.name && typeof r.nombre==="string" && r.nombre.trim()) patch.nombre = r.nombre.trim().slice(0,80);
+        if(b.marca!==false && typeof r.marca==="string" && r.marca.trim()) patch.marca = r.marca.trim().slice(0,40);
         if(Object.keys(patch).length){ try{ await S.db.doc("productos/"+b.id).update(patch); }catch(e){ fails++; } }
       }));
       n += batch.length; setProg(n, items.length, "Detectando categorías con IA…");
@@ -157,7 +162,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publ
   // ---------- Render ----------
   function filtered(){
     const q = S.q.toLowerCase();
-    return S.products.filter(p => (!S.cat || p.categoria===S.cat) && (!S.pub || p.publico===S.pub || (S.pub!=="Niños" && p.publico==="Unisex")) && (!q || (p.nombre+" "+(p.categoria||"")+" "+(p.publico||"")+" "+(p.descripcion||"")).toLowerCase().includes(q)));
+    return S.products.filter(p => (!S.cat || p.categoria===S.cat) && (!S.pub || p.publico===S.pub || (S.pub!=="Niños" && p.publico==="Unisex")) && (!q || (p.nombre+" "+(p.marca||"")+" "+(p.categoria||"")+" "+(p.publico||"")+" "+(p.descripcion||"")).toLowerCase().includes(q)));
   }
   function renderCats(){
     const counts = {}; S.products.forEach(p=>{ if(p.categoria) counts[p.categoria]=(counts[p.categoria]||0)+1; });
@@ -172,8 +177,16 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publ
     const pb=$("pubs"); pb.textContent="";
     if(pubs.length>1) pubs.forEach(x=>pb.append(el("button",{class:"chip sub","aria-pressed":String(S.pub===x),onclick:()=>{S.pub=S.pub===x?"":x;render();}},x)));
     const dl=$("catList"); dl.textContent=""; [...new Set([...CATS,...cats])].forEach(c=>dl.append(el("option",{value:c})));
+    const ml=$("marcaList"); ml.textContent=""; [...new Set(S.products.map(p=>p.marca).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"es")).forEach(m=>ml.append(el("option",{value:m})));
     if(S.cat && !cats.includes(S.cat)) S.cat="";
     if(S.pub && !pubs.includes(S.pub)) S.pub="";
+  }
+  // Vendedora: siempre ve la cantidad. Cliente: solo cuando quedan pocas.
+  function stockTxt(p){
+    if(typeof p.stock!=="number" || p.estado==="vendido") return "";
+    if(S.canEdit) return p.stock===0 ? "Sin unidades" : `${p.stock} en stock`;
+    if(p.stock===0) return "";
+    return p.stock<=3 ? (p.stock===1 ? "¡Última unidad!" : `Quedan ${p.stock}`) : "";
   }
   function render(){
     renderCats();
@@ -181,15 +194,16 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publ
     for(const p of list){
       const cover = p.fotos && p.fotos[0];
       const st = p.estado||"disponible";
-      const card = el("div",{class:"card "+st+(S.sel.has(p.id)?" sel":"")});
+      const card = el("div",{class:"card "+st+(p.stock===0?" agotado":"")+(S.sel.has(p.id)?" sel":"")});
       const open = el("button",{class:"open",type:"button","aria-label":(S.selecting?"Seleccionar ":"Ver ")+(p.nombre||"producto"),onclick:()=>{ if(S.selecting){ toggleSel(p.id); } else openProduct(p.id); }});
       const ph = el("div",{class:"ph"});
       if(cover) ph.append(el("img",{src:src(cover.thumb||cover.full),alt:"",loading:"lazy",decoding:"async",onerror:function(){this.remove();}}));
       ph.append(el("span",{class:"price"+(p.precio==null?" none":"")}, p.precio==null ? "Consultar" : money(p.precio), p.precio!=null && soles(p.precio) ? el("small",null, soles(p.precio)) : null));
       if(st!=="disponible") ph.append(el("span",{class:"status "+st}, {vendido:"Vendido",apartado:"Apartado",oculto:"Oculto"}[st]||st));
+      else if(p.stock===0) ph.append(el("span",{class:"status agotado"},"Agotado"));
       if(S.selecting) ph.append(el("span",{class:"check","aria-hidden":"true"}, S.sel.has(p.id)?"✓":""));
       else if(p.fotos && p.fotos.length>1) ph.append(el("span",{class:"multi"}, p.fotos.length+" fotos"));
-      open.append(ph, el("div",{class:"info",style:"padding-bottom:0"}, el("span",{class:"name"},p.nombre||"Sin nombre"), el("span",{class:"meta"}, el("span",null,p.categoria||""), el("span",null,p.publico||""))));
+      open.append(ph, el("div",{class:"info",style:"padding-bottom:0"}, p.marca ? el("span",{class:"brand"},p.marca) : null, el("span",{class:"name"},p.nombre||"Sin nombre"), el("span",{class:"meta"}, el("span",null,p.categoria||""), el("span",null,p.publico||"")), stockTxt(p) ? el("span",{class:"stockpill"+(S.canEdit && p.stock>3?" ok":"")}, stockTxt(p)) : null));
       card.append(open);
       if(!S.selecting) card.append(el("div",{class:"info",style:"padding-top:0"}, addButton(p)));
       grid.append(card);
@@ -216,12 +230,12 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publ
   $("bulkAll").onclick = ()=>{ const ids=filtered().map(p=>p.id); const all=ids.every(id=>S.sel.has(id)); ids.forEach(id=>all?S.sel.delete(id):S.sel.add(id)); render(); };
   async function runPool(ids, fn){ let i=0, fails=0; await Promise.all(Array.from({length:Math.min(4,ids.length)},async()=>{ while(i<ids.length){ const id=ids[i++]; try{ await fn(id); }catch(e){ fails++; } } })); return fails; }
   $("bulkApply").onclick = async ()=>{
-    const patch={}; const pv=$("bulkPrice").value.trim(), cv=$("bulkCat").value.trim(), sv=$("bulkStatus").value, pb=$("bulkPub").value;
-    if(pv) patch.precio=parsePrice(pv); if(cv) patch.categoria=cv; if(sv) patch.estado=sv; if(pb) patch.publico=pb;
-    if(!Object.keys(patch).length){ toast("Escribe un precio, una categoría o elige un estado"); return; }
+    const patch={}; const pv=$("bulkPrice").value.trim(), cv=$("bulkCat").value.trim(), sv=$("bulkStatus").value, pb=$("bulkPub").value, mv=$("bulkMarca").value.trim(), qv=$("bulkStock").value.trim();
+    if(pv) patch.precio=parsePrice(pv); if(cv) patch.categoria=cv; if(sv) patch.estado=sv; if(pb) patch.publico=pb; if(mv) patch.marca=mv; if(qv) patch.stock=parseStock(qv);
+    if(!Object.keys(patch).length){ toast("Escribe un precio, marca, cantidad o categoría, o elige un estado"); return; }
     const ids=[...S.sel]; $("bulkApply").disabled=true;
     const fails = await runPool(ids, id=>S.db.doc("productos/"+id).update(patch));
-    $("bulkPrice").value=$("bulkCat").value=""; $("bulkStatus").value=""; $("bulkPub").value="";
+    $("bulkPrice").value=$("bulkCat").value=$("bulkMarca").value=$("bulkStock").value=""; $("bulkStatus").value=""; $("bulkPub").value="";
     toast(fails ? `Actualizados ${ids.length-fails}; ${fails} fallaron` : `${ids.length} productos actualizados`); renderBulk();
   };
   $("bulkAI").onclick = ()=>classifySelected();
@@ -269,28 +283,32 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publ
       side.append(
         el("label",{class:"f"},"Nombre", el("input",{id:"eName",value:v("eName",p.nombre||""),maxlength:"120"})),
         el("div",{class:"row2"},
+          el("label",{class:"f"},"Marca", el("input",{id:"eMarca",list:"marcaList",maxlength:"40",value:v("eMarca",p.marca||""),placeholder:"Ej. Michael Kors"})),
+          el("label",{class:"f"},"Cantidad disponible", el("input",{id:"eStock",inputmode:"numeric",value:v("eStock",p.stock==null?"":String(p.stock)),placeholder:"Sin control"}))),
+        el("div",{class:"row2"},
           el("label",{class:"f"},"Precio (USD)", el("input",{id:"ePrice",inputmode:"decimal",value:v("ePrice",p.precio==null?"":String(p.precio)),placeholder:"Consultar"})),
           el("label",{class:"f"},"Estado", (()=>{ const s=el("select",{id:"eStatus"}); [["disponible","Disponible"],["apartado","Apartado"],["vendido","Vendido"],["oculto","Oculto (no se muestra en la tienda)"]].forEach(([k,l])=>s.append(el("option",{value:k},l))); s.value=v("eStatus",p.estado||"disponible"); return s; })())
         ),
         el("div",{class:"row2"},
           el("label",{class:"f"},"Categoría", el("input",{id:"eCat",list:"catList",value:v("eCat",p.categoria||""),placeholder:"Ropa, zapatos…"})),
           el("label",{class:"f"},"Para", (()=>{ const s=el("select",{id:"ePub"}); [["","—"],...PUBLICOS.map(x=>[x,x])].forEach(([k,l])=>s.append(el("option",{value:k},l))); s.value=v("ePub",p.publico||""); return s; })())),
-        (()=>{ const ta=el("textarea",{id:"eDesc",rows:"4",placeholder:"Talla, marca, estado, si es original…"}); ta.value=v("eDesc",p.descripcion||""); return el("label",{class:"f"},"Descripción", ta); })()
+        (()=>{ const ta=el("textarea",{id:"eDesc",rows:"4",placeholder:"Talla, color, estado, si es original…"}); ta.value=v("eDesc",p.descripcion||""); return el("label",{class:"f"},"Descripción", ta); })()
       );
       const conf = el("span",{class:"confirm",hidden:""},"¿Borrar este producto?", el("button",{class:"btn danger",type:"button",onclick:async()=>{ await S.db.doc("productos/"+p.id).delete(); deletePhotos(fotos); closeSheet(); toast("Producto borrado"); }},"Sí, borrar"), el("button",{class:"btn",type:"button",onclick:()=>{conf.hidden=true;}},"No"));
       side.append(el("div",{class:"actions"},
         el("button",{class:"btn danger",type:"button",onclick:()=>{conf.hidden=false;}},"Borrar"),
         el("div",{style:"display:flex;gap:8px"}, el("button",{class:"btn",type:"button",onclick:closeSheet},"Cerrar"),
-          el("button",{class:"btn primary",type:"button",onclick:async()=>{ const patch={ nombre:$("eName").value.trim()||"Producto nuevo", precio:parsePrice($("ePrice").value), estado:$("eStatus").value, categoria:$("eCat").value.trim(), publico:$("ePub").value, descripcion:$("eDesc").value.trim() }; try{ await S.db.doc("productos/"+p.id).update(patch); toast("Guardado"); closeSheet(); }catch(e){ toast("No se pudo guardar. Revisa tu conexión e intenta de nuevo."); } }},"Guardar"))
+          el("button",{class:"btn primary",type:"button",onclick:async()=>{ const patch={ nombre:$("eName").value.trim()||"Producto nuevo", marca:$("eMarca").value.trim(), stock:parseStock($("eStock").value), precio:parsePrice($("ePrice").value), estado:$("eStatus").value, categoria:$("eCat").value.trim(), publico:$("ePub").value, descripcion:$("eDesc").value.trim() }; try{ await S.db.doc("productos/"+p.id).update(patch); toast("Guardado"); closeSheet(); }catch(e){ toast("No se pudo guardar. Revisa tu conexión e intenta de nuevo."); } }},"Guardar"))
       ), conf);
     } else {
       const st=p.estado||"disponible";
-      side.append(el("h2",null,p.nombre||"Producto"),
+      side.append(p.marca ? el("span",{class:"brand"},p.marca) : null, el("h2",null,p.nombre||"Producto"),
         el("div",{class:"bigprice"}, p.precio==null?"Precio a consultar":money(p.precio), p.precio!=null && soles(p.precio) ? el("span",{class:"bigsol"}, soles(p.precio)) : null),
-        st!=="disponible" ? el("span",{class:"status "+st,style:"position:static;justify-self:start"}, st==="vendido"?"Vendido":"Apartado") : null,
+        st!=="disponible" ? el("span",{class:"status "+st,style:"position:static;justify-self:start"}, st==="vendido"?"Vendido":"Apartado") : p.stock===0 ? el("span",{class:"status agotado",style:"position:static;justify-self:start"},"Agotado") : null,
+        stockTxt(p) ? el("span",{class:"stockpill"}, stockTxt(p)) : null,
         (p.categoria||p.publico) ? el("span",{class:"note",style:"margin:0"}, [p.categoria,p.publico].filter(Boolean).join(" · ")) : null,
         p.descripcion ? el("p",{class:"desc"}, p.descripcion) : null);
-      if(st!=="vendido"){
+      if(!agotado(p)){
         const b = addButton(p, true); b.classList.add("btn"); b.style.cssText="justify-self:start;padding:10px 16px;font-size:15px";
         side.append(b);
         if(cartCount()) side.append(el("button",{class:"btn tag",type:"button",style:"justify-self:start",onclick:openCart},"Ver mi pedido y enviar por WhatsApp"));
@@ -306,13 +324,13 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publ
   try { const raw = JSON.parse(localStorage.getItem(CART_KEY)||"{}"); cart = raw.items||{}; buyer = Object.assign(buyer, raw.buyer||{}); } catch(e){}
   function saveCart(){ try{ localStorage.setItem(CART_KEY, JSON.stringify({items:cart, buyer})); }catch(e){} }
   const cartLines = () => Object.entries(cart).map(([id,q])=>({ p:S.products.find(x=>x.id===id), id, q })).filter(l=>l.p);
-  const cartCount = () => cartLines().reduce((s,l)=>s+(l.p.estado==="vendido"?0:l.q),0);
-  function cartTotals(){ let total=0, consultar=0; for(const l of cartLines()){ if(l.p.estado==="vendido") continue; if(l.p.precio==null) consultar++; else total+=l.p.precio*l.q; } return {total, consultar}; }
+  const cartCount = () => cartLines().reduce((s,l)=>s+(agotado(l.p)?0:l.q),0);
+  function cartTotals(){ let total=0, consultar=0; for(const l of cartLines()){ if(agotado(l.p)) continue; if(l.p.precio==null) consultar++; else total+=l.p.precio*l.q; } return {total, consultar}; }
   function addButton(p, big){
-    const inCart = !!cart[p.id], sold = p.estado==="vendido";
+    const inCart = !!cart[p.id], sold = agotado(p);
     return el("button",{class:"addbtn"+(inCart?" in":""),type:"button",disabled:sold?"":false,
       onclick:e=>{ e.stopPropagation(); if(cart[p.id]) delete cart[p.id]; else { cart[p.id]=1; toast("Agregado a tu pedido"); } saveCart(); render(); if(openId) drawSheet(); }},
-      sold ? "Vendido" : inCart ? (big?"✓ En tu pedido (quitar)":"✓ En tu pedido") : "+ Agregar al pedido");
+      sold ? (p.estado==="vendido" ? "Vendido" : "Agotado") : inCart ? (big?"✓ En tu pedido (quitar)":"✓ En tu pedido") : "+ Agregar al pedido");
   }
   function renderCartBar(){
     const n = cartCount(), {total, consultar} = cartTotals();
@@ -322,7 +340,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publ
   }
   $("cartbar").onclick = ()=>openCart();
   function buildMessage(){
-    const lines = cartLines().filter(l=>l.p.estado!=="vendido");
+    const lines = cartLines().filter(l=>!agotado(l.p));
     const {total, consultar} = cartTotals();
     let m = `Hola${S.config.nombre?" "+S.config.nombre:""}, quiero hacer este pedido:\n\n`;
     lines.forEach((l,i)=>{
@@ -347,19 +365,20 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publ
     }
     const ul = el("ul",{class:"items"});
     for(const l of lines){
-      const cover = l.p.fotos && l.p.fotos[0], sold = l.p.estado==="vendido";
-      const setQ = q=>{ if(q<1) delete cart[l.id]; else cart[l.id]=Math.min(q,99); saveCart(); drawCart(); render(); };
+      const cover = l.p.fotos && l.p.fotos[0], sold = agotado(l.p);
+      const maxQ = typeof l.p.stock==="number" ? l.p.stock : 99;
+      const setQ = q=>{ if(q<1) delete cart[l.id]; else { if(q>maxQ) toast(`Solo hay ${maxQ} disponible${maxQ===1?"":"s"}`); cart[l.id]=Math.min(q,maxQ,99); } saveCart(); drawCart(); render(); };
       ul.append(el("li",{class:"item"},
         cover ? el("img",{src:src(cover.thumb||cover.full),alt:""}) : el("span",{class:"noimg"}),
         el("div",{style:"min-width:0;display:grid;gap:2px"},
           el("span",{class:"nm"},l.p.nombre||"Producto"),
           el("span",{class:"pr"}, l.p.precio==null?"Precio a consultar":(l.q>1?`${money(l.p.precio)} × ${l.q} = ${dual(l.p.precio*l.q)}`:dual(l.p.precio))),
-          sold ? el("span",{class:"warn"},"Se vendió; no se incluirá en el mensaje") : null),
+          sold ? el("span",{class:"warn"},"Ya no está disponible; no se incluirá en el pedido") : (typeof l.p.stock==="number" && l.q>l.p.stock) ? el("span",{class:"warn"},`Solo quedan ${l.p.stock}`) : null),
         el("div",{style:"display:grid;gap:4px;justify-items:end"},
           sold ? null : el("div",{class:"qty"},
             el("button",{type:"button","aria-label":"Quitar uno",onclick:()=>setQ(l.q-1)},"−"),
             el("span",null,String(l.q)),
-            el("button",{type:"button","aria-label":"Agregar uno",onclick:()=>setQ(l.q+1)},"+")),
+            el("button",{type:"button","aria-label":"Agregar uno",disabled:l.q>=maxQ?"":false,onclick:()=>setQ(l.q+1)},"+")),
           el("button",{class:"rm",type:"button",onclick:()=>setQ(0)},"Quitar"))
       ));
     }
@@ -379,7 +398,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publ
     const copyBtn = el("button",{class:"btn",type:"button",onclick:async()=>{ try{ await navigator.clipboard.writeText(buildMessage()); toast("Mensaje copiado"); }catch(e){ const r=document.createRange(); r.selectNodeContents(pv); const s=getSelection(); s.removeAllRanges(); s.addRange(r); toast("Selecciona y copia el mensaje"); } }},"Copiar mensaje");
     const send = el("div",{class:"send"});
     if(S.config && S.config.cobrosActivos && !S.canEdit){
-      const pagables = lines.filter(l=>l.p.estado!=="vendido");
+      const pagables = lines.filter(l=>!agotado(l.p));
       const sinPrecio = pagables.some(l=>l.p.precio==null);
       const payBtn = el("button",{class:"btn primary",type:"button",disabled:sinPrecio?"":false,onclick:async()=>{
         payBtn.disabled=true; payBtn.textContent="Abriendo pago seguro…";
@@ -389,7 +408,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publ
       send.append(payBtn, el("span",{class:"note",style:"margin:0;text-align:center"}, sinPrecio ? "Algunos productos no tienen precio: consúltalos por WhatsApp o quítalos para pagar con tarjeta." : "Pago seguro con Stripe. El total final se muestra en la página de pago."));
     }
     if(S.config && (S.config.yapeNumero || S.config.yapeQr) && !S.canEdit){
-      const pagables = lines.filter(l=>l.p.estado!=="vendido");
+      const pagables = lines.filter(l=>!agotado(l.p));
       const sinPrecio = pagables.some(l=>l.p.precio==null);
       const sinCambio = !(S.config.tipoCambio > 0);
       const yBtn = el("button",{class:"btn yape",type:"button",disabled:(sinPrecio||sinCambio)?"":false,onclick:()=>mostrarYape(box, pagables)},"Pagar con Yape");
@@ -744,6 +763,13 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publ
   // ----- Pedidos pagados (vendedora) -----
   const PEDIDO_TXT = { pendiente:"Pago pendiente", por_confirmar:"Por confirmar", pagado:"Pagado", entregado:"Entregado", cancelado:"Cancelado" };
   const montoTxt = (n, moneda) => (moneda==="pen" ? "S/ " : "$") + (n/100).toLocaleString("es-PE",{minimumFractionDigits: n%100?2:0, maximumFractionDigits:2});
+  async function descontarStockLocal(items){
+    for(const it of items){
+      const prod = S.products.find(x=>x.id===it.id);
+      if(!prod || typeof prod.stock!=="number") continue;
+      try{ await S.db.doc("productos/"+prod.id).update({ stock: Math.max(0, prod.stock - (Number(it.q)||1)) }); }catch(e){}
+    }
+  }
   async function cargarPedidos(){
     let lista = [];
     try{ lista = await listarPedidos(); }catch(e){ return; }
@@ -755,7 +781,14 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publ
     for(const p of lista){
       let items=[]; try{ items = JSON.parse(p.items||"[]"); }catch(e){}
       const acts = el("div",{class:"acts"});
-      const cambiar = (estado, msg)=>async()=>{ try{ await cambiarEstadoPedido(p.id, estado); toast(msg); cargarPedidos(); }catch(e){ toast("No se pudo actualizar"); } };
+      const cambiar = (estado, msg)=>async()=>{
+        try{
+          await cambiarEstadoPedido(p.id, estado);
+          // Yape confirmado: se descuentan las unidades (tarjeta lo hace el webhook).
+          if(estado==="pagado" && p.metodo==="yape") await descontarStockLocal(items);
+          toast(msg); cargarPedidos();
+        }catch(e){ toast("No se pudo actualizar"); }
+      };
       if(p.estado==="por_confirmar") acts.append(
         el("button",{class:"btn primary",type:"button",onclick:cambiar("pagado","Pago confirmado")},"Confirmar pago"),
         el("button",{class:"btn danger",type:"button",onclick:cambiar("cancelado","Pedido rechazado")},"No llegó"));

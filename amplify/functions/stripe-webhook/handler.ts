@@ -1,7 +1,8 @@
 import Stripe from 'stripe';
-import { UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { esPlan } from '../shared/planes';
 import { ddb, PEDIDO, leerTienda, actualizarTienda } from '../shared/tablas';
+import { descontarStock } from '../shared/stock';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
 
@@ -15,17 +16,27 @@ function finPeriodo(sub: Stripe.Subscription): number | null {
   return fin ? fin * 1000 : null;
 }
 
+/**
+ * Cambia el estado solo si el pedido sigue "pendiente". Stripe puede reenviar
+ * el mismo aviso; así el stock se descuenta una sola vez. Devuelve true si cambió.
+ */
 async function marcarPedido(pedidoId: string, estado: 'pagado' | 'cancelado', extra: Record<string, unknown> = {}) {
-  const campos = { estado, updatedAt: new Date().toISOString(), ...extra };
+  const campos = { estado, updatedAt: new Date().toISOString(), ...Object.fromEntries(Object.entries(extra).filter(([, v]) => v !== undefined)) };
   const k = Object.keys(campos);
+  try {
   await ddb.send(new UpdateCommand({
     TableName: PEDIDO(),
     Key: { id: pedidoId },
     UpdateExpression: 'SET ' + k.map((_, i) => `#k${i} = :v${i}`).join(', '),
     ExpressionAttributeNames: Object.fromEntries(k.map((x, i) => [`#k${i}`, x])),
-    ExpressionAttributeValues: Object.fromEntries(k.map((x, i) => [`:v${i}`, (campos as Record<string, unknown>)[x]])),
-    ConditionExpression: 'attribute_exists(id)',
+    ExpressionAttributeValues: { ...Object.fromEntries(k.map((x, i) => [`:v${i}`, (campos as Record<string, unknown>)[x]])), ':pend': 'pendiente' },
+    ConditionExpression: 'attribute_exists(id) AND #k0 = :pend',
   }));
+  } catch (e) {
+    if ((e as { name?: string }).name === 'ConditionalCheckFailedException') return false;
+    throw e;
+  }
+  return true;
 }
 
 async function aplicarSuscripcion(sub: Stripe.Subscription) {
@@ -67,7 +78,11 @@ export const handler = async (event: UrlEvent) => {
       case 'checkout.session.completed': {
         const s = ev.data.object as Stripe.Checkout.Session;
         if (s.metadata?.tipo === 'pedido' && s.metadata.pedidoId && s.payment_status === 'paid') {
-          await marcarPedido(s.metadata.pedidoId, 'pagado', { email: s.customer_details?.email || undefined, telefono: s.customer_details?.phone || undefined });
+          const cambio = await marcarPedido(s.metadata.pedidoId, 'pagado', { email: s.customer_details?.email || undefined, telefono: s.customer_details?.phone || undefined });
+          if (cambio) {
+            const { Item } = await ddb.send(new GetCommand({ TableName: PEDIDO(), Key: { id: s.metadata.pedidoId } }));
+            await descontarStock(Item?.items);
+          }
         }
         if (s.metadata?.tipo === 'plan' && s.subscription) {
           const sub = await stripe.subscriptions.retrieve(String(s.subscription));

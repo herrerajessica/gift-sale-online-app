@@ -91,7 +91,9 @@ export const estadoCatalogo = () => catalogoActual;
 const toProducto = (it) => ({
   id: it.id,
   nombre: it.nombre,
+  marca: it.marca || '',
   precio: typeof it.precio === 'number' ? it.precio : null,
+  stock: typeof it.stock === 'number' ? it.stock : null,
   categoria: it.categoria || '',
   publico: it.publico || '',
   descripcion: it.descripcion || '',

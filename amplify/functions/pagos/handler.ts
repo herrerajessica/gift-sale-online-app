@@ -126,6 +126,9 @@ async function armarPedido(t: Record<string, any>, itemsJson: unknown, soloSoles
     if (!prod || prod.tiendaId !== t.id) fallo('Un producto del pedido ya no existe');
     if (prod!.estado === 'vendido' || prod!.estado === 'oculto') fallo(`"${prod!.nombre}" ya no está disponible`);
     if (typeof prod!.precio !== 'number') fallo(`"${prod!.nombre}" no tiene precio; consúltalo por WhatsApp`);
+    if (typeof prod!.stock === 'number' && p.q > prod!.stock) {
+      fallo(prod!.stock > 0 ? `Solo quedan ${prod!.stock} de "${prod!.nombre}"` : `"${prod!.nombre}" está agotado`);
+    }
     // Monto en la unidad mínima: soles redondeados como en la tienda, o centavos de dólar.
     const monto = rate ? Math.round(prod!.precio * p.q * rate) * 100 : Math.round(prod!.precio * p.q * 100);
     lineas.push({ id: p.id, nombre: prod!.nombre, q: p.q, precioUsd: prod!.precio, monto });

@@ -12,7 +12,7 @@ export const CATEGORIAS = [
 export const PUBLICOS = ['Mujer', 'Hombre', 'Niños', 'Unisex'];
 const MAX_FOTOS = 8;
 
-type Resultado = { i: number; categoria?: string; publico?: string; nombre?: string };
+type Resultado = { i: number; categoria?: string; publico?: string; nombre?: string; marca?: string };
 
 async function leerFoto(path: string): Promise<string> {
   if (!path.startsWith('productos/')) throw new Error('Ruta no permitida');
@@ -27,8 +27,9 @@ Para cada foto responde un objeto con:
 - "i": el número de la foto
 - "categoria": exactamente una de: ${CATEGORIAS.join(', ')}
 - "publico": exactamente uno de: ${PUBLICOS.join(', ')} (usa Unisex si no se distingue)
-- "nombre": nombre corto de venta en español, de 2 a 6 palabras, que describa tipo, estilo y color (ej. "Jean wide leg con cordón", "Zapatillas running negras"). Incluye la marca solo si su logo o diseño es claramente visible.
-Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Ropa","publico":"Mujer","nombre":"Jean wide leg con cordón"}]`;
+- "nombre": nombre corto de venta en español, de 2 a 6 palabras, que describa tipo, estilo y color, sin la marca (ej. "Jean wide leg con cordón", "Zapatillas running negras").
+- "marca": la marca solo si su logo, etiqueta o diseño característico se ve claramente en la foto; si no, "".
+Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","publico":"Hombre","nombre":"Zapatillas running negras","marca":"Adidas"}]`;
 }
 
 function limpiar(arr: unknown, n: number): Resultado[] {
@@ -40,6 +41,7 @@ function limpiar(arr: unknown, n: number): Resultado[] {
       categoria: CATEGORIAS.includes(String(r.categoria)) ? String(r.categoria) : undefined,
       publico: PUBLICOS.includes(String(r.publico)) ? String(r.publico) : undefined,
       nombre: typeof r.nombre === 'string' && r.nombre.trim() ? r.nombre.trim().slice(0, 80) : undefined,
+      marca: typeof r.marca === 'string' && r.marca.trim() ? r.marca.trim().slice(0, 40) : undefined,
     }))
     .filter((r) => r.i >= 0 && r.i < n);
 }

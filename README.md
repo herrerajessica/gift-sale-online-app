@@ -24,6 +24,13 @@ Plataforma para revendedoras de productos traídos de USA. Cada vendedora crea s
 - `/#entrar` : abre el formulario de ingreso.
 - `/#panel` : panel de la dueña (solo `SUPERADMIN`).
 
+## Productos: subida en lote, marca y cantidad
+
+La idea central es **subir muchas fotos de una vez**. Al arrastrar el lote se puede escribir en *Aplicar a todas* el precio, la categoría, la marca y la cantidad de cada producto; la IA completa categoría, público, nombre y marca (sin sobrescribir lo que la vendedora escribió). Después, *Editar varios* cambia cualquiera de esos campos en muchos productos a la vez.
+
+- **Cantidad (stock):** opcional; vacío significa "sin control". El cliente ve "Quedan N" o "¡Última unidad!" cuando quedan 3 o menos, y "Agotado" en 0. No puede pedir más unidades de las disponibles: lo valida la pantalla y también el servidor.
+- **Descuento automático:** al pagar con tarjeta, el webhook descuenta las unidades una sola vez (aunque Stripe reenvíe el aviso). Al confirmar un Yape, se descuentan cuando la vendedora toca *Confirmar pago*. Los pedidos por WhatsApp se ajustan a mano.
+
 ## Planes y pagos
 
 | Plan | Productos visibles | Precio |

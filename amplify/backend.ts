@@ -55,8 +55,10 @@ backend.pagos.addEnvironment('PEDIDO_TABLE', tablaPedido.tableName);
 const webhookFn = backend.stripeWebhook.resources.lambda;
 tablaTienda.grantReadWriteData(webhookFn);
 tablaPedido.grantReadWriteData(webhookFn);
+tablaProducto.grantReadWriteData(webhookFn);
 backend.stripeWebhook.addEnvironment('TIENDA_TABLE', tablaTienda.tableName);
 backend.stripeWebhook.addEnvironment('PEDIDO_TABLE', tablaPedido.tableName);
+backend.stripeWebhook.addEnvironment('PRODUCTO_TABLE', tablaProducto.tableName);
 const webhookUrl = webhookFn.addFunctionUrl({ authType: FunctionUrlAuthType.NONE });
 
 backend.addOutput({
