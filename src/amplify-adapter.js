@@ -182,6 +182,7 @@ function configRef() {
       const datos = {
         nombre: d.nombre || TIENDA, whatsapp: d.whatsapp || '', tipoCambio: d.tipoCambio ?? null,
         yapeNumero: d.yapeNumero || '', yapeNombre: d.yapeNombre || '', yapeQr: d.yapeQr || '',
+        descuentoContado: typeof d.descuentoContado === 'number' ? d.descuentoContado : 0,
       };
       check(await client.models.Tienda.update({ id: TIENDA, ...datos }, { authMode: 'userPool' }));
       emitirConfig();

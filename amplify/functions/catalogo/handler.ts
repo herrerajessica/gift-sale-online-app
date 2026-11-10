@@ -65,6 +65,7 @@ export const handler: Schema['catalogo']['functionHandler'] = async (event) => {
     estado,
     vistaPrevia: estado !== 'aprobada',
     tienda: { id: t.id, nombre: t.nombre, whatsapp: t.whatsapp || '', tipoCambio: t.tipoCambio ?? null, cobrosActivos: !!t.cobrosActivos,
+      descuentoContado: typeof t.descuentoContado === 'number' ? t.descuentoContado : 0,
       yapeNumero: t.yapeNumero || '', yapeNombre: t.yapeNombre || '', yapeQr: t.yapeQr || '' },
     productos: visibles,
     // Solo la dueña ve cuántos productos quedaron fuera por el límite del plan.

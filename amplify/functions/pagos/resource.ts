@@ -13,6 +13,7 @@ export const pagos = defineFunction({
     // País de las cuentas Stripe de las vendedoras (Stripe Connect Express).
     CONNECT_COUNTRY: 'US',
     // Comisión de la plataforma sobre cada pedido pagado con tarjeta.
-    COMISION_PORCENTAJE: '5',
+    // 8 %: cubre lo que cobra Stripe (~6.8 % con tarjetas peruanas desde una cuenta de EE. UU.).
+    COMISION_PORCENTAJE: '8',
   },
 });

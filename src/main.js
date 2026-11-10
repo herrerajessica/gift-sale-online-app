@@ -14,6 +14,9 @@ import {
               selecting:false, sel:new Set(), pending:[] };
   const money = n => (typeof n === "number" && isFinite(n)) ? "$" + n.toLocaleString("en-US",{minimumFractionDigits: n%1?2:0, maximumFractionDigits:2}) : "";
   const rate = () => { const r = parseFloat(S.config.tipoCambio); return isFinite(r) && r>0 ? r : null; };
+  // Descuento por pagar con Yape o efectivo: el precio publicado es el de tarjeta.
+  const descuento = () => { const d = Number(S.config && S.config.descuentoContado); return isFinite(d) && d > 0 ? Math.min(30, d) : 0; };
+  const solesContado = n => { const r = rate(), d = descuento(); return (r && d && typeof n==="number" && isFinite(n)) ? Math.round(n*r*(1-d/100)) : null; };
   const soles = n => { const r=rate(); return (r && typeof n==="number" && isFinite(n)) ? "S/ " + Math.round(n*r).toLocaleString("es-PE") : ""; };
   const dual = n => { const a=money(n), b=soles(n); return a && b ? a+" · "+b : a; };
   const parseStock = v => { const t=String(v??"").trim(); if(t==="") return null; const n=parseInt(t.replace(/\D/g,""),10); return isFinite(n) ? Math.min(n, 99999) : null; };
@@ -503,7 +506,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       else if(p.stock===0) ph.append(el("span",{class:"status agotado"},"Agotado"));
       if(S.selecting) ph.append(el("span",{class:"check","aria-hidden":"true"}, S.sel.has(p.id)?"✓":""));
       else if(p.fotos && p.fotos.length>1) ph.append(el("span",{class:"multi"}, p.fotos.length+" fotos"));
-      open.append(ph, el("div",{class:"info",style:"padding-bottom:0"}, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, el("span",{class:"name"},p.nombre||"Sin nombre"), el("span",{class:"meta"}, el("span",null,[p.categoria, p.talla ? "Talla "+p.talla : ""].filter(Boolean).join(" · ")), el("span",null,p.publico||"")), S.canEdit && p.costo!=null ? el("span",{class:"costo"}, `Costo ${money(p.costo)}`+(p.precio!=null && p.costo>0 ? ` · margen ${Math.round((p.precio/p.costo-1)*100)} %` : "")) : null, stockTxt(p) ? el("span",{class:"stockpill"+(S.canEdit && p.stock>3?" ok":"")}, stockTxt(p)) : null));
+      const contado = p.precio!=null && !agotado(p) ? solesContado(p.precio) : null;
+      open.append(ph, el("div",{class:"info",style:"padding-bottom:0"}, contado!=null ? el("span",{class:"contado"}, `S/ ${contado.toLocaleString("es-PE")} con Yape o efectivo`) : null, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, el("span",{class:"name"},p.nombre||"Sin nombre"), el("span",{class:"meta"}, el("span",null,[p.categoria, p.talla ? "Talla "+p.talla : ""].filter(Boolean).join(" · ")), el("span",null,p.publico||"")), S.canEdit && p.costo!=null ? el("span",{class:"costo"}, `Costo ${money(p.costo)}`+(p.precio!=null && p.costo>0 ? ` · margen ${Math.round((p.precio/p.costo-1)*100)} %` : "")) : null, stockTxt(p) ? el("span",{class:"stockpill"+(S.canEdit && p.stock>3?" ok":"")}, stockTxt(p)) : null));
       card.append(open);
       if(!S.selecting) card.append(el("div",{class:"info",style:"padding-top:0"}, addButton(p)));
       grid.append(card);
@@ -735,7 +739,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     } else {
       const st=p.estado||"disponible";
       side.append(p.marca ? el("span",{class:"marca-tag"},p.marca) : null, el("h2",null,p.nombre||"Producto"),
-        el("div",{class:"bigprice"}, p.precio==null?"Precio a consultar":money(p.precio), p.precio!=null && soles(p.precio) ? el("span",{class:"bigsol"}, soles(p.precio)) : null),
+        el("div",{class:"bigprice"}, p.precio==null?"Precio a consultar":money(p.precio), p.precio!=null && soles(p.precio) ? el("span",{class:"bigsol"}, soles(p.precio) + " con tarjeta") : null),
+        p.precio!=null && solesContado(p.precio)!=null ? el("span",{class:"contado",style:"font-size:15px"}, `S/ ${solesContado(p.precio).toLocaleString("es-PE")} pagando con Yape o efectivo (${descuento()} % menos)`) : null,
         st!=="disponible" ? el("span",{class:"status "+st,style:"position:static;justify-self:start"}, st==="vendido"?"Vendido":"Apartado") : p.stock===0 ? el("span",{class:"status agotado",style:"position:static;justify-self:start"},"Agotado") : null,
         p.talla ? el("span",null, el("strong",null,"Talla: "), p.talla) : null,
         stockTxt(p) ? el("span",{class:"stockpill"}, stockTxt(p)) : null,
@@ -758,6 +763,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   function saveCart(){ try{ localStorage.setItem(CART_KEY, JSON.stringify({items:cart, buyer})); }catch(e){} }
   const cartLines = () => Object.entries(cart).map(([id,q])=>({ p:S.products.find(x=>x.id===id), id, q })).filter(l=>l.p);
   const cartCount = () => cartLines().reduce((s,l)=>s+(agotado(l.p)?0:l.q),0);
+  // Total en soles con descuento (redondeado por línea, igual que el servidor)
+  function totalContado(lines){ if(!descuento() || !rate()) return null; const ok = lines.filter(l=>!agotado(l.p) && l.p.precio!=null); if(!ok.length) return null; return ok.reduce((t,l)=>t+Math.round(l.p.precio*l.q*rate()*(1-descuento()/100)),0); }
   function cartTotals(){ let total=0, consultar=0; for(const l of cartLines()){ if(agotado(l.p)) continue; if(l.p.precio==null) consultar++; else total+=l.p.precio*l.q; } return {total, consultar}; }
   function addButton(p, big){
     const inCart = !!cart[p.id], sold = agotado(p);
@@ -781,6 +788,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       m += `${i+1}. ${l.p.nombre}${l.q>1&&l.p.precio==null?` (${l.q} unidades)`:""} — ${pr}\n`;
     });
     m += `\nTotal: ${dual(total)||"$0"}${consultar?` + ${consultar} producto(s) a consultar`:""}`;
+    { const tc = totalContado(lines); if(tc!=null) m += `\nTotal pagando con Yape o efectivo: S/ ${tc.toLocaleString("es-PE")}`; }
     if(buyer.nombre.trim()) m += `\nMi nombre: ${buyer.nombre.trim()}`;
     if(buyer.nota.trim()) m += `\nNota: ${buyer.nota.trim()}`;
     return m;
@@ -818,6 +826,14 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     box.append(ul);
     const {total, consultar} = cartTotals();
     box.append(el("div",{class:"totals"}, el("span",null,"Total"+(consultar?` (+${consultar} a consultar)`:"")), el("span",{class:"t",style:"text-align:right"},money(total)||"$0", soles(total)?el("span",{class:"bigsol"},soles(total)):null)));
+    const totCont = totalContado(lines);
+    if(totCont!=null){
+      const totTarj = lines.filter(l=>!agotado(l.p) && l.p.precio!=null).reduce((t,l)=>t+Math.round(l.p.precio*l.q*rate()),0);
+      box.append(el("div",{class:"totals2"},
+        el("div",{class:"fila"}, el("span",null,"Con tarjeta"), el("strong",null,`S/ ${totTarj.toLocaleString("es-PE")}`)),
+        el("div",{class:"fila contado"}, el("span",null,`Con Yape o efectivo (${descuento()} % menos)`), el("strong",null,`S/ ${totCont.toLocaleString("es-PE")}`)),
+        totTarj-totCont>0 ? el("span",{class:"note",style:"margin:0"}, `Ahorras S/ ${(totTarj-totCont).toLocaleString("es-PE")} pagando con Yape o efectivo.`) : null));
+    }
     const nm = el("input",{id:"buyerName",maxlength:"60",placeholder:"Para saber quién escribe",value:buyer.nombre});
     const nt = el("textarea",{id:"buyerNote",rows:"2",placeholder:"Talla, color, entrega o recogida…"}); nt.value = buyer.nota;
     const pv = el("div",{class:"preview","aria-label":"Mensaje que se enviará"}, buildMessage());
@@ -838,7 +854,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         try{ const r = await pagarPedido(pagables.map(l=>({id:l.id,q:l.q})), buyer.nombre.trim(), buyer.nota.trim()); location.href = r.url; }
         catch(e){ toast((e&&e.message)||"No se pudo iniciar el pago"); payBtn.disabled=false; payBtn.textContent="Pagar con tarjeta"; }
       }},"Pagar con tarjeta");
-      send.append(payBtn, el("span",{class:"note",style:"margin:0;text-align:center"}, sinPrecio ? "Algunos productos no tienen precio: consúltalos por WhatsApp o quítalos para pagar con tarjeta." : "Pago seguro con Stripe. El total final se muestra en la página de pago."));
+      send.append(payBtn, el("span",{class:"note",style:"margin:0;text-align:center"}, sinPrecio ? "Algunos productos no tienen precio: consúltalos por WhatsApp o quítalos para pagar con tarjeta." : descuento() ? "Pago seguro con Stripe, al precio normal con tarjeta." : "Pago seguro con Stripe. El total final se muestra en la página de pago."));
     }
     if(S.config && (S.config.yapeNumero || S.config.yapeQr) && !S.canEdit){
       const pagables = lines.filter(l=>!agotado(l.p));
@@ -861,7 +877,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
 
   // ----- Pago con Yape (QR) -----
   // El total en soles se muestra aquí, pero el servidor lo vuelve a calcular con los precios guardados.
-  const solesDe = lines => lines.reduce((t,l)=> t + Math.round(l.p.precio * l.q * S.config.tipoCambio), 0);
+  const solesDe = lines => lines.reduce((t,l)=> t + Math.round(l.p.precio * l.q * S.config.tipoCambio * (1 - descuento()/100)), 0);
   function mostrarYape(box, pagables){
     const total = solesDe(pagables);
     box.textContent = "";
@@ -921,6 +937,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     if(document.activeElement!==$("setName")) $("setName").value = S.config.nombre||"";
     if(document.activeElement!==$("setWa")) $("setWa").value = S.config.whatsapp||"";
     if(document.activeElement!==$("setRate")) $("setRate").value = S.config.tipoCambio!=null ? String(S.config.tipoCambio) : "";
+    if(document.activeElement!==$("setDesc")) $("setDesc").value = S.config.descuentoContado ? String(S.config.descuentoContado) : "";
     if(document.activeElement!==$("setYapeNum")) $("setYapeNum").value = S.config.yapeNumero||"";
     if(document.activeElement!==$("setYapeName")) $("setYapeName").value = S.config.yapeNombre||"";
     if(yapeQrNuevo===undefined) pintarQrConfig(S.config.yapeQr||"");
@@ -946,6 +963,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     try{
       await S.db.doc("config/tienda").set({
         nombre:$("setName").value.trim(), whatsapp:$("setWa").value.trim(), tipoCambio: parsePrice($("setRate").value),
+        descuentoContado: Math.min(30, Math.max(0, parseMargen($("setDesc").value) || 0)),
         yapeNumero:$("setYapeNum").value.trim(), yapeNombre:$("setYapeName").value.trim(),
         yapeQr: yapeQrNuevo!==undefined ? yapeQrNuevo : (S.config.yapeQr||""),
       });

@@ -106,6 +106,10 @@ button{cursor:pointer}
 .stockpill{font-size:12px;font-weight:600;color:var(--hold)}
 .stockpill.ok{color:var(--muted);font-weight:500}
 .costo{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.contado{font-size:12.5px;font-weight:700;color:var(--ok);font-variant-numeric:tabular-nums}
+.totals2{display:grid;gap:4px;font-size:14px}
+.totals2 .fila{display:flex;justify-content:space-between;gap:10px}
+.totals2 .fila strong{font-family:var(--mono);font-variant-numeric:tabular-nums}
 .marca-tag{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 .status.oculto{color:var(--muted);border:1.5px dashed currentColor}
 .card.oculto .ph img{opacity:.45}
@@ -389,6 +393,7 @@ td small{color:var(--muted);font-family:var(--mono)}
       <label class="f">Nombre de la tienda<input id="setName" maxlength="60" placeholder="Vitrina USA"></label>
       <label class="f">WhatsApp (con código de país)<input id="setWa" inputmode="tel" placeholder="+1 305 555 0123"></label>
       <label class="f">Tipo de cambio (S/ por 1 USD)<input id="setRate" inputmode="decimal" placeholder="3.46"></label>
+      <label class="f">Descuento por Yape o efectivo (%)<input id="setDesc" inputmode="decimal" placeholder="Ej. 7" title="Tus precios son con tarjeta; quien paga con Yape o efectivo paga este porcentaje menos"></label>
     </div>
     <fieldset class="yape-set">
       <legend>Cobrar con Yape</legend>

@@ -103,7 +103,8 @@ async function estadoCobros(a: Record<string, any>, ident: Identidad) {
 type Linea = { id: string; nombre: string; q: number; precioUsd: number; monto: number };
 
 /** Valida el pedido y calcula los montos con los precios de la base de datos. */
-async function armarPedido(t: Record<string, any>, itemsJson: unknown, soloSoles: boolean) {
+/** descuento: % por pagar con Yape o efectivo (0 para tarjeta). */
+async function armarPedido(t: Record<string, any>, itemsJson: unknown, soloSoles: boolean, descuento = 0) {
 
   let pedidos: { id: string; q: number }[] = [];
   try { pedidos = JSON.parse(String(itemsJson || '[]')); } catch { fallo('Pedido no válido'); }
@@ -130,7 +131,8 @@ async function armarPedido(t: Record<string, any>, itemsJson: unknown, soloSoles
       fallo(prod!.stock > 0 ? `Solo quedan ${prod!.stock} de "${prod!.nombre}"` : `"${prod!.nombre}" está agotado`);
     }
     // Monto en la unidad mínima: soles redondeados como en la tienda, o centavos de dólar.
-    const monto = rate ? Math.round(prod!.precio * p.q * rate) * 100 : Math.round(prod!.precio * p.q * 100);
+    const factor = 1 - Math.min(30, Math.max(0, descuento)) / 100;
+    const monto = rate ? Math.round(prod!.precio * p.q * rate * factor) * 100 : Math.round(prod!.precio * p.q * factor * 100);
     lineas.push({ id: p.id, nombre: prod!.nombre, q: p.q, precioUsd: prod!.precio, monto });
   }
   const total = lineas.reduce((s, l) => s + l.monto, 0);
@@ -192,7 +194,8 @@ async function pedidoYape(a: Record<string, any>) {
   if (!t.yapeNumero && !t.yapeQr) fallo('Esta tienda no acepta pagos con Yape');
   const nombre = texto(a.nombre, 60);
   if (!nombre) fallo('Escribe tu nombre para que la tienda identifique tu pago');
-  const { lineas, total, moneda } = await armarPedido(t, a.items, true);
+  const descuento = typeof t.descuentoContado === 'number' ? t.descuentoContado : 0;
+  const { lineas, total, moneda } = await armarPedido(t, a.items, true, descuento);
   const pedidoId = randomUUID();
   const ahora = new Date().toISOString();
   await ddb.send(new PutCommand({

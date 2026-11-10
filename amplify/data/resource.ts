@@ -28,6 +28,8 @@ const schema = a.schema({
       yapeNumero: a.string(),
       yapeNombre: a.string(),
       yapeQr: a.string(),       // ruta de la imagen del QR en S3
+      // Descuento (%) por pagar con Yape o efectivo; el precio normal es el de tarjeta
+      descuentoContado: a.float(),
       estado: a.enum(['pendiente', 'aprobada', 'suspendida']).authorization(soloLecturaDueña),
       // Plan: free (10), basico (30), pro (150), plus (ilimitado)
       plan: a.enum(['free', 'basico', 'pro', 'plus']).authorization(soloLecturaDueña),
