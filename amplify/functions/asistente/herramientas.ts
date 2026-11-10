@@ -9,6 +9,8 @@ Cómo trabajas:
 - Responde en español sencillo, corto y amable, como un mensaje de WhatsApp. Nada de jerga técnica.
 - Usa las herramientas para saber cualquier dato de la tienda; nunca inventes productos, precios ni pedidos.
 - Los precios se guardan en dólares (USD). Para mostrar soles usa el tipo de cambio ${t.tipoCambio || 'de la tienda'} y redondea al sol.
+- Tú no ves las fotos: los nombres los puso la IA y pueden ser distintos a como la vendedora los llama. Si encuentras menos productos de los que ella menciona, NO digas que no existen: busca otra vez con otras palabras (singular, sinónimos, la categoría) o sin filtros y revisa los nombres. Si aún faltan, dile cuáles encontraste y pídele que marque los productos en su lista (la casilla de cada uno) y te vuelva a escribir.
+- Si la vendedora tiene productos marcados en su lista, te los paso abajo. Cuando diga "estos", "los marcados", "los seleccionados" o un número que coincida, usa esos.
 - Precio con Yape o efectivo: ${t.descuentoContado ? `la tienda da ${t.descuentoContado} % de descuento si pagan con Yape o efectivo (soles × (1 − ${t.descuentoContado}/100), redondeado al sol); con tarjeta se cobra el precio normal` : 'esta tienda no tiene descuento por Yape o efectivo'}. Ese porcentaje solo lo cambia la vendedora en Datos de la tienda; tú no puedes cambiarlo, solo explicárselo.
 - El "costo" es lo que pagó la vendedora; es privado y sirve para calcular márgenes.
 - Para CUALQUIER cambio (precios, descripciones, marca, cantidad, estado, categoría, talla, nombre, o el estado de un pedido) usa la herramienta proponer_cambios. Tú no cambias nada directamente: la vendedora revisa la propuesta y toca "Aplicar". Después de proponer, explica en una frase qué propusiste y pídele que revise. Nunca digas que ya está cambiado.
@@ -27,7 +29,7 @@ export const HERRAMIENTAS: { name: string; description: string; schema: Esquema 
   },
   {
     name: 'buscar_productos',
-    description: 'Busca productos de la tienda. Devuelve hasta 60 con id, nombre, marca, precio (USD), costo (USD), stock, talla, categoría, público, estado y descripción. Sin filtros devuelve los más recientes.',
+    description: 'Busca productos de la tienda. Devuelve hasta 60 con id, nombre, marca, precio (USD), costo (USD), stock, talla, categoría, público, estado y descripción. El texto busca por palabras (sin importar tildes ni plural). Sin filtros devuelve los más recientes.',
     schema: {
       type: 'object',
       properties: {
@@ -118,4 +120,15 @@ export function limpiarPropuesta(
     return [{ id: actual.id, cliente: actual.cliente || '', estado: c.estado, antes: actual.estado, metodo: actual.metodo || '' }];
   });
   return { resumen: String(p.resumen || '').slice(0, 300), productos: prods, pedidos: peds };
+}
+
+const normTxt = (s: unknown) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const raizTxt = (w: string) => (w.length > 4 && w.endsWith('es') ? w.slice(0, -2) : w.length > 3 && w.endsWith('s') ? w.slice(0, -1) : w);
+/** Busca por palabras: sin tildes, singular o plural; primero todas las palabras y, si no hay nada, cualquiera. */
+export function buscarTexto<T extends Record<string, any>>(lista: T[], texto: unknown): T[] {
+  const ps = normTxt(texto).split(/[^a-z0-9ñ]+/).filter((w) => w.length > 1).map(raizTxt);
+  if (!ps.length) return lista;
+  const pajar = (p: T) => normTxt([p.nombre, p.marca, p.categoria, p.descripcion, p.talla, p.publico].join(' '));
+  const todas = lista.filter((p) => { const h = pajar(p); return ps.every((w) => h.includes(w)); });
+  return todas.length ? todas : lista.filter((p) => { const h = pajar(p); return ps.some((w) => h.includes(w)); });
 }

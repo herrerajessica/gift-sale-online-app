@@ -104,7 +104,7 @@ const schema = a.schema({
   // Asistente de la vendedora: Claude con herramientas; solo propone cambios
   asistente: a
     .mutation()
-    .arguments({ tiendaId: a.string().required(), mensajes: a.string().required() })
+    .arguments({ tiendaId: a.string().required(), mensajes: a.string().required(), seleccion: a.string() })
     .returns(a.string())
     .handler(a.handler.function(asistente))
     .authorization((allow) => [allow.authenticated()]),

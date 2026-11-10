@@ -263,7 +263,7 @@ async function llamar(nombre, args, authMode) {
 const origen = () => location.origin;
 
 // Asistente de la vendedora: manda la conversación (solo texto) y recibe respuesta + cambios propuestos.
-export const asistente = (mensajes) => llamar('asistente', { tiendaId: TIENDA, mensajes: JSON.stringify(mensajes) }, 'userPool');
+export const asistente = (mensajes, seleccion = []) => llamar('asistente', { tiendaId: TIENDA, mensajes: JSON.stringify(mensajes), seleccion: JSON.stringify(seleccion.slice(0, 100)) }, 'userPool');
 // Quita el fondo de una foto ya subida; devuelve un PNG transparente en base64.
 export const quitarFondo = (path) => llamar('quitarFondo', { tiendaId: TIENDA, path }, 'userPool');
 export const pagarPlan = (plan) => llamar('pagarPlan', { tiendaId: TIENDA, plan, origen: origen() }, 'userPool');

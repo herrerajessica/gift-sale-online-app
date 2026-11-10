@@ -5,12 +5,12 @@ import {
 import { QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb, PRODUCTO, PEDIDO, TIENDA, leerTienda, subDe } from '../shared/tablas';
 import { PLANES, planVigente } from '../shared/planes';
-import { HERRAMIENTAS, LIMITE_DIARIO, instrucciones, limpiarPropuesta } from './herramientas';
+import { HERRAMIENTAS, LIMITE_DIARIO, buscarTexto, instrucciones, limpiarPropuesta } from './herramientas';
 
 const bedrock = new BedrockRuntimeClient({});
 const MAX_RONDAS = 6;
 
-type Evento = { arguments: { tiendaId?: string; mensajes?: string }; identity?: { sub?: string } | null };
+type Evento = { arguments: { tiendaId?: string; mensajes?: string; seleccion?: string | null }; identity?: { sub?: string } | null };
 
 async function todos(tabla: string, indice: string, tiendaId: string) {
   const out: Record<string, any>[] = [];
@@ -57,7 +57,7 @@ const resumirProducto = (p: Record<string, any>) => ({
 });
 
 export const handler = async (event: Evento) => {
-  const { tiendaId, mensajes } = event.arguments || {};
+  const { tiendaId, mensajes, seleccion } = event.arguments || {};
   const sub = event.identity?.sub;
   const t = await leerTienda(String(tiendaId || ''));
   if (!t || !sub || subDe(t.owner) !== sub) throw new Error('No autorizado');
@@ -104,9 +104,7 @@ export const handler = async (event: Evento) => {
         };
       }
       case 'buscar_productos': {
-        const q = String(input.texto || '').toLowerCase();
-        const lista = productos
-          .filter((p) => !q || [p.nombre, p.marca, p.categoria, p.descripcion, p.talla].join(' ').toLowerCase().includes(q))
+        const lista = buscarTexto(productos, input.texto)
           .filter((p) => !input.categoria || String(p.categoria || '').toLowerCase() === String(input.categoria).toLowerCase())
           .filter((p) => !input.marca || String(p.marca || '').toLowerCase().includes(String(input.marca).toLowerCase()))
           .filter((p) => !input.estado || (p.estado || 'disponible') === input.estado)
@@ -149,7 +147,15 @@ export const handler = async (event: Evento) => {
     toolSpec: { name: h.name, description: h.description, inputSchema: { json: h.schema as any } },
   }));
   const messages: Message[] = historial.map((m) => ({ role: m.role, content: [{ text: m.text }] }));
-  const system = [{ text: instrucciones(t, new Date().toLocaleDateString('es-PE', { timeZone: 'America/Lima', dateStyle: 'full' })) }];
+  // Productos que la vendedora tiene marcados en su lista ("estos", "los seleccionados")
+  let idsSel: unknown = [];
+  try { idsSel = JSON.parse(String(seleccion || '[]')); } catch { idsSel = []; }
+  const sel = (Array.isArray(idsSel) ? idsSel : []).slice(0, 100).map((id) => mapaProd.get(String(id))).filter(Boolean)
+    .map((p) => ({ id: p!.id, nombre: p!.nombre, marca: p!.marca || '', categoria: p!.categoria || '' }));
+  const textoSel = sel.length
+    ? `\n\nProductos que la vendedora tiene marcados ahora en su lista (${sel.length}):\n${JSON.stringify(sel)}`
+    : '\n\nLa vendedora no tiene productos marcados en su lista.';
+  const system = [{ text: instrucciones(t, new Date().toLocaleDateString('es-PE', { timeZone: 'America/Lima', dateStyle: 'full' })) + textoSel }];
 
   let texto = '';
   for (let ronda = 0; ronda < MAX_RONDAS; ronda++) {

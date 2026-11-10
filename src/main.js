@@ -1362,7 +1362,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     $("asisInput").value = ""; $("asisEnviar").disabled = true;
     try{
       const conversacion = asisLog.filter(m=>m.role==="user"||m.role==="assistant").map(m=>({ role:m.role, text:m.text }));
-      const r = await S.asistente(conversacion);
+      const r = await S.asistente(conversacion, [...S.sel]);
       asisLog.push({ role:"assistant", text: r.texto || "", propuesta: r.propuesta || null });
     }catch(e){
       asisLog.push({ role:"error", text: (e && e.message) || "No pude responder ahora. Intenta de nuevo en un momento." });
