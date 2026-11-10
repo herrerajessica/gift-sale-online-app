@@ -525,6 +525,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   // ---------- Selección en bloque ----------
   function toggleSel(id){ S.sel.has(id)?S.sel.delete(id):S.sel.add(id); render(); }
   function renderBulk(){
+    pintarAsisSel();
     $("bulk").hidden = !S.selecting;
     $("bulkCount").textContent = S.sel.size + (S.sel.size===1?" seleccionado":" seleccionados");
     $("bulkApply").disabled = $("bulkDel").disabled = $("bulkAI").disabled = !S.sel.size;
@@ -1344,7 +1345,21 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     }
     return card;
   }
+  // Le dice a la vendedora con qué productos marcados va a trabajar el asistente
+  function pintarAsisSel(){
+    const box = $("asisSel"); if(!box) return; box.textContent = "";
+    const n = S.sel.size;
+    if(n){
+      box.append(el("b",null, `${n} producto${n===1?"":"s"} marcado${n===1?"":"s"}`), " · puedes decirle \"estos\"",
+        el("button",{type:"button",onclick:()=>{ S.selecting=false; S.sel.clear(); render(); }},"Quitar"));
+    } else {
+      box.append("Para hablar de productos en particular, toca ",
+        el("button",{type:"button",onclick:()=>{ S.selecting=true; S.sel.clear(); render(); $("bulk").scrollIntoView({block:"nearest"}); }},"Editar varios"),
+        " y toca cada producto.");
+    }
+  }
   function pintarAsis(){
+    pintarAsisSel();
     const log = $("asisLog"); log.textContent = "";
     if(!asisLog.length) log.append(el("div",{class:"burbuja assistant"}, `Hola${S.config && S.config.nombre ? ", " + S.config.nombre : ""}. Puedo revisar tu tienda, escribir descripciones, poner precios con margen o ayudarte con tus pedidos. ¿Qué necesitas?`));
     for(const m of asisLog){
