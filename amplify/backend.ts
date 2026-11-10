@@ -12,8 +12,9 @@ import { catalogo } from './functions/catalogo/resource';
 import { pagos } from './functions/pagos/resource';
 import { stripeWebhook } from './functions/stripe-webhook/resource';
 import { fondo } from './functions/fondo/resource';
+import { asistente } from './functions/asistente/resource';
 
-const backend = defineBackend({ auth, data, storage, clasificar, catalogo, pagos, stripeWebhook, fondo });
+const backend = defineBackend({ auth, data, storage, clasificar, catalogo, pagos, stripeWebhook, fondo, asistente });
 
 const bucket = backend.storage.resources.bucket;
 const tablas = backend.data.resources.tables;
@@ -80,6 +81,26 @@ backend.fondo.addEnvironment('TIENDA_TABLE', tablaTienda.tableName);
 fondoFn.addToRolePolicy(new PolicyStatement({
   actions: ['bedrock:InvokeModel'],
   resources: ['arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-canvas-v1:0'],
+}));
+
+// --- Asistente: lee productos y pedidos de la tienda; solo escribe su contador de uso ---
+const asistenteFn = backend.asistente.resources.lambda;
+tablaTienda.grantReadWriteData(asistenteFn);
+tablaProducto.grantReadData(asistenteFn);
+tablaPedido.grantReadData(asistenteFn);
+asistenteFn.addToRolePolicy(new PolicyStatement({
+  actions: ['dynamodb:Query'],
+  resources: [`${tablaProducto.tableArn}/index/*`, `${tablaPedido.tableArn}/index/*`],
+}));
+backend.asistente.addEnvironment('TIENDA_TABLE', tablaTienda.tableName);
+backend.asistente.addEnvironment('PRODUCTO_TABLE', tablaProducto.tableName);
+backend.asistente.addEnvironment('PEDIDO_TABLE', tablaPedido.tableName);
+asistenteFn.addToRolePolicy(new PolicyStatement({
+  actions: ['bedrock:InvokeModel'],
+  resources: [
+    'arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-5-5*',
+    'arn:aws:bedrock:*:*:inference-profile/us.anthropic.claude-haiku-5-5*',
+  ],
 }));
 
 // --- Clasificación con IA: lee miniaturas y llama a Claude en Bedrock ---

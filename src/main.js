@@ -3,7 +3,7 @@ import {
   miTienda, crearTienda, listarTiendas, cambiarEstadoTienda, limpiarSlug, SLUG_RE,
   signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn,
   googleDisponible, entrarConGoogle, alVolverDeGoogle,
-  PLANES, planVigente, tieneFondoIA, pagarPlan, quitarFondo, cancelarPlan, conectarCobros, estadoCobros, pagarPedido, pedidoYape,
+  PLANES, planVigente, tieneFondoIA, pagarPlan, quitarFondo, asistente, cancelarPlan, conectarCobros, estadoCobros, pagarPedido, pedidoYape,
   miTiendaActual, listarPedidos, cambiarEstadoPedido, cambiarPlanTienda,
 } from './amplify-adapter.js';
 
@@ -1270,6 +1270,98 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     limpiarParams("pago","pedido");
   }
 
+  // ---------- Asistente de la vendedora ----------
+  // Conversa con Claude (en AWS) que consulta la tienda con herramientas.
+  // Los cambios llegan como propuesta: solo se aplican si la vendedora toca "Aplicar".
+  const ASIS_KEY = () => "vitrina-asistente-" + (S.config && S.config.id || "");
+  let asisLog = [], asisOcupado = false;
+  const SUGERENCIAS = [
+    "¿Qué me falta completar en mi tienda?",
+    "Escribe descripciones para los productos sin descripción",
+    "Pon precio con 60 % de margen a los que tienen costo y no tienen precio",
+    "¿Qué pedidos tengo por confirmar?",
+    "¿Cuánto vendí esta semana?",
+  ];
+  const ETIQUETA_CAMPO = { precio:"Precio", costo:"Costo", stock:"Cantidad", descripcion:"Descripción", marca:"Marca", nombre:"Nombre", talla:"Talla", categoria:"Categoría", estado:"Estado" };
+  const ESTADO_PED = { por_confirmar:"Por confirmar", pagado:"Pagado", entregado:"Entregado", cancelado:"Cancelado", pendiente:"Pago pendiente" };
+  function guardarAsis(){ try{ localStorage.setItem(ASIS_KEY(), JSON.stringify(asisLog.slice(-40))); }catch(e){} }
+  function cargarAsis(){ try{ asisLog = JSON.parse(localStorage.getItem(ASIS_KEY()) || "[]"); }catch(e){ asisLog = []; } }
+  const valorCampo = (k, v) => v==null || v==="" ? "—" : (k==="precio"||k==="costo") ? money(Number(v)) : String(v);
+
+  function tarjetaPropuesta(m){
+    const p = m.propuesta, total = p.productos.length + p.pedidos.length;
+    const card = el("div",{class:"propuesta" + (m.estado==="aplicada" ? " hecha" : m.estado==="descartada" ? " descartada" : "")});
+    card.append(el("h3",null, p.resumen || `${total} cambio${total===1?"":"s"} propuesto${total===1?"":"s"}`));
+    const tb = el("tbody");
+    p.productos.forEach(c=>Object.keys(c.campos).forEach(k=>tb.append(el("tr",null,
+      el("td",null, c.nombre || "Producto"), el("td",null, ETIQUETA_CAMPO[k] || k),
+      el("td",null, el("span",{class:"antes"}, valorCampo(k, c.antes[k])), " → ", el("span",{class:"despues"}, valorCampo(k, c.campos[k])))))));
+    p.pedidos.forEach(c=>tb.append(el("tr",null,
+      el("td",null, "Pedido de " + (c.cliente || "cliente")), el("td",null,"Estado"),
+      el("td",null, el("span",{class:"antes"}, ESTADO_PED[c.antes]||c.antes), " → ", el("span",{class:"despues"}, ESTADO_PED[c.estado]||c.estado)))));
+    card.append(el("div",{class:"tablewrap"}, el("table",null, el("thead",null, el("tr",null, el("th",null,"Qué"), el("th",null,"Campo"), el("th",null,"Cambio"))), tb)));
+    if(m.estado==="aplicada") card.append(el("span",{class:"note",style:"margin:0;color:var(--ok)"},"✓ Aplicado"));
+    else if(m.estado==="descartada") card.append(el("span",{class:"note",style:"margin:0"},"Descartado"));
+    else {
+      const aplicar = el("button",{class:"btn primary",type:"button"}, `Aplicar ${total} cambio${total===1?"":"s"}`);
+      aplicar.onclick = async ()=>{
+        aplicar.disabled = true; aplicar.textContent = "Aplicando…";
+        let fallos = await runPool(p.productos.map(c=>c.id), id=>S.db.doc("productos/"+id).update(p.productos.find(c=>c.id===id).campos));
+        if(p.pedidos.length){
+          let lista = []; try{ lista = await listarPedidos(); }catch(e){}
+          for(const c of p.pedidos){
+            try{
+              await cambiarEstadoPedido(c.id, c.estado);
+              const ped = lista.find(x=>x.id===c.id);
+              if(c.estado==="pagado" && ped && ped.metodo==="yape"){ let items=[]; try{ items = JSON.parse(ped.items||"[]"); }catch(e){} await descontarStockLocal(items); }
+            }catch(e){ fallos++; }
+          }
+          cargarPedidos();
+        }
+        m.estado = "aplicada"; asisLog.push({ role:"nota", text: fallos ? `Se aplicaron ${total-fallos} de ${total} cambios.` : `Aplicaste ${total} cambio${total===1?"":"s"}.` });
+        guardarAsis(); pintarAsis();
+      };
+      const descartar = el("button",{class:"btn",type:"button",onclick:()=>{ m.estado="descartada"; asisLog.push({ role:"nota", text:"Descartaste la propuesta." }); guardarAsis(); pintarAsis(); }},"Descartar");
+      card.append(el("div",{class:"acciones"}, aplicar, descartar));
+    }
+    return card;
+  }
+  function pintarAsis(){
+    const log = $("asisLog"); log.textContent = "";
+    if(!asisLog.length) log.append(el("div",{class:"burbuja assistant"}, `Hola${S.config && S.config.nombre ? ", " + S.config.nombre : ""}. Puedo revisar tu tienda, escribir descripciones, poner precios con margen o ayudarte con tus pedidos. ¿Qué necesitas?`));
+    for(const m of asisLog){
+      if(m.text) log.append(el("div",{class:"burbuja " + m.role}, m.text));
+      if(m.propuesta && (m.propuesta.productos.length || m.propuesta.pedidos.length)) log.append(tarjetaPropuesta(m));
+    }
+    if(asisOcupado) log.append(el("div",{class:"pensando"},"Revisando tu tienda…"));
+    const sug = $("asisSug"); sug.textContent = "";
+    if(!asisLog.length) SUGERENCIAS.forEach(t=>sug.append(el("button",{type:"button",onclick:()=>enviarAsis(t)}, t)));
+    log.scrollTop = log.scrollHeight;
+  }
+  async function enviarAsis(texto){
+    texto = String(texto||"").trim(); if(!texto || asisOcupado) return;
+    asisLog.push({ role:"user", text:texto }); asisOcupado = true; guardarAsis(); pintarAsis();
+    $("asisInput").value = ""; $("asisEnviar").disabled = true;
+    try{
+      const conversacion = asisLog.filter(m=>m.role==="user"||m.role==="assistant").map(m=>({ role:m.role, text:m.text }));
+      const r = await S.asistente(conversacion);
+      asisLog.push({ role:"assistant", text: r.texto || "", propuesta: r.propuesta || null });
+    }catch(e){
+      asisLog.push({ role:"error", text: (e && e.message) || "No pude responder ahora. Intenta de nuevo en un momento." });
+    }finally{
+      asisOcupado = false; $("asisEnviar").disabled = false; guardarAsis(); pintarAsis(); $("asisInput").focus();
+    }
+  }
+  function abrirAsis(){ cargarAsis(); $("asis").hidden = false; $("asisBtn").hidden = true; pintarAsis(); $("asisInput").focus(); }
+  function cerrarAsis(){ $("asis").hidden = true; $("asisBtn").hidden = !S.canEdit; }
+  $("asisBtn").onclick = abrirAsis;
+  $("asisCerrar").onclick = cerrarAsis;
+  $("asisNuevo").onclick = ()=>{ asisLog = []; guardarAsis(); pintarAsis(); };
+  $("asisForm").addEventListener("submit", e=>{ e.preventDefault(); enviarAsis($("asisInput").value); });
+  $("asisInput").addEventListener("keydown", e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); enviarAsis($("asisInput").value); } });
+  $("asisInput").addEventListener("input", e=>{ e.target.style.height = "auto"; e.target.style.height = Math.min(140, e.target.scrollHeight) + "px"; });
+  document.addEventListener("keydown", e=>{ if(e.key==="Escape" && !$("asis").hidden) cerrarAsis(); });
+
   // ----- Arranque -----
   (async ()=>{
     // Regreso desde Google: esperar a que Amplify termine de abrir la sesión.
@@ -1320,7 +1412,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
 
     // Vitrina de la vendedora: solo sus productos y sus fotos
     usarModoVendedora(tienda.id);
-    S.db = db; S.assets = assets; S.ai = ai; S.aiMax = 8; S.canEdit = true; S.quitarFondo = quitarFondo;
+    S.db = db; S.assets = assets; S.ai = ai; S.aiMax = 8; S.canEdit = true; S.quitarFondo = quitarFondo; S.asistente = asistente;
+    show("asisBtn", true);
     pintarModoFoto();
     $("modoFotoCambiar").onclick = ()=>{ try{ localStorage.removeItem(MODO_KEY); }catch(e){} pintarModoFoto(); toast("Te preguntaremos en la próxima subida"); };
     show("upload", true); show("settingsBtn", true); show("aiRow", true); show("bulkAI", true);

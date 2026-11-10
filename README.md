@@ -12,6 +12,7 @@ Plataforma para revendedoras de productos traídos de USA. Cada vendedora crea s
 | Fotos, cada vendedora en su carpeta | S3 + CloudFront | `amplify/storage/resource.ts`, `amplify/backend.ts` |
 | Clasificación de fotos con IA | Lambda `clasificar` + Bedrock (Claude Haiku 5.5) | `amplify/functions/clasificar/` |
 | Fondo blanco con IA (plan Plus) | Lambda `fondo` + Bedrock (Amazon Nova Canvas) | `amplify/functions/fondo/` |
+| Asistente de la vendedora | Lambda `asistente` + Bedrock (Claude, herramientas) | `amplify/functions/asistente/` |
 | Planes y pago de pedidos | Lambda `pagos` + Stripe (Checkout, Billing, Connect) | `amplify/functions/pagos/` |
 | Confirmación de pagos | Lambda `stripe-webhook` (URL pública con firma) | `amplify/functions/stripe-webhook/` |
 | Web | Amplify Hosting (Vite) | `index.html`, `src/` |
@@ -24,6 +25,15 @@ Plataforma para revendedoras de productos traídos de USA. Cada vendedora crea s
 - `/?tienda=<enlace>` : vitrina pública que ve el cliente.
 - `/#entrar` : abre el formulario de ingreso.
 - `/#panel` : panel de la dueña (solo `SUPERADMIN`).
+
+## Asistente de la vendedora
+
+Un chat en el panel (botón **Asistente**) donde la vendedora pide cosas como en WhatsApp: "¿qué me falta completar?", "escribe descripciones para los productos sin descripción", "pon 60 % de margen a los que tienen costo", "¿qué pedidos tengo por confirmar?".
+
+- **Cómo funciona:** la Lambda `asistente` llama a Claude Haiku 5.5 en Bedrock (Converse API) con cuatro herramientas: `resumen_tienda`, `buscar_productos`, `listar_pedidos` y `proponer_cambios`. Claude decide qué herramienta usar; la Lambda las ejecuta con los datos de esa tienda.
+- **Nada cambia sin permiso:** `proponer_cambios` no escribe en la base de datos. Devuelve una propuesta que la pantalla muestra como tabla de antes y después; solo al tocar **Aplicar** se guardan los cambios, con los permisos normales de la vendedora.
+- **Seguridad:** la Lambda verifica que quien pregunta es la dueña de la tienda; solo lee productos y pedidos de esa tienda. La propuesta se valida (solo ids de esa tienda, campos permitidos, valores en rango).
+- **Costo:** límite de mensajes por día según el plan (Free 15, Básico 60, Pro 200, Plus 1000), contado en el servidor.
 
 ## Productos: subida en lote, marca y cantidad
 

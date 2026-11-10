@@ -3,6 +3,7 @@ import { clasificar } from '../functions/clasificar/resource';
 import { catalogo } from '../functions/catalogo/resource';
 import { pagos } from '../functions/pagos/resource';
 import { fondo } from '../functions/fondo/resource';
+import { asistente } from '../functions/asistente/resource';
 
 /**
  * Aislamiento por vendedora:
@@ -36,6 +37,9 @@ const schema = a.schema({
       stripeSubscriptionId: a.string().authorization(soloLecturaDueña),
       stripeAccountId: a.string().authorization(soloLecturaDueña),
       cobrosActivos: a.boolean().authorization(soloLecturaDueña),
+      // Uso del asistente por día (límite según el plan)
+      asistenteDia: a.string().authorization(soloLecturaDueña),
+      asistenteUsos: a.integer().authorization(soloLecturaDueña),
     })
     .authorization((allow) => [allow.owner(), allow.group('SUPERADMIN')]),
 
@@ -93,6 +97,14 @@ const schema = a.schema({
     .arguments({ paths: a.string().array().required() })
     .returns(a.string())
     .handler(a.handler.function(clasificar))
+    .authorization((allow) => [allow.authenticated()]),
+
+  // Asistente de la vendedora: Claude con herramientas; solo propone cambios
+  asistente: a
+    .mutation()
+    .arguments({ tiendaId: a.string().required(), mensajes: a.string().required() })
+    .returns(a.string())
+    .handler(a.handler.function(asistente))
     .authorization((allow) => [allow.authenticated()]),
 
   // Foto con fondo blanco: quita el fondo con Nova Canvas (Bedrock)
