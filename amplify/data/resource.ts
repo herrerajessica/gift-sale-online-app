@@ -4,6 +4,7 @@ import { catalogo } from '../functions/catalogo/resource';
 import { pagos } from '../functions/pagos/resource';
 import { fondo } from '../functions/fondo/resource';
 import { asistente } from '../functions/asistente/resource';
+import { confianza } from '../functions/confianza/resource';
 
 /**
  * Aislamiento por vendedora:
@@ -72,6 +73,15 @@ const schema = a.schema({
       fotosFull: a.string().array(),
       fotosThumb: a.string().array(),
       creado: a.float(),
+      // Tiendas de confianza: la dueña del producto lo comparte con sus tiendas de confianza
+      // y fija cuánto le paga la revendedora por cada unidad (en la moneda de su tienda).
+      compartido: a.boolean(),
+      precioReventa: a.float(),
+      // Copia en la tienda de una revendedora: apunta al producto original y a su tienda.
+      // Lo llena la función "confianza"; el catálogo y los pagos lo verifican en el servidor
+      // y nunca lo muestran al cliente (para el cliente, el producto es de la revendedora).
+      origenId: a.string(),
+      origenTienda: a.string(),
     })
     .secondaryIndexes((index) => [index('tiendaId').name('byTienda')])
     .authorization((allow) => [allow.owner(), allow.group('SUPERADMIN')]),
@@ -96,6 +106,47 @@ const schema = a.schema({
     })
     .secondaryIndexes((index) => [index('tiendaId').name('pedidosByTienda')])
     .authorization((allow) => [allow.owner().to(['read', 'update']), allow.group('SUPERADMIN')]),
+
+  // Relación entre dos tiendas de confianza. id = "tiendaA|tiendaB" (en orden alfabético).
+  // Solo la lee y escribe la función "confianza" (y SUPERADMIN); las vendedoras la ven a través de ella.
+  Confianza: a
+    .model({
+      id: a.id().required(),
+      tiendaA: a.string().required(),
+      tiendaB: a.string().required(),
+      invita: a.string().required(),     // tienda que envió la invitación
+      estado: a.string().required(),     // pendiente | aceptada
+    })
+    .secondaryIndexes((index) => [index('tiendaA').name('confianzaByA'), index('tiendaB').name('confianzaByB')])
+    .authorization((allow) => [allow.group('SUPERADMIN')]),
+
+  // Venta de un producto ajeno: la revendedora le debe a la dueña el precio para revendedoras.
+  // El pago entre ellas es por fuera (Yape, efectivo); la dueña lo marca como pagado.
+  Reventa: a
+    .model({
+      duena: a.string().required(),        // tienda dueña del producto
+      revendedora: a.string().required(),  // tienda que lo vendió
+      productoId: a.string().required(),   // producto original
+      copiaId: a.string(),
+      nombre: a.string(),
+      q: a.integer(),
+      monto: a.float(),                    // lo que debe la revendedora, en la moneda de las tiendas
+      moneda: a.string(),                  // PEN | USD
+      via: a.string(),                     // tarjeta | yape | manual
+      pedidoId: a.string(),
+      estado: a.string(),                  // debe | pagado
+      creado: a.float(),
+    })
+    .secondaryIndexes((index) => [index('duena').name('reventasByDuena'), index('revendedora').name('reventasByRevendedora')])
+    .authorization((allow) => [allow.group('SUPERADMIN')]),
+
+  // Tiendas de confianza: invitar, aceptar, compartir, revender y llevar las cuentas.
+  confianza: a
+    .mutation()
+    .arguments({ tiendaId: a.string().required(), accion: a.string().required(), datos: a.string() })
+    .returns(a.string())
+    .handler(a.handler.function(confianza))
+    .authorization((allow) => [allow.authenticated()]),
 
   catalogo: a
     .query()

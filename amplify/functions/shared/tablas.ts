@@ -8,6 +8,8 @@ export const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
 export const TIENDA = () => process.env.TIENDA_TABLE as string;
 export const PRODUCTO = () => process.env.PRODUCTO_TABLE as string;
 export const PEDIDO = () => process.env.PEDIDO_TABLE as string;
+export const CONFIANZA = () => process.env.CONFIANZA_TABLE as string;
+export const REVENTA = () => process.env.REVENTA_TABLE as string;
 
 export async function leerTienda(id: string) {
   const { Item } = await ddb.send(new GetCommand({ TableName: TIENDA(), Key: { id } }));
