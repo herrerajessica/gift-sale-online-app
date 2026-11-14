@@ -162,6 +162,14 @@ const schema = a.schema({
     .handler(a.handler.function(clasificar))
     .authorization((allow) => [allow.authenticated()]),
 
+  // Dictado por voz: convierte lo que dijo la vendedora (un texto por producto) en datos del producto
+  interpretarDictado: a
+    .query()
+    .arguments({ textos: a.string().array().required(), idioma: a.string(), moneda: a.string() })
+    .returns(a.string())
+    .handler(a.handler.function(clasificar))
+    .authorization((allow) => [allow.authenticated()]),
+
   // Asistente de la vendedora: Claude con herramientas; solo propone cambios
   asistente: a
     .mutation()

@@ -267,6 +267,13 @@ export const ai = {
   },
 };
 
+// Dictado por voz: un texto por producto → datos del producto (IA de la función "clasificar").
+export async function interpretarDictado(textos, idioma = 'es', moneda = 'USD') {
+  const r = await client.queries.interpretarDictado({ textos, idioma, moneda }, { authMode: 'userPool' });
+  const d = check(r);
+  return typeof d === 'string' ? JSON.parse(d) : (d || []);
+}
+
 // ---------- Planes y pagos (Stripe) ----------
 // Debe coincidir con amplify/functions/shared/planes.ts
 export const PLANES = [

@@ -45,6 +45,18 @@ La idea central es **subir muchas fotos de una vez**. Al arrastrar el lote se pu
 - **Cantidad (stock):** opcional; vacío significa "sin control". El cliente ve "Quedan N" o "¡Última unidad!" cuando quedan 3 o menos, y "Agotado" en 0. No puede pedir más unidades de las disponibles: lo valida la pantalla y también el servidor.
 - **Descuento automático:** al pagar con tarjeta, el webhook descuenta las unidades una sola vez (aunque Stripe reenvíe el aviso). Al confirmar un Yape, se descuentan cuando la vendedora toca *Confirmar pago*. Los pedidos por WhatsApp se ajustan a mano.
 
+## Cargar productos por voz
+
+Pensado para quien tiene muchos productos y los va mirando uno por uno:
+
+1. **Dictar productos** › micrófono: se dice cada producto de corrido y luego **"siguiente"** (*"Cartera Coach negra, nueva con etiqueta, 85 soles, tengo 2… siguiente"*). Cada producto se guarda al instante en el celular; si el micrófono se corta por un silencio, se vuelve a encender. También se puede escribir (o usar el micrófono del teclado).
+2. **La IA entiende el texto** (consulta `interpretarDictado`, misma función `clasificar` con Nova): nombre, marca, precio (convierte soles/dólares con el tipo de cambio), costo, cantidad, talla, condición y categoría. Si la IA falla, reglas simples completan lo básico. Todo se puede corregir.
+3. **Fotos en el mismo orden**: se ordenan por la hora en que se tomaron; se ven junto a su dictado y se mueven con flechas. Avisa si hay más o menos fotos que productos.
+4. **Vista previa antes de publicar**: los productos se crean **ocultos**; la IA revisa cada foto y marca ⚠️ si parece de otro tipo de producto que lo dictado. Se corrige ahí mismo y recién se toca **Publicar** (respeta el límite del plan).
+5. Para **actualizar** la tienda por voz, el **Asistente** tiene micrófono: el texto queda en la caja para revisarlo y los cambios se confirman como siempre.
+
+El reconocimiento de voz lo hace el navegador del celular (sin costo); solo el texto viaja a la IA.
+
 ## Tiendas de confianza
 
 Dos vendedoras se conectan (una invita con el enlace de la tienda de la otra y la otra acepta) y cada una puede revender los productos que la otra comparte, **como si fueran suyos**: el cliente ve el nombre, el WhatsApp y los pagos de la revendedora, nunca la tienda de origen.

@@ -3,7 +3,7 @@ import {
   miTienda, crearTienda, listarTiendas, cambiarEstadoTienda, limpiarSlug, SLUG_RE,
   signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn,
   googleDisponible, entrarConGoogle, alVolverDeGoogle,
-  PLANES, planVigente, tieneFondoIA, pagarPlan, quitarFondo, asistente, cancelarPlan, conectarCobros, estadoCobros, pagarPedido, pedidoYape,
+  PLANES, planVigente, tieneFondoIA, pagarPlan, quitarFondo, asistente, interpretarDictado, cancelarPlan, conectarCobros, estadoCobros, pagarPedido, pedidoYape,
   miTiendaActual, listarPedidos, cambiarEstadoPedido, cambiarPlanTienda, confianza, refrescarProductos,
 } from './amplify-adapter.js';
 
@@ -479,14 +479,16 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         const r = arr.find(x=>x && Number(x.i)===j) || arr[j]; if(!r) { fails++; return; }
         const patch = {};
         if(b.cat && CATS.includes(r.categoria)) patch.categoria = r.categoria;
-        if(PUBLICOS.includes(r.publico)) patch.publico = r.publico;
+        if(b.pub!==false && PUBLICOS.includes(r.publico)) patch.publico = r.publico;
+        // Dictado por voz: si la foto parece de otra categoría que lo dictado, se avisa en la vista previa.
+        if(b.check && CATS.includes(r.categoria) && r.categoria!==b.check && S.noCoinciden) S.noCoinciden.add(b.id);
         if(b.name && typeof r.nombre==="string" && r.nombre.trim()) patch.nombre = r.nombre.trim().slice(0,80);
         if(b.marca!==false && typeof r.marca==="string" && r.marca.trim()) patch.marca = r.marca.trim().slice(0,40);
-        if(typeof r.costo==="number" && r.costo>0 && r.costo<10000){
+        if(b.costo!==false && typeof r.costo==="number" && r.costo>0 && r.costo<10000){
           patch.costo = Math.round(r.costo*100)/100;
           if(b.margen!=null){ const pm = precioConMargen(patch.costo, b.margen); if(pm!=null) patch.precio = pm; }
         }
-        if(typeof r.talla==="string" && r.talla.trim()) patch.talla = r.talla.trim().slice(0,12);
+        if(b.talla!==false && typeof r.talla==="string" && r.talla.trim()) patch.talla = r.talla.trim().slice(0,12);
         if(b.cond!==false && CLAVES_COND.includes(r.condicion)) patch.condicion = r.condicion;
         if(b.desc && typeof r.descripcion==="string" && r.descripcion.trim()) patch.descripcion = r.descripcion.trim().slice(0,300);
         if(Object.keys(patch).length){ try{ await S.db.doc("productos/"+b.id).update(patch); }catch(e){ fails++; } }
@@ -605,6 +607,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     $("bulkPrice").value=$("bulkCat").value=$("bulkMarca").value=$("bulkStock").value=$("bulkMargen").value=""; $("bulkStatus").value=""; $("bulkPub").value=""; $("bulkCond").value="";
     toast(fails ? `Actualizados ${ids.length-fails}; ${fails} fallaron` : `${ids.length} productos actualizados`); renderBulk();
   };
+  $("dictBtn").onclick = ()=>{ if(!S.canEdit) return; abrirDictado(); };
   $("bulkAI").onclick = ()=>classifySelected();
   $("bulkShare").onclick = ()=>abrirCompartir([...S.sel]);
   $("bulkUnshare").onclick = async ()=>{
@@ -1185,6 +1188,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       for(const id of [...S.sel]) if(!S.products.some(p=>p.id===id)) S.sel.delete(id);
       if(!snap.metadata.fromCache){ let ch=false; for(const id of Object.keys(cart)) if(!S.products.some(p=>p.id===id)){ delete cart[id]; ch=true; } if(ch) saveCart(); }
       render(); if(openId) drawSheet();
+      // Vista previa del dictado: se actualiza con lo que completa la IA (sin interrumpir si está escribiendo)
+      if(typeof dictAbierto==="function" && dictAbierto() && D.paso==="previa" && !(document.activeElement && $("planOverlay").contains(document.activeElement) && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName))) pintarDict();
       if(cartOpen && !$("overlay").contains(document.activeElement)) drawCart();
       if(!S.canEdit) mensajeEstadoPublico(); else actualizarPlan();
     }, ()=>{ clearTimeout(slow); S.loaded=true; $("emptyTitle").textContent="No se pudo cargar la vitrina"; $("emptyText").textContent="Recarga la página en unos minutos."; render(); });
@@ -1325,6 +1330,259 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       : empezado ? "Falta completar tus datos en Stripe para recibir pagos." : "Activa los pagos con tarjeta para que tus clientes paguen en la web. También pueden seguir pidiendo por WhatsApp.";
     const b=$("cobrosBtn"); b.hidden = activos; b.textContent = empezado ? "Completar datos en Stripe" : "Activar pagos con tarjeta";
     b.onclick = async ()=>{ b.disabled=true; try{ const r = await conectarCobros(); location.href = r.url; }catch(e){ toast((e&&e.message)||"No se pudo abrir Stripe"); b.disabled=false; } };
+  }
+
+  // ----- Dictado por voz -----
+  // La vendedora mira sus productos y los dicta, uno tras otro, diciendo "siguiente" entre cada uno.
+  // Cada producto se guarda al instante (borrador en este navegador). Luego la IA entiende el texto,
+  // ella elige las fotos en el mismo orden, ve una vista previa (productos ocultos) y recién publica.
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const SEPARADOR = /\b(?:siguiente|next(?: one)?)\b[\s.,;:!]*/i;
+  const D = { paso:"dictar", items:[], buffer:"", datos:[], fotos:[], ids:[], escuchando:false, interino:"" };
+  let rec = null;
+  const claveDict = () => "dictado-" + ((S.config && S.config.id) || "tienda");
+  function guardarDict(){ try{ localStorage.setItem(claveDict(), JSON.stringify({ items:D.items, buffer:D.buffer, ids:D.ids })); }catch(e){} }
+  function cargarDict(){ try{ const d = JSON.parse(localStorage.getItem(claveDict()) || "{}"); D.items = Array.isArray(d.items) ? d.items : []; D.buffer = d.buffer || ""; D.ids = Array.isArray(d.ids) ? d.ids : []; }catch(e){} }
+  const dictAbierto = () => !$("planOverlay").hidden && $("planOverlay").dataset.dict === "1";
+  function agregarTexto(t){
+    let resto = (D.buffer + " " + t).replace(/\s+/g," ");
+    const partes = resto.split(SEPARADOR);
+    resto = partes.pop();
+    for(const p of partes){ const x = p.trim().replace(/^[.,;:\s]+|[.,;:\s]+$/g,""); if(x) D.items.push(x); }
+    D.buffer = resto.trimStart();
+    guardarDict();
+  }
+  function cerrarProductoActual(){ agregarTexto(" siguiente "); }
+  function microfono(on){
+    if(!SR){ toast("Tu navegador no permite dictar aquí: escribe con el micrófono del teclado"); return; }
+    if(!on){ D.escuchando=false; D.interino=""; try{ rec && rec.stop(); }catch(e){} pintarDict(); return; }
+    rec = new SR(); rec.lang = esUS() ? "en-US" : "es-PE"; rec.continuous = true; rec.interimResults = true;
+    rec.onresult = e=>{
+      let fin = ""; D.interino = "";
+      for(let i=e.resultIndex; i<e.results.length; i++){ const t = e.results[i][0].transcript; if(e.results[i].isFinal) fin += t + " "; else D.interino += t; }
+      if(fin) agregarTexto(fin);
+      pintarVivo();
+    };
+    rec.onerror = e=>{ if(e.error==="not-allowed" || e.error==="service-not-allowed" || e.error==="audio-capture"){ D.escuchando=false; toast("Permite el micrófono para dictar, o escribe con el micrófono del teclado"); pintarDict(); } };
+    // El celular corta la escucha tras un silencio: si seguimos dictando, se vuelve a encender sola.
+    rec.onend = ()=>{ if(D.escuchando){ try{ rec.start(); }catch(e){ D.escuchando=false; pintarDict(); } } };
+    try{ rec.start(); D.escuchando = true; }catch(e){ toast("No se pudo usar el micrófono"); }
+    pintarDict();
+  }
+  function abrirDictado(){
+    cargarDict();
+    D.paso = D.ids.length && S.products.some(p=>D.ids.includes(p.id)) ? "previa" : "dictar";
+    const ov=$("planOverlay"); ov.hidden=false; ov.dataset.dict="1"; delete ov.dataset.conf;
+    ov.onclick = e=>{ if(e.target===ov) cerrarDictado(); };
+    pintarDict();
+  }
+  function cerrarDictado(){ microfono(false); D.fotos.forEach(f=>{ if(f && f.url) URL.revokeObjectURL(f.url); }); const ov=$("planOverlay"); ov.hidden=true; ov.textContent=""; delete ov.dataset.dict; }
+  function pintarVivo(){
+    const b = $("dictBuffer"), i = $("dictInterino");
+    if(b) b.textContent = D.buffer || (D.escuchando ? "Escuchando…" : "");
+    if(i) i.textContent = D.interino;
+    const l = $("dictLista"); if(l && l.childElementCount !== D.items.length) pintarDict();
+  }
+  function pintarDict(){
+    if(!dictAbierto()) return;
+    const ov=$("planOverlay"); ov.textContent="";
+    const titulos = { dictar:"Dictar productos", revisar:"Revisa lo que entendí", fotos:"Elige las fotos en el mismo orden", subiendo:"Preparando la vista previa", previa:"Vista previa antes de publicar" };
+    const card = el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":titulos[D.paso],style:"width:min(720px,100%)"},
+      el("div",{class:"cart-head"}, el("h2",null,titulos[D.paso]), el("button",{class:"btn",type:"button",onclick:cerrarDictado}, D.paso==="subiendo" ? "Ocultar" : "Cerrar")));
+    ({ dictar:pasoDictar, revisar:pasoRevisar, fotos:pasoFotos, subiendo:pasoSubiendo, previa:pasoPrevia })[D.paso](card);
+    ov.append(card);
+  }
+  function pasoDictar(card){
+    const mic = el("button",{class:"mic",type:"button","aria-label": D.escuchando ? "Pausar el dictado" : "Empezar a dictar", onclick:()=>microfono(!D.escuchando)}, D.escuchando ? "❚❚" : "🎙️");
+    card.append(
+      el("p",{class:"note",style:"margin:0"}, "Mira cada producto y dilo de corrido: qué es, marca, condición, precio y cuántos tienes. Al terminar uno, di ", el("strong",null,"“siguiente”"), ". Ej.: ", el("em",null,"“Cartera Coach negra, nueva con etiqueta, 85 soles, tengo 2… siguiente”"), "."),
+      el("div",{class:"dict-mic"+(D.escuchando?" on":"")}, mic,
+        el("div",{class:"dict-vivo"}, el("strong",null, D.escuchando ? "Te escucho" : (SR ? "Toca el micrófono para empezar" : "Escribe tus productos")),
+          el("span",{class:"en-curso",id:"dictBuffer"}, D.buffer || (D.escuchando ? "Escuchando…" : "")), el("span",{class:"interino",id:"dictInterino"}, D.interino)),
+        D.buffer.trim() ? el("button",{class:"btn",type:"button",onclick:()=>{ cerrarProductoActual(); pintarDict(); }},"Siguiente producto") : null));
+    // Escribir (o usar el micrófono del teclado del celular): sirve en cualquier navegador.
+    const ta = el("textarea",{rows:"2",placeholder: SR ? "O escríbelo aquí…" : "Escribe o usa el micrófono de tu teclado. Di “siguiente” entre productos…","aria-label":"Escribir producto"});
+    const add = el("button",{class:"btn",type:"button",onclick:()=>{ const t = ta.value.trim(); if(!t) return; agregarTexto(t + " siguiente "); ta.value=""; pintarDict(); }},"Agregar");
+    card.append(el("div",{style:"display:flex;gap:8px;align-items:end"}, el("label",{class:"f",style:"flex:1"},"Escribir", ta), add));
+    const lista = el("div",{class:"dict-list",id:"dictLista"});
+    D.items.forEach((t,i)=>{
+      const tx = el("textarea",{rows:"2","aria-label":"Producto "+(i+1)}); tx.value = t;
+      tx.onchange = ()=>{ D.items[i] = tx.value.trim(); guardarDict(); };
+      lista.append(el("div",{class:"dict-item"}, el("span",{class:"n"}, String(i+1)), tx,
+        el("button",{class:"btn",type:"button","aria-label":"Quitar producto "+(i+1),onclick:()=>{ D.items.splice(i,1); guardarDict(); pintarDict(); }},"✕")));
+    });
+    if(D.items.length) card.append(el("strong",null, D.items.length===1 ? "1 producto dictado" : `${D.items.length} productos dictados`), lista);
+    const seguir = el("button",{class:"btn primary",type:"button",onclick:async()=>{
+      if(D.buffer.trim()) cerrarProductoActual();
+      D.items = D.items.filter(Boolean);
+      if(!D.items.length){ toast("Dicta o escribe al menos un producto"); return; }
+      microfono(false); seguir.disabled = true; seguir.textContent = "Entendiendo…";
+      D.datos = await entenderDictado(D.items);
+      D.paso = "revisar"; pintarDict();
+    }}, "Continuar");
+    card.append(el("div",{class:"send"}, seguir,
+      D.items.length ? (()=>{ const b = el("button",{class:"btn",type:"button"},"Empezar de nuevo"); b.onclick = ()=>{ if(b.dataset.seguro){ D.items=[]; D.buffer=""; guardarDict(); pintarDict(); } else { b.dataset.seguro="1"; b.textContent="¿Borrar todo? Toca otra vez"; } }; return b; })() : null),
+      el("p",{class:"note",style:"margin:0"},"Lo que dictas queda guardado en este celular aunque cierres la ventana."));
+  }
+  // Marcas frecuentes (respaldo sin IA), con lo que suele escribir el reconocimiento de voz.
+  const MARCAS_VOZ = [[/\bcoach\b|\bcouch\b/i,"Coach"],[/\bgues+\b/i,"Guess"],[/\bmich?ael cors?\b|\bmaicol cors?\b|\bmichael kors\b/i,"Michael Kors"],[/\bnike\b|\bnaik\b/i,"Nike"],[/\badidas\b/i,"Adidas"],[/\bvictoria'?s secret\b/i,"Victoria's Secret"],[/\bbath (?:and|&|an) body works\b/i,"Bath & Body Works"],[/\btommy(?: hilfiger)?\b/i,"Tommy Hilfiger"],[/\bcalvin klein\b/i,"Calvin Klein"],[/\bralph lauren\b|\bpolo ralph\b/i,"Ralph Lauren"],[/\blevi'?s\b/i,"Levi's"],[/\bcarter'?s\b/i,"Carter's"],[/\bgap\b/i,"Gap"],[/\bzara\b/i,"Zara"],[/\bfossil\b/i,"Fossil"],[/\bpuma\b/i,"Puma"],[/\bunder armou?r\b/i,"Under Armour"],[/\bold navy\b/i,"Old Navy"],[/\bh ?& ?m\b/i,"H&M"],[/\bkate spade\b/i,"Kate Spade"],[/\bnew balance\b/i,"New Balance"],[/\bskechers\b/i,"Skechers"],[/\bcrocs\b/i,"Crocs"],[/\bdisney\b/i,"Disney"],[/\blego\b/i,"Lego"]];
+  // Respaldo sin IA: saca precio, cantidad, talla y condición con reglas simples.
+  function parsearLocal(t){
+    const s = " " + t + " ", lo = s.toLowerCase(), r = { nombre:"" };
+    const num = x => parseFloat(String(x).replace(",", "."));
+    let m;
+    if((m = lo.match(/(?:me cost[oó]|cost[oó]|la etiqueta dice|etiqueta de)\s*\$?\s*(\d+(?:[.,]\d+)?)/))) r.costo = num(m[1]);
+    if((m = lo.match(/s\/\.?\s*(\d+(?:[.,]\d+)?)/) || lo.match(/(\d+(?:[.,]\d+)?)\s*(soles?|lucas)\b/))){ r.precio = num(m[1]); r.moneda = "PEN"; }
+    else if((m = lo.match(/(?:a|en|precio)\s+(\d+(?:[.,]\d+)?)\s*(d[oó]lares|usd|bucks)\b/) || lo.match(/(\d+(?:[.,]\d+)?)\s*(d[oó]lares|usd|bucks)\b/))){ if(!r.costo || num(m[1])!==r.costo){ r.precio = num(m[1]); r.moneda = "USD"; } }
+    else if((m = lo.match(/\$\s*(\d+(?:[.,]\d+)?)/))){ r.precio = num(m[1]); }
+    if((m = lo.match(/(?:tengo|son|quedan|hay|me quedan)\s+(\d+)/) || lo.match(/(\d+)\s+(?:unidades|piezas|pares)/))) r.stock = parseInt(m[1],10);
+    if((m = lo.match(/talla\s+([a-z0-9][a-z0-9.\/-]{0,7})/))) r.talla = m[1].toUpperCase();
+    r.condicion = /con etiqueta/.test(lo) ? "nuevo_etiqueta" : /caja abierta/.test(lo) ? "caja_abierta" : /como nuev/.test(lo) ? "como_nuevo" : /usad/.test(lo) ? "usado" : /\bnuev[oa]s?\b/.test(lo) ? "nuevo" : "";
+    const marca = MARCAS_VOZ.find(([re])=>re.test(t)); if(marca) r.marca = marca[1];
+    // Nombre: lo dictado sin marca, precio, cantidades, talla ni condición; solo la primera frase.
+    let n = t.replace(/(?:me cost[oó]|cost[oó]|la etiqueta dice|etiqueta de)\s*\$?\s*\d+(?:[.,]\d+)?\s*(?:d[oó]lares|usd)?/gi," ")
+      .replace(/s\/\.?\s*\d+(?:[.,]\d+)?|\$\s*\d+(?:[.,]\d+)?|\b(?:a|en|precio)?\s*\d+(?:[.,]\d+)?\s*(?:soles?|lucas|d[oó]lares|usd|bucks)\b/gi," ")
+      .replace(/\b(?:tengo|son|quedan|hay|me quedan)\s+\d+\b|\b\d+\s+(?:unidades|piezas|pares)\b|\btalla\s+\S+/gi," ")
+      .replace(/\b(nuev[oa]s?|usad[oa]s?|con etiqueta|caja abierta|como nuev[oa])\b/gi," ");
+    if(marca) n = n.replace(marca[0], " ");
+    n = n.split(/[,.;]/).map(x=>x.replace(/\s+/g," ").trim()).find(Boolean) || "";
+    r.nombre = (n.charAt(0).toUpperCase() + n.slice(1)).slice(0,80) || "Producto nuevo";
+    return r;
+  }
+  async function entenderDictado(textos){
+    const moneda = enSoles() ? "PEN" : "USD";
+    let ia = [];
+    try{ ia = await interpretarDictado(textos, esUS() ? "en" : "es", moneda); }catch(e){ console.warn("Detalle técnico:", e); toast("La IA no respondió: completé lo que pude, revisa los datos"); }
+    return textos.map((t, i)=>{
+      const a = (Array.isArray(ia) && (ia.find(x=>x && Number(x.i)===i))) || {}, b = parsearLocal(t);
+      const d = { texto:t, nombre: a.nombre || b.nombre, marca: a.marca || b.marca || "", precio: a.precio ?? b.precio ?? null, moneda: a.moneda || b.moneda || null, costo: a.costo ?? b.costo ?? null,
+        stock: a.stock ?? b.stock ?? null, talla: a.talla || b.talla || "", condicion: CLAVES_COND.includes(a.condicion) ? a.condicion : (b.condicion || ""), categoria: CATS.includes(a.categoria) ? a.categoria : "", publico: PUBLICOS.includes(a.publico) ? a.publico : "", descripcion: a.descripcion || "" };
+      // Si dijo el precio en otra moneda que la de la tienda, se convierte con el tipo de cambio.
+      const tc = tipoCambio();
+      if(d.precio!=null && d.moneda && d.moneda!==moneda && tc){ d.precio = moneda==="PEN" ? Math.round(d.precio*tc) : Math.round(d.precio/tc*100)/100; }
+      return d;
+    });
+  }
+  function pasoRevisar(card){
+    card.append(el("p",{class:"note",style:"margin:0"},"Corrige lo que haga falta. En el siguiente paso eliges las fotos en el mismo orden en que dictaste."));
+    const tabla = el("div",{class:"dict-tabla"});
+    D.datos.forEach((d,i)=>{
+      const inp = (k, label, extra={}) => { const x = el("input",{value: d[k]==null ? "" : String(d[k]), ...extra}); x.onchange = ()=>{ d[k] = extra.inputmode==="decimal" ? parsePrice(x.value) : extra.inputmode==="numeric" ? parseStock(x.value) : x.value.trim(); }; return el("label",{class:"f"},label,x); };
+      const cond = el("select",null); opcionesCond("—").forEach(([k,l])=>cond.append(el("option",{value:k},l))); cond.value = d.condicion||""; cond.onchange = ()=>{ d.condicion = cond.value; };
+      tabla.append(el("div",{class:"dict-fila"},
+        el("strong",null, `${i+1}.`), el("span",{class:"orig"}, "“"+d.texto+"”"),
+        el("div",{class:"dict-campos"}, inp("nombre","Nombre",{maxlength:"80"}), inp("marca","Marca",{maxlength:"40",list:"marcaList"}), inp("precio",`Precio (${simbolo()})`,{inputmode:"decimal"}), inp("stock","Cantidad",{inputmode:"numeric",placeholder:"—"}), inp("talla","Talla",{maxlength:"12"}), el("label",{class:"f"},"Condición",cond))));
+    });
+    card.append(tabla, el("div",{class:"send"},
+      el("button",{class:"btn primary",type:"button",onclick:()=>{ D.fotos = []; D.paso="fotos"; pintarDict(); }},"Elegir las fotos"),
+      el("button",{class:"btn",type:"button",onclick:()=>{ D.paso="dictar"; pintarDict(); }},"Volver a dictar")));
+  }
+  function pasoFotos(card){
+    const input = el("input",{type:"file",accept:"image/*",multiple:"",hidden:""});
+    input.onchange = ()=>{
+      // Orden en que se tomaron (hora de la foto); si es igual, por nombre del archivo.
+      const files = [...input.files].filter(f=>f.type.startsWith("image/") || /\.(heic|heif)$/i.test(f.name)).sort((a,b)=>(a.lastModified-b.lastModified) || a.name.localeCompare(b.name, undefined, {numeric:true}));
+      D.fotos.forEach(f=>{ if(f && f.url) URL.revokeObjectURL(f.url); });
+      D.fotos = files.map(f=>({ file:f, url:URL.createObjectURL(f) }));
+      pintarDict();
+    };
+    const n = D.datos.length, m = D.fotos.length;
+    card.append(el("p",{class:"note",style:"margin:0"}, `Elige las ${n} fotos de estos productos, en el mismo orden en que los dictaste. Las ordenamos por la hora en que las tomaste. Si alguna quedó en otro lugar, muévela con las flechas.`),
+      el("div",{style:"display:flex;gap:8px;flex-wrap:wrap"}, el("button",{class:"btn primary",type:"button",onclick:()=>input.click()}, m ? "Elegir otras fotos" : `Elegir ${n} fotos`), input));
+    if(m && m!==n) card.append(el("p",{class:"note",style:"margin:0;color:var(--hold);font-weight:600"}, m<n ? `Dictaste ${n} productos y elegiste ${m} ${m===1?"foto":"fotos"}: ${n-m===1 ? "1 producto quedará" : (n-m)+" productos quedarán"} sin foto. Revisa que cada foto esté junto a su producto.` : `Elegiste ${m} fotos para ${n} ${n===1?"producto":"productos"}: ${m-n===1 ? "la última no se usará" : "las "+(m-n)+" últimas no se usarán"}. Revisa que cada foto esté junto a su producto.`));
+    const lista = el("div",{class:"rv-list"});
+    const mover = (i, j)=>{ if(j<0 || j>=Math.max(n,m)) return; const a = D.fotos[i], b = D.fotos[j]; D.fotos[i]=b; D.fotos[j]=a; pintarDict(); };
+    for(let i=0; i<Math.max(n, m); i++){
+      const d = D.datos[i], f = D.fotos[i];
+      lista.append(el("div",{class:"par-item"}, el("span",{class:"n"}, String(i+1)),
+        f ? el("img",{src:f.url,alt:"Foto "+(i+1)}) : el("span",{class:"noimg"},"Sin foto"),
+        el("span",{class:"t"}, d ? el("strong",null,d.nombre) : el("strong",{style:"color:var(--muted)"},"Foto de más (no se usará)"), d ? el("small",null,[d.marca, d.precio!=null ? money(d.precio) : "", condTxt(d.condicion)].filter(Boolean).join(" · ")) : null),
+        el("span",{class:"mov"},
+          el("button",{class:"btn",type:"button","aria-label":"Subir foto "+(i+1),disabled: i===0 ? "" : false,onclick:()=>mover(i,i-1)},"↑"),
+          el("button",{class:"btn",type:"button","aria-label":"Bajar foto "+(i+1),disabled: i>=Math.max(n,m)-1 ? "" : false,onclick:()=>mover(i,i+1)},"↓"))));
+    }
+    if(m) card.append(lista);
+    card.append(el("div",{class:"send"},
+      el("button",{class:"btn primary",type:"button",disabled: m ? false : "",onclick:prepararVistaPrevia},"Ver vista previa"),
+      el("button",{class:"btn",type:"button",onclick:()=>{ D.paso="revisar"; pintarDict(); }},"Volver")),
+      el("p",{class:"note",style:"margin:0"},"Todavía no se publica nada: primero verás cómo quedan."));
+  }
+  let avanceDict = { hechos:0, total:0, texto:"" };
+  function pasoSubiendo(card){
+    const bar = el("div",{class:"meter"}), i = el("i"); i.style.width = (avanceDict.total ? avanceDict.hechos/avanceDict.total*100 : 0) + "%"; bar.append(i);
+    card.append(el("p",{class:"note",style:"margin:0"}, avanceDict.texto || "Subiendo fotos…"), bar, el("span",{class:"note",style:"margin:0"}, `${avanceDict.hechos} de ${avanceDict.total}`));
+  }
+  async function prepararVistaPrevia(){
+    const n = D.datos.length, modo = modoGuardado() || "mejorar";
+    avanceDict = { hechos:0, total:n, texto:"Subiendo fotos y preparando tus productos (todavía ocultos)…" };
+    D.paso = "subiendo"; pintarDict();
+    const col = S.db.collection("productos"), base = Date.now(), ids = new Array(n), paraIA = [];
+    let k = 0, fallos = 0;
+    async function worker(){
+      while(k < n){
+        const i = k++, d = D.datos[i], f = D.fotos[i];
+        try{
+          let ph = null, blob = null;
+          if(f){ ph = await processPhoto(f.file, modo); blob = ph.full; delete ph._blob; }
+          const ref = col.doc();
+          await ref.set({ nombre: d.nombre || "Producto nuevo", marca: d.marca || "", precio: d.precio, stock: d.stock, costo: d.costo, talla: d.talla || "", condicion: d.condicion || "", categoria: d.categoria || "", publico: d.publico || "", descripcion: d.descripcion || "", estado:"oculto", fotos: ph ? [ph] : [], creado: base + (n-i) });
+          ids[i] = ref.id;
+          if(ph && S.ai) paraIA.push({ id:ref.id, blob, name:false, cat:!d.categoria, marca:!d.marca, cond:!d.condicion, desc:!d.descripcion, talla:!d.talla, pub:!d.publico, costo: d.costo==null, check: d.categoria || "" });
+        }catch(e){ fallos++; console.warn("Detalle técnico:", e); }
+        avanceDict.hechos++; if(D.paso==="subiendo") pintarDict();
+      }
+    }
+    await Promise.all(Array.from({length:Math.min(4,n)}, worker));
+    D.ids = ids.filter(Boolean); D.items = []; D.buffer = ""; guardarDict();
+    S.noCoinciden = new Set();
+    if(paraIA.length){ avanceDict.texto = "La IA está revisando las fotos…"; if(D.paso==="subiendo") pintarDict(); try{ await classify(paraIA); }catch(e){ console.warn("Detalle técnico:", e); } }
+    D.alertas = [...S.noCoinciden]; S.noCoinciden = null;
+    if(fallos) toast(`${fallos} producto(s) no se pudieron preparar. Revisa tu conexión.`);
+    D.paso = "previa";
+    if(dictAbierto()) pintarDict(); else { toast("Tu vista previa está lista"); abrirDictado(); }
+  }
+  function pasoPrevia(card){
+    const prods = D.ids.map(id=>S.products.find(p=>p.id===id)).filter(Boolean);
+    const pendientes = prods.filter(p=>p.estado==="oculto");
+    if(!prods.length){ card.append(el("p",{class:"note",style:"margin:0"},"Cargando tus productos…")); setTimeout(()=>{ if(dictAbierto() && D.paso==="previa") pintarDict(); }, 800); return; }
+    const alertas = new Set(D.alertas || []);
+    card.append(el("p",{class:"note",style:"margin:0"}, "Así los verán tus clientes. Todavía están ", el("strong",null,"ocultos"), ": corrige lo que haga falta y toca Publicar."));
+    if(prods.some(p=>alertas.has(p.id))) card.append(el("p",{class:"note",style:"margin:0;color:var(--hold);font-weight:600"},"⚠️ Revisa los marcados: la foto parece de otro tipo de producto que lo que dictaste. Cámbiala si no es la correcta."));
+    const grid = el("div",{class:"prev-grid"});
+    for(const p of prods){
+      const cover = p.fotos && p.fotos[0], alerta = alertas.has(p.id);
+      const nombre = el("input",{value:p.nombre||"","aria-label":"Nombre"});
+      const precio = el("input",{value:p.precio==null?"":String(p.precio),inputmode:"decimal",placeholder:"Precio "+simbolo(),"aria-label":"Precio"});
+      const cond = el("select",{"aria-label":"Condición"}); opcionesCond("Condición…").forEach(([k,l])=>cond.append(el("option",{value:k},l))); cond.value = p.condicion||"";
+      const guardar = async patch=>{ try{ await S.db.doc("productos/"+p.id).update(patch); }catch(e){ toast("No se pudo guardar. Intenta de nuevo."); } };
+      nombre.onchange = ()=>guardar({ nombre: nombre.value.trim() || "Producto nuevo" });
+      precio.onchange = ()=>guardar({ precio: parsePrice(precio.value) });
+      cond.onchange = ()=>guardar({ condicion: cond.value });
+      const nueva = el("input",{type:"file",accept:"image/*",hidden:""});
+      nueva.onchange = async ()=>{ const f = nueva.files[0]; if(!f) return; toast("Cambiando la foto…"); try{ const ph = await processPhoto(f, modoGuardado()||"mejorar"); delete ph._blob; await S.db.doc("productos/"+p.id).update({ fotos:[ph] }); deletePhotos(p.fotos||[]); D.alertas = (D.alertas||[]).filter(x=>x!==p.id); toast("Foto cambiada"); }catch(e){ toast("No se pudo cambiar la foto: " + errText(e)); } };
+      grid.append(el("div",{class:"prev-card"+(alerta?" alerta":"")},
+        el("div",{class:"ph"}, cover ? el("img",{src:src(cover.thumb||cover.full),alt:""}) : el("span",{class:"sinfoto"},"Sin foto: toca Cambiar foto"), el("span",{class:"price"+(p.precio==null?" none":"")}, p.precio==null ? "Consultar" : money(p.precio))),
+        el("div",{class:"body"},
+          alerta ? el("span",{class:"aviso"},"⚠️ ¿Esta foto es de este producto?") : null,
+          p.marca ? el("span",{class:"marca-tag"},p.marca) : null,
+          nombre, precio, cond,
+          p.estado!=="oculto" ? el("span",{class:"conf-tag"},"Publicado") : null,
+          el("div",{style:"display:flex;gap:6px;flex-wrap:wrap"},
+            el("button",{class:"btn",type:"button",onclick:()=>nueva.click()}, cover ? "Cambiar foto" : "Poner foto"), nueva,
+            el("button",{class:"btn danger",type:"button",onclick:async()=>{ try{ await S.db.doc("productos/"+p.id).delete(); deletePhotos(p.fotos||[]); D.ids = D.ids.filter(x=>x!==p.id); guardarDict(); pintarDict(); }catch(e){ toast("No se pudo quitar"); } }},"Quitar")))));
+    }
+    const publicar = el("button",{class:"btn primary",type:"button",disabled: pendientes.length ? false : ""}, pendientes.length ? `Publicar ${pendientes.length}` : "Todo publicado");
+    publicar.onclick = async ()=>{
+      const libres = usoPlan().libres, lista = pendientes.slice(0, libres===Infinity ? pendientes.length : libres);
+      if(!lista.length){ toast("Llegaste al límite de tu plan"); abrirPlanes(); return; }
+      publicar.disabled = true; publicar.textContent = "Publicando…";
+      const fails = await runPool(lista.map(p=>p.id), id=>S.db.doc("productos/"+id).update({ estado:"disponible" }));
+      const quedan = pendientes.length - lista.length + fails;
+      toast(quedan ? `Publicados ${lista.length-fails}. ${quedan} siguen ocultos${lista.length<pendientes.length ? " porque superan tu plan" : ""}.` : `¡Listo! ${lista.length} producto(s) publicados`);
+      if(!quedan){ D.ids = []; D.alertas = []; guardarDict(); cerrarDictado(); } else pintarDict();
+    };
+    card.append(grid, el("div",{class:"send"}, publicar, el("button",{class:"btn",type:"button",onclick:cerrarDictado},"Publicar después")),
+      el("p",{class:"note",style:"margin:0"},"Si publicas después, los encuentras ocultos en tu tienda; vuelve aquí con “Dictar productos”."));
   }
 
   // ----- Tiendas de confianza -----
@@ -1764,6 +2022,22 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   $("asisCerrar").onclick = cerrarAsis;
   $("asisNuevo").onclick = ()=>{ asisLog = []; guardarAsis(); pintarAsis(); };
   $("asisForm").addEventListener("submit", e=>{ e.preventDefault(); enviarAsis($("asisInput").value); });
+  // Hablarle al asistente para actualizar la tienda ("bájale 10 soles a las carteras"). El texto queda
+  // en la caja para revisarlo; el asistente igual muestra los cambios y la vendedora los confirma.
+  let asisRec = null;
+  if(SR){
+    $("asisMic").hidden = false;
+    $("asisMic").onclick = ()=>{
+      if(asisRec){ try{ asisRec.stop(); }catch(e){} return; }
+      const inp = $("asisInput"), antes = inp.value ? inp.value.trim() + " " : "";
+      asisRec = new SR(); asisRec.lang = esUS() ? "en-US" : "es-PE"; asisRec.continuous = true; asisRec.interimResults = true;
+      let fin = "";
+      asisRec.onresult = e=>{ let inter = ""; for(let i=e.resultIndex;i<e.results.length;i++){ const t=e.results[i][0].transcript; if(e.results[i].isFinal) fin += t + " "; else inter += t; } inp.value = (antes + fin + inter).trimStart(); inp.dispatchEvent(new Event("input")); };
+      asisRec.onerror = e=>{ if(/not-allowed|service-not-allowed|audio-capture/.test(e.error)) toast("Permite el micrófono para hablarle al asistente"); };
+      asisRec.onend = ()=>{ asisRec = null; $("asisMic").classList.remove("on"); $("asisMic").setAttribute("aria-label","Hablar con el asistente"); inp.focus(); };
+      try{ asisRec.start(); $("asisMic").classList.add("on"); $("asisMic").setAttribute("aria-label","Dejar de escuchar"); }catch(e){ asisRec = null; toast("No se pudo usar el micrófono"); }
+    };
+  }
   $("asisInput").addEventListener("keydown", e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); enviarAsis($("asisInput").value); } });
   $("asisInput").addEventListener("input", e=>{ e.target.style.height = "auto"; e.target.style.height = Math.min(140, e.target.scrollHeight) + "px"; });
   document.addEventListener("keydown", e=>{ if(e.key==="Escape" && !$("asis").hidden) cerrarAsis(); });
