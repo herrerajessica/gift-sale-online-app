@@ -430,7 +430,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       try { res = await S.ai.json(prompt, { images: batch.map(b=>b.blob), modelTier:"quick", idioma: esUS() ? "en" : "es" }); }
       catch(e){
         const c = e && e.code;
-        if(c==="not_granted"||c==="sampling_disabled"||c==="images_unavailable"||c==="capability_disabled"||c==="capability_removed"||c==="not_declared"){ S.ai=null; $("aiRow").hidden=true; $("bulkAI").hidden=true; S.aiMsg="la IA no está disponible; pon las categorías a mano"; return; }
+        if(c==="not_granted"||c==="sampling_disabled"||c==="images_unavailable"||c==="capability_disabled"||c==="capability_removed"||c==="not_declared"){ S.ai=null; $("aiRow").hidden=true; $("bulkAI").hidden=true; S.aiMsg="La IA no está disponible" + (e && e.message ? ": " + String(e.message).slice(0,200) : "; pon las categorías a mano"); toast(S.aiMsg); return; }
         if(c==="rate_limited"){ S.aiMsg=`IA en pausa: ${items.length-n} sin clasificar (usa "Editar varios" › Clasificar con IA más tarde)`; return; }
         fails += batch.length; n += batch.length; S.aiError = (e && e.message ? String(e.message).slice(0,160) : "") || c || "sin respuesta"; continue;
       }
