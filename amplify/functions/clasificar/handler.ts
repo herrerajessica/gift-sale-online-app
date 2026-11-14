@@ -21,13 +21,16 @@ async function leerFoto(path: string): Promise<string> {
   return Buffer.from(bytes).toString('base64');
 }
 
-function prompt(n: number): string {
-  return `Eres el asistente de una tienda en Perú que revende productos traídos de Estados Unidos. Te paso ${n} foto(s) de producto, en orden, numeradas desde 0.
+function prompt(n: number, ingles: boolean): string {
+  const nombre = ingles
+    ? '- "nombre": nombre corto de venta EN INGLÉS (la tienda vende a clientes de EE. UU.), de 2 a 6 palabras, que describa tipo, estilo y color, sin la marca (ej. "Wide leg drawstring jeans", "Black running sneakers").'
+    : '- "nombre": nombre corto de venta en español, de 2 a 6 palabras, que describa tipo, estilo y color, sin la marca (ej. "Jean wide leg con cordón", "Zapatillas running negras").';
+  return `Eres el asistente de una tienda ${ingles ? 'de Estados Unidos' : 'en Perú que revende productos traídos de Estados Unidos'}. Te paso ${n} foto(s) de producto, en orden, numeradas desde 0.
 Para cada foto responde un objeto con:
 - "i": el número de la foto
 - "categoria": exactamente una de: ${CATEGORIAS.join(', ')}
 - "publico": exactamente uno de: ${PUBLICOS.join(', ')} (usa Unisex si no se distingue)
-- "nombre": nombre corto de venta en español, de 2 a 6 palabras, que describa tipo, estilo y color, sin la marca (ej. "Jean wide leg con cordón", "Zapatillas running negras").
+${nombre}
 - "marca": la marca solo si su logo, etiqueta o diseño característico se ve claramente en la foto; si no, "".
 - "costo": el precio en dólares que se lee en la etiqueta de precio de la tienda (si hay varios, el más bajo o el de liquidación), como número; si no se ve claro, null.
 - "talla": la talla si se lee en la etiqueta o en el producto (ej. "8", "M", "32x30"); si no, "".
@@ -57,7 +60,7 @@ export const handler: Schema['clasificarFotos']['functionHandler'] = async (even
   const imagenes = await Promise.all(paths.map(leerFoto));
   const content = [
     ...imagenes.map((data) => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } })),
-    { type: 'text', text: prompt(paths.length) },
+    { type: 'text', text: prompt(paths.length, event.arguments.idioma === 'en') },
   ];
 
   const res = await bedrock.send(new InvokeModelCommand({

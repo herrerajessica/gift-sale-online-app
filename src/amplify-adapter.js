@@ -70,9 +70,10 @@ export async function miTienda(sub) {
   return items.find((t) => String(t.owner || '').split('::')[0] === sub) || null;
 }
 
-export async function crearTienda({ slug, nombre, whatsapp, email }) {
+export async function crearTienda({ slug, nombre, whatsapp, email, pais = 'PE' }) {
   if (!SLUG_RE.test(slug) || RESERVADOS.has(slug)) throw { code: 'invalid', message: 'Enlace no válido' };
-  const r = await client.models.Tienda.create({ id: slug, nombre, whatsapp, email, tipoCambio: 3.46 }, { authMode: 'userPool' });
+  const esUS = pais === 'US';
+  const r = await client.models.Tienda.create({ id: slug, nombre, whatsapp, email, pais: esUS ? 'US' : 'PE', tipoCambio: esUS ? null : 3.46 }, { authMode: 'userPool' });
   return check(r);
 }
 
@@ -183,6 +184,7 @@ function configRef() {
         nombre: d.nombre || TIENDA, whatsapp: d.whatsapp || '', tipoCambio: d.tipoCambio ?? null,
         yapeNumero: d.yapeNumero || '', yapeNombre: d.yapeNombre || '', yapeQr: d.yapeQr || '',
         descuentoContado: typeof d.descuentoContado === 'number' ? d.descuentoContado : 0,
+        ...(d.pais === 'US' || d.pais === 'PE' ? { pais: d.pais } : {}),
       };
       check(await client.models.Tienda.update({ id: TIENDA, ...datos }, { authMode: 'userPool' }));
       emitirConfig();
@@ -231,7 +233,7 @@ export const assets = {
 export const ai = {
   async json(_prompt, opts) {
     const paths = [].concat((opts && opts.images) || []).filter((p) => typeof p === 'string');
-    const r = await client.queries.clasificarFotos({ paths }, { authMode: 'userPool' });
+    const r = await client.queries.clasificarFotos({ paths, idioma: (opts && opts.idioma) || 'es' }, { authMode: 'userPool' });
     const d = check(r);
     return typeof d === 'string' ? JSON.parse(d) : d;
   },
@@ -240,10 +242,11 @@ export const ai = {
 // ---------- Planes y pagos (Stripe) ----------
 // Debe coincidir con amplify/functions/shared/planes.ts
 export const PLANES = [
-  { id: 'free', nombre: 'Free', limite: 10, precio: 0 },
-  { id: 'basico', nombre: 'Básico', limite: 30, precio: 19 },
-  { id: 'pro', nombre: 'Pro', limite: 150, precio: 49 },
-  { id: 'plus', nombre: 'Plus', limite: null, precio: 99, extra: 'Fotos con fondo blanco (IA)' },
+  // precio: soles (tiendas de Perú). precioUsd: dólares (tiendas de EE. UU.), PROVISIONALES: deben coincidir con amplify/functions/shared/planes.ts.
+  { id: 'free', nombre: 'Free', limite: 10, precio: 0, precioUsd: 0 },
+  { id: 'basico', nombre: 'Básico', limite: 30, precio: 19, precioUsd: 9 },
+  { id: 'pro', nombre: 'Pro', limite: 150, precio: 49, precioUsd: 19 },
+  { id: 'plus', nombre: 'Plus', limite: null, precio: 99, precioUsd: 39, extra: 'Fotos con fondo blanco (IA)' },
 ];
 // Funciones con costo por uso: solo en el plan Plus.
 export const tieneFondoIA = (t) => planVigente(t).id === 'plus';

@@ -1,7 +1,7 @@
 import Stripe from 'stripe';
 import { randomUUID } from 'node:crypto';
 import { BatchGetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
-import { PLANES, esPlan } from '../shared/planes';
+import { PLANES, esPlan, paisDe } from '../shared/planes';
 import { ddb, PRODUCTO, PEDIDO, leerTienda, actualizarTienda, subDe, origenSeguro } from '../shared/tablas';
 import { avisarPedido } from '../shared/correo';
 
@@ -40,12 +40,10 @@ async function pagarPlan(a: Record<string, any>, ident: Identidad) {
     customer,
     line_items: [{
       quantity: 1,
-      price_data: {
-        currency: process.env.MONEDA_PLANES || 'pen',
-        unit_amount: Math.round(plan.precio * 100),
-        recurring: { interval: 'month' },
-        product_data: { name: `Vitrina USA · Plan ${plan.nombre}` },
-      },
+      // Tiendas de EE. UU. pagan el plan en dólares; las de Perú, en soles.
+      price_data: paisDe(t) === 'US'
+        ? { currency: 'usd', unit_amount: Math.round(plan.precioUsd * 100), recurring: { interval: 'month' }, product_data: { name: `Vitrina AI · ${plan.nombre} plan` } }
+        : { currency: process.env.MONEDA_PLANES || 'pen', unit_amount: Math.round(plan.precio * 100), recurring: { interval: 'month' }, product_data: { name: `Vitrina AI · Plan ${plan.nombre}` } },
     }],
     metadata: { tipo: 'plan', tiendaId: t.id, plan: a.plan },
     subscription_data: { metadata: { tipo: 'plan', tiendaId: t.id, plan: a.plan } },
@@ -119,7 +117,8 @@ async function armarPedido(t: Record<string, any>, itemsJson: unknown, soloSoles
   const r = await ddb.send(new BatchGetCommand({ RequestItems: { [PRODUCTO()]: { Keys: pedidos.map((p) => ({ id: p.id })) } } }));
   const productos = new Map((r.Responses?.[PRODUCTO()] || []).map((p) => [p.id, p]));
 
-  const rate = typeof t.tipoCambio === 'number' && t.tipoCambio > 0 ? t.tipoCambio : null;
+  // Tiendas de EE. UU.: todo en dólares. Tiendas de Perú: en soles con su tipo de cambio.
+  const rate = paisDe(t) !== 'US' && typeof t.tipoCambio === 'number' && t.tipoCambio > 0 ? t.tipoCambio : null;
   if (soloSoles && !rate) fallo('La tienda no tiene tipo de cambio configurado para cobrar en soles');
   const moneda = rate ? 'pen' : 'usd';
   const lineas: Linea[] = [];
@@ -192,6 +191,7 @@ async function pagarPedido(a: Record<string, any>) {
 /** Pago con Yape: el cliente ya pagó con el QR; la vendedora confirma el pago. */
 async function pedidoYape(a: Record<string, any>) {
   const t = await tiendaAbierta(a.tiendaId);
+  if (paisDe(t) === 'US') fallo('Yape solo está disponible en tiendas de Perú');
   if (!t.yapeNumero && !t.yapeQr) fallo('Esta tienda no acepta pagos con Yape');
   const nombre = texto(a.nombre, 60);
   if (!nombre) fallo('Escribe tu nombre para que la tienda identifique tu pago');

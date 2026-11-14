@@ -13,9 +13,17 @@ import {
   const S = { db:null, assets:null, canEdit:false, products:[], config:{}, q:"", cat:"", mode:"each", pub:"",
               selecting:false, sel:new Set(), pending:[] };
   const money = n => (typeof n === "number" && isFinite(n)) ? "$" + n.toLocaleString("en-US",{minimumFractionDigits: n%1?2:0, maximumFractionDigits:2}) : "";
-  const rate = () => { const r = parseFloat(S.config.tipoCambio); return isFinite(r) && r>0 ? r : null; };
-  // Descuento por pagar con Yape o efectivo: el precio publicado es el de tarjeta.
-  const descuento = () => { const d = Number(S.config && S.config.descuentoContado); return isFinite(d) && d > 0 ? Math.min(30, d) : 0; };
+  // País de la tienda: "US" = solo dólares y tienda del cliente en inglés; "PE" (o vacío) = soles, Yape y español.
+  const esUS = () => !!S.config && S.config.pais === "US";
+  const EN = () => esUS() && !S.canEdit;           // el cliente de una tienda de EE. UU. ve todo en inglés
+  const tx = (es, en) => EN() ? en : es;
+  const CAT_EN = { "Ropa":"Clothing", "Zapatos":"Shoes", "Carteras y bolsos":"Bags", "Accesorios":"Accessories", "Relojes y joyería":"Watches & jewelry", "Perfumes y belleza":"Beauty & fragrance", "Electrónica":"Electronics", "Hogar":"Home", "Juguetes":"Toys", "Otros":"Other" };
+  const PUB_EN = { "Mujer":"Women", "Hombre":"Men", "Niños":"Kids", "Unisex":"Unisex" };
+  const catTxt = c => EN() ? (CAT_EN[c]||c) : c;
+  const pubTxt = x => EN() ? (PUB_EN[x]||x) : x;
+  const rate = () => { if(esUS()) return null; const r = parseFloat(S.config.tipoCambio); return isFinite(r) && r>0 ? r : null; };
+  // Descuento por pagar con Yape o efectivo: el precio publicado es el de tarjeta. Solo tiendas de Perú.
+  const descuento = () => { if(esUS()) return 0; const d = Number(S.config && S.config.descuentoContado); return isFinite(d) && d > 0 ? Math.min(30, d) : 0; };
   const solesContado = n => { const r = rate(), d = descuento(); return (r && d && typeof n==="number" && isFinite(n)) ? Math.round(n*r*(1-d/100)) : null; };
   const soles = n => { const r=rate(); return (r && typeof n==="number" && isFinite(n)) ? "S/ " + Math.round(n*r).toLocaleString("es-PE") : ""; };
   const dual = n => { const a=money(n), b=soles(n); return a && b ? a+" · "+b : a; };
@@ -408,18 +416,18 @@ import {
     for(let k=0; k<items.length; k+=per){
       const batch = items.slice(k, k+per);
       setProg(n, items.length, "Detectando categorías con IA…");
-      const prompt = `Eres el asistente de una tienda en Perú que revende productos traídos de Estados Unidos. Te paso ${batch.length} foto(s) de producto, en orden, numeradas desde 0.
+      const prompt = `Eres el asistente de una tienda ${esUS() ? "de Estados Unidos" : "en Perú que revende productos traídos de Estados Unidos"}. Te paso ${batch.length} foto(s) de producto, en orden, numeradas desde 0.
 Para cada foto responde un objeto con:
 - "i": el número de la foto
 - "categoria": exactamente una de: ${CATS.join(", ")}
 - "publico": exactamente uno de: ${PUBLICOS.join(", ")} (usa Unisex si no se distingue)
-- "nombre": nombre corto de venta en español, de 2 a 6 palabras, que describa tipo, estilo y color, sin la marca (ej. "Jean wide leg con cordón", "Zapatillas running negras").
+${esUS() ? '- "nombre": nombre corto de venta EN INGLÉS (la tienda vende a clientes de EE. UU.), de 2 a 6 palabras, que describa tipo, estilo y color, sin la marca (ej. "Wide leg drawstring jeans", "Black running sneakers").' : '- "nombre": nombre corto de venta en español, de 2 a 6 palabras, que describa tipo, estilo y color, sin la marca (ej. "Jean wide leg con cordón", "Zapatillas running negras").'}
 - "marca": la marca solo si su logo, etiqueta o diseño característico se ve claramente en la foto; si no, "".
 - "costo": el precio en dólares que se lee en la etiqueta de precio de la tienda (si hay varios, el más bajo o el de liquidación), como número; si no se ve claro, null.
 - "talla": la talla si se lee en la etiqueta o en el producto (ej. "8", "M", "32x30"); si no, "".
 Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","publico":"Mujer","nombre":"Mocasines rosados con lazo","marca":"","costo":19.99,"talla":"8"}]`;
       let res;
-      try { res = await S.ai.json(prompt, { images: batch.map(b=>b.blob), modelTier:"quick" }); }
+      try { res = await S.ai.json(prompt, { images: batch.map(b=>b.blob), modelTier:"quick", idioma: esUS() ? "en" : "es" }); }
       catch(e){
         const c = e && e.code;
         if(c==="not_granted"||c==="sampling_disabled"||c==="images_unavailable"||c==="capability_disabled"||c==="capability_removed"||c==="not_declared"){ S.ai=null; $("aiRow").hidden=true; $("bulkAI").hidden=true; S.aiMsg="la IA no está disponible; pon las categorías a mano"; return; }
@@ -465,7 +473,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   // ---------- Render ----------
   function filtered(){
     const q = S.q.toLowerCase();
-    return S.products.filter(p => (!S.cat || p.categoria===S.cat) && (!S.pub || p.publico===S.pub || (S.pub!=="Niños" && p.publico==="Unisex")) && (!q || (p.nombre+" "+(p.marca||"")+" "+(p.talla?"talla "+p.talla:"")+" "+(p.categoria||"")+" "+(p.publico||"")+" "+(p.descripcion||"")).toLowerCase().includes(q)));
+    return S.products.filter(p => (!S.cat || p.categoria===S.cat) && (!S.pub || p.publico===S.pub || (S.pub!=="Niños" && p.publico==="Unisex")) && (!q || (p.nombre+" "+(p.marca||"")+" "+(p.talla?"talla size "+p.talla:"")+" "+(p.categoria||"")+" "+catTxt(p.categoria||"")+" "+(p.publico||"")+" "+pubTxt(p.publico||"")+" "+(p.descripcion||"")).toLowerCase().includes(q)));
   }
   function renderCats(){
     const counts = {}; S.products.forEach(p=>{ if(p.categoria) counts[p.categoria]=(counts[p.categoria]||0)+1; });
@@ -474,11 +482,11 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const pubs = PUBLICOS.filter(x=>x!=="Unisex" && S.products.some(p=>p.publico===x));
     const box=$("cats"); box.textContent="";
     if(cats.length){
-      box.append(el("button",{class:"chip","aria-pressed":String(!S.cat),onclick:()=>{S.cat="";render();}},"Todo"));
-      cats.forEach(c=>box.append(el("button",{class:"chip","aria-pressed":String(S.cat===c),onclick:()=>{S.cat=S.cat===c?"":c;render();}}, c+" ", el("span",{class:"cn"},String(counts[c])))));
+      box.append(el("button",{class:"chip","aria-pressed":String(!S.cat),onclick:()=>{S.cat="";render();}},tx("Todo","All")));
+      cats.forEach(c=>box.append(el("button",{class:"chip","aria-pressed":String(S.cat===c),onclick:()=>{S.cat=S.cat===c?"":c;render();}}, catTxt(c)+" ", el("span",{class:"cn"},String(counts[c])))));
     }
     const pb=$("pubs"); pb.textContent="";
-    if(pubs.length>1) pubs.forEach(x=>pb.append(el("button",{class:"chip sub","aria-pressed":String(S.pub===x),onclick:()=>{S.pub=S.pub===x?"":x;render();}},x)));
+    if(pubs.length>1) pubs.forEach(x=>pb.append(el("button",{class:"chip sub","aria-pressed":String(S.pub===x),onclick:()=>{S.pub=S.pub===x?"":x;render();}},pubTxt(x))));
     const dl=$("catList"); dl.textContent=""; [...new Set([...CATS,...cats])].forEach(c=>dl.append(el("option",{value:c})));
     const ml=$("marcaList"); ml.textContent=""; [...new Set(S.products.map(p=>p.marca).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"es")).forEach(m=>ml.append(el("option",{value:m})));
     if(S.cat && !cats.includes(S.cat)) S.cat="";
@@ -489,7 +497,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     if(typeof p.stock!=="number" || p.estado==="vendido") return "";
     if(S.canEdit) return p.stock===0 ? "Sin unidades" : `${p.stock} en stock`;
     if(p.stock===0) return "";
-    return p.stock<=3 ? (p.stock===1 ? "¡Última unidad!" : `Quedan ${p.stock}`) : "";
+    return p.stock<=3 ? (p.stock===1 ? tx("¡Última unidad!","Last one!") : tx(`Quedan ${p.stock}`,`Only ${p.stock} left`)) : "";
   }
   function render(){
     renderCats();
@@ -498,25 +506,25 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       const cover = p.fotos && p.fotos[0];
       const st = p.estado||"disponible";
       const card = el("div",{class:"card "+st+(p.stock===0?" agotado":"")+(S.sel.has(p.id)?" sel":"")});
-      const open = el("button",{class:"open",type:"button","aria-label":(S.selecting?"Seleccionar ":"Ver ")+(p.nombre||"producto"),onclick:()=>{ if(S.selecting){ toggleSel(p.id); } else openProduct(p.id); }});
+      const open = el("button",{class:"open",type:"button","aria-label":(S.selecting?"Seleccionar ":tx("Ver ","View "))+(p.nombre||tx("producto","product")),onclick:()=>{ if(S.selecting){ toggleSel(p.id); } else openProduct(p.id); }});
       const ph = el("div",{class:"ph"});
       if(cover) ph.append(el("img",{src:src(cover.thumb||cover.full),alt:"",loading:"lazy",decoding:"async",onerror:function(){this.remove();}}));
-      ph.append(el("span",{class:"price"+(p.precio==null?" none":"")}, p.precio==null ? "Consultar" : money(p.precio), p.precio!=null && soles(p.precio) ? el("small",null, soles(p.precio)) : null));
-      if(st!=="disponible") ph.append(el("span",{class:"status "+st}, {vendido:"Vendido",apartado:"Apartado",oculto:"Oculto"}[st]||st));
-      else if(p.stock===0) ph.append(el("span",{class:"status agotado"},"Agotado"));
+      ph.append(el("span",{class:"price"+(p.precio==null?" none":"")}, p.precio==null ? tx("Consultar","Ask price") : money(p.precio), p.precio!=null && soles(p.precio) ? el("small",null, soles(p.precio)) : null));
+      if(st!=="disponible") ph.append(el("span",{class:"status "+st}, {vendido:tx("Vendido","Sold"),apartado:tx("Apartado","On hold"),oculto:"Oculto"}[st]||st));
+      else if(p.stock===0) ph.append(el("span",{class:"status agotado"},tx("Agotado","Sold out")));
       if(S.selecting) ph.append(el("span",{class:"check","aria-hidden":"true"}, S.sel.has(p.id)?"✓":""));
-      else if(p.fotos && p.fotos.length>1) ph.append(el("span",{class:"multi"}, p.fotos.length+" fotos"));
+      else if(p.fotos && p.fotos.length>1) ph.append(el("span",{class:"multi"}, p.fotos.length+tx(" fotos"," photos")));
       const contado = p.precio!=null && !agotado(p) ? solesContado(p.precio) : null;
-      open.append(ph, el("div",{class:"info",style:"padding-bottom:0"}, contado!=null ? el("span",{class:"contado"}, `S/ ${contado.toLocaleString("es-PE")} con Yape o efectivo`) : null, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, el("span",{class:"name"},p.nombre||"Sin nombre"), el("span",{class:"meta"}, el("span",null,[p.categoria, p.talla ? "Talla "+p.talla : ""].filter(Boolean).join(" · ")), el("span",null,p.publico||"")), S.canEdit && p.costo!=null ? el("span",{class:"costo"}, `Costo ${money(p.costo)}`+(p.precio!=null && p.costo>0 ? ` · margen ${Math.round((p.precio/p.costo-1)*100)} %` : "")) : null, stockTxt(p) ? el("span",{class:"stockpill"+(S.canEdit && p.stock>3?" ok":"")}, stockTxt(p)) : null));
+      open.append(ph, el("div",{class:"info",style:"padding-bottom:0"}, contado!=null ? el("span",{class:"contado"}, `S/ ${contado.toLocaleString("es-PE")} con Yape o efectivo`) : null, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, el("span",{class:"name"},p.nombre||tx("Sin nombre","Untitled")), el("span",{class:"meta"}, el("span",null,[catTxt(p.categoria), p.talla ? tx("Talla ","Size ")+p.talla : ""].filter(Boolean).join(" · ")), el("span",null,pubTxt(p.publico||""))), S.canEdit && p.costo!=null ? el("span",{class:"costo"}, `Costo ${money(p.costo)}`+(p.precio!=null && p.costo>0 ? ` · margen ${Math.round((p.precio/p.costo-1)*100)} %` : "")) : null, stockTxt(p) ? el("span",{class:"stockpill"+(S.canEdit && p.stock>3?" ok":"")}, stockTxt(p)) : null));
       card.append(open);
       if(!S.selecting) card.append(el("div",{class:"info",style:"padding-top:0"}, addButton(p)));
       grid.append(card);
     }
     const n = S.products.length;
-    $("count").textContent = n ? (list.length===n ? `${n} productos` : `${list.length} de ${n} productos`) : "";
+    $("count").textContent = n ? (list.length===n ? tx(`${n} productos`,`${n} products`) : tx(`${list.length} de ${n} productos`,`${list.length} of ${n} products`)) : "";
     const empty=$("empty");
-    if(S.loaded && !n){ empty.hidden=false; $("emptyTitle").textContent = S.canEdit ? "Tu vitrina está vacía" : "Pronto habrá productos aquí"; $("emptyText").textContent = S.canEdit ? "Arrastra todas tus fotos al recuadro de arriba. Cada foto se convierte en un producto listo para vender, y después le pones nombre y precio." : "Esta tienda todavía no ha publicado productos. Vuelve en un rato."; }
-    else if(S.loaded && !list.length){ empty.hidden=false; $("emptyTitle").textContent="Nada coincide con tu búsqueda"; $("emptyText").textContent="Prueba con otra palabra o quita el filtro de categoría."; }
+    if(S.loaded && !n){ empty.hidden=false; $("emptyTitle").textContent = S.canEdit ? "Tu vitrina está vacía" : tx("Pronto habrá productos aquí","Products coming soon"); $("emptyText").textContent = S.canEdit ? "Arrastra todas tus fotos al recuadro de arriba. Cada foto se convierte en un producto listo para vender, y después le pones nombre y precio." : tx("Esta tienda todavía no ha publicado productos. Vuelve en un rato.","This store hasn't published any products yet. Check back soon."); }
+    else if(S.loaded && !list.length){ empty.hidden=false; $("emptyTitle").textContent=tx("Nada coincide con tu búsqueda","No matches"); $("emptyText").textContent=tx("Prueba con otra palabra o quita el filtro de categoría.","Try another word or clear the category filter."); }
     else empty.hidden = S.loaded;
     renderBulk();
     renderCartBar();
@@ -698,7 +706,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     if(fotos[photoIdx]) gal.append(el("img",{class:"main",src:src(fotos[photoIdx].full),alt:p.nombre||""}));
     const th = el("div",{class:"thumbs"});
     fotos.forEach((f,i)=>{
-      const t = el("button",{class:"t"+(i===photoIdx?" on":""),type:"button","aria-label":"Foto "+(i+1),onclick:()=>{photoIdx=i;drawSheet();}}, el("img",{src:src(f.thumb||f.full),alt:""}));
+      const t = el("button",{class:"t"+(i===photoIdx?" on":""),type:"button","aria-label":tx("Foto ","Photo ")+(i+1),onclick:()=>{photoIdx=i;drawSheet();}}, el("img",{src:src(f.thumb||f.full),alt:""}));
       if(S.canEdit && fotos.length>1){
         t.append(el("span",{class:"x",role:"button",tabindex:"0","aria-label":"Quitar foto",onclick:async ev=>{ ev.stopPropagation(); const nf=fotos.filter((_,j)=>j!==i); await S.db.doc("productos/"+p.id).update({fotos:nf}); deletePhotos([f]); toast("Foto quitada"); }},"×"));
       }
@@ -739,22 +747,22 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       ), conf);
     } else {
       const st=p.estado||"disponible";
-      side.append(p.marca ? el("span",{class:"marca-tag"},p.marca) : null, el("h2",null,p.nombre||"Producto"),
-        el("div",{class:"bigprice"}, p.precio==null?"Precio a consultar":money(p.precio), p.precio!=null && soles(p.precio) ? el("span",{class:"bigsol"}, soles(p.precio) + " con tarjeta") : null),
+      side.append(p.marca ? el("span",{class:"marca-tag"},p.marca) : null, el("h2",null,p.nombre||tx("Producto","Product")),
+        el("div",{class:"bigprice"}, p.precio==null?tx("Precio a consultar","Price on request"):money(p.precio), p.precio!=null && soles(p.precio) ? el("span",{class:"bigsol"}, soles(p.precio) + " con tarjeta") : null),
         p.precio!=null && solesContado(p.precio)!=null ? el("span",{class:"contado",style:"font-size:15px"}, `S/ ${solesContado(p.precio).toLocaleString("es-PE")} pagando con Yape o efectivo (${descuento()} % menos)`) : null,
-        st!=="disponible" ? el("span",{class:"status "+st,style:"position:static;justify-self:start"}, st==="vendido"?"Vendido":"Apartado") : p.stock===0 ? el("span",{class:"status agotado",style:"position:static;justify-self:start"},"Agotado") : null,
-        p.talla ? el("span",null, el("strong",null,"Talla: "), p.talla) : null,
+        st!=="disponible" ? el("span",{class:"status "+st,style:"position:static;justify-self:start"}, st==="vendido"?tx("Vendido","Sold"):tx("Apartado","On hold")) : p.stock===0 ? el("span",{class:"status agotado",style:"position:static;justify-self:start"},tx("Agotado","Sold out")) : null,
+        p.talla ? el("span",null, el("strong",null,tx("Talla: ","Size: ")), p.talla) : null,
         stockTxt(p) ? el("span",{class:"stockpill"}, stockTxt(p)) : null,
-        (p.categoria||p.publico) ? el("span",{class:"note",style:"margin:0"}, [p.categoria,p.publico].filter(Boolean).join(" · ")) : null,
+        (p.categoria||p.publico) ? el("span",{class:"note",style:"margin:0"}, [catTxt(p.categoria),pubTxt(p.publico)].filter(Boolean).join(" · ")) : null,
         p.descripcion ? el("p",{class:"desc"}, p.descripcion) : null);
       if(!agotado(p)){
         const b = addButton(p, true); b.classList.add("btn"); b.style.cssText="justify-self:start;padding:10px 16px;font-size:15px";
         side.append(b);
-        if(cartCount()) side.append(el("button",{class:"btn tag",type:"button",style:"justify-self:start",onclick:openCart},"Ver mi pedido y enviar por WhatsApp"));
+        if(cartCount()) side.append(el("button",{class:"btn tag",type:"button",style:"justify-self:start",onclick:openCart},tx("Ver mi pedido y enviar por WhatsApp","View my order")));
       }
-      side.append(el("button",{class:"btn",type:"button",style:"justify-self:start",onclick:closeSheet},"Seguir viendo"));
+      side.append(el("button",{class:"btn",type:"button",style:"justify-self:start",onclick:closeSheet},tx("Seguir viendo","Keep browsing")));
     }
-    ov.append(el("div",{class:"sheet",role:"dialog","aria-modal":"true","aria-label":p.nombre||"Producto"}, gal, side));
+    ov.append(el("div",{class:"sheet",role:"dialog","aria-modal":"true","aria-label":p.nombre||tx("Producto","Product")}, gal, side));
   }
 
   // ---------- Pedido por WhatsApp ----------
@@ -770,28 +778,29 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   function addButton(p, big){
     const inCart = !!cart[p.id], sold = agotado(p);
     return el("button",{class:"addbtn"+(inCart?" in":""),type:"button",disabled:sold?"":false,
-      onclick:e=>{ e.stopPropagation(); if(cart[p.id]) delete cart[p.id]; else { cart[p.id]=1; toast("Agregado a tu pedido"); } saveCart(); render(); if(openId) drawSheet(); }},
-      sold ? (p.estado==="vendido" ? "Vendido" : "Agotado") : inCart ? (big?"✓ En tu pedido (quitar)":"✓ En tu pedido") : "+ Agregar al pedido");
+      onclick:e=>{ e.stopPropagation(); if(cart[p.id]) delete cart[p.id]; else { cart[p.id]=1; toast(tx("Agregado a tu pedido","Added to your order")); } saveCart(); render(); if(openId) drawSheet(); }},
+      sold ? (p.estado==="vendido" ? tx("Vendido","Sold") : tx("Agotado","Sold out")) : inCart ? (big?tx("✓ En tu pedido (quitar)","✓ In your order (remove)"):tx("✓ En tu pedido","✓ In your order")) : tx("+ Agregar al pedido","+ Add to order"));
   }
   function renderCartBar(){
     const n = cartCount(), {total, consultar} = cartTotals();
     $("cartbar").hidden = !n || S.selecting;
     $("cartN").textContent = n;
-    $("cartT").textContent = total ? dual(total) + (consultar?" +":"") : (consultar?"Consultar":"");
+    $("cartT").textContent = total ? dual(total) + (consultar?" +":"") : (consultar?tx("Consultar","Ask price"):"");
+    $("cartLbl").textContent = tx("Mi pedido","My order");
   }
   $("cartbar").onclick = ()=>openCart();
   function buildMessage(){
     const lines = cartLines().filter(l=>!agotado(l.p));
     const {total, consultar} = cartTotals();
-    let m = `Hola${S.config.nombre?" "+S.config.nombre:""}, quiero hacer este pedido:\n\n`;
+    let m = tx(`Hola${S.config.nombre?" "+S.config.nombre:""}, quiero hacer este pedido:\n\n`, `Hi${S.config.nombre?" "+S.config.nombre:""}, I'd like to order:\n\n`);
     lines.forEach((l,i)=>{
-      const pr = l.p.precio==null ? "precio a consultar" : (l.q>1 ? `${l.q} × ${money(l.p.precio)} = ${dual(l.p.precio*l.q)}` : dual(l.p.precio));
-      m += `${i+1}. ${l.p.nombre}${l.q>1&&l.p.precio==null?` (${l.q} unidades)`:""} — ${pr}\n`;
+      const pr = l.p.precio==null ? tx("precio a consultar","price on request") : (l.q>1 ? `${l.q} × ${money(l.p.precio)} = ${dual(l.p.precio*l.q)}` : dual(l.p.precio));
+      m += `${i+1}. ${l.p.nombre}${l.q>1&&l.p.precio==null?tx(` (${l.q} unidades)`,` (${l.q} units)`):""} — ${pr}\n`;
     });
-    m += `\nTotal: ${dual(total)||"$0"}${consultar?` + ${consultar} producto(s) a consultar`:""}`;
+    m += `\nTotal: ${dual(total)||"$0"}${consultar?tx(` + ${consultar} producto(s) a consultar`,` + ${consultar} item(s) to confirm price`):""}`;
     { const tc = totalContado(lines); if(tc!=null) m += `\nTotal pagando con Yape o efectivo: S/ ${tc.toLocaleString("es-PE")}`; }
-    if(buyer.nombre.trim()) m += `\nMi nombre: ${buyer.nombre.trim()}`;
-    if(buyer.nota.trim()) m += `\nNota: ${buyer.nota.trim()}`;
+    if(buyer.nombre.trim()) m += tx(`\nMi nombre: ${buyer.nombre.trim()}`,`\nMy name: ${buyer.nombre.trim()}`);
+    if(buyer.nota.trim()) m += tx(`\nNota: ${buyer.nota.trim()}`,`\nNote: ${buyer.nota.trim()}`);
     return m;
   }
   let cartOpen=false;
@@ -799,34 +808,34 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   function drawCart(){
     const ov=$("overlay"); ov.textContent="";
     const lines = cartLines();
-    const box = el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":"Mi pedido"});
-    box.append(el("div",{class:"cart-head"}, el("h2",null,"Mi pedido"), el("button",{class:"btn",type:"button",onclick:closeCart},"Seguir viendo")));
+    const box = el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":tx("Mi pedido","My order")});
+    box.append(el("div",{class:"cart-head"}, el("h2",null,tx("Mi pedido","My order")), el("button",{class:"btn",type:"button",onclick:closeCart},tx("Seguir viendo","Keep browsing"))));
     if(!lines.length){
-      box.append(el("p",{class:"note",style:"margin:0"},"Tu pedido está vacío. Toca \"+ Agregar al pedido\" en los productos que quieras."));
+      box.append(el("p",{class:"note",style:"margin:0"},tx("Tu pedido está vacío. Toca \"+ Agregar al pedido\" en los productos que quieras.","Your order is empty. Tap \"+ Add to order\" on the products you want.")));
       ov.append(box); return;
     }
     const ul = el("ul",{class:"items"});
     for(const l of lines){
       const cover = l.p.fotos && l.p.fotos[0], sold = agotado(l.p);
       const maxQ = typeof l.p.stock==="number" ? l.p.stock : 99;
-      const setQ = q=>{ if(q<1) delete cart[l.id]; else { if(q>maxQ) toast(`Solo hay ${maxQ} disponible${maxQ===1?"":"s"}`); cart[l.id]=Math.min(q,maxQ,99); } saveCart(); drawCart(); render(); };
+      const setQ = q=>{ if(q<1) delete cart[l.id]; else { if(q>maxQ) toast(tx(`Solo hay ${maxQ} disponible${maxQ===1?"":"s"}`,`Only ${maxQ} available`)); cart[l.id]=Math.min(q,maxQ,99); } saveCart(); drawCart(); render(); };
       ul.append(el("li",{class:"item"},
         cover ? el("img",{src:src(cover.thumb||cover.full),alt:""}) : el("span",{class:"noimg"}),
         el("div",{style:"min-width:0;display:grid;gap:2px"},
-          el("span",{class:"nm"},l.p.nombre||"Producto"),
-          el("span",{class:"pr"}, l.p.precio==null?"Precio a consultar":(l.q>1?`${money(l.p.precio)} × ${l.q} = ${dual(l.p.precio*l.q)}`:dual(l.p.precio))),
-          sold ? el("span",{class:"warn"},"Ya no está disponible; no se incluirá en el pedido") : (typeof l.p.stock==="number" && l.q>l.p.stock) ? el("span",{class:"warn"},`Solo quedan ${l.p.stock}`) : null),
+          el("span",{class:"nm"},l.p.nombre||tx("Producto","Product")),
+          el("span",{class:"pr"}, l.p.precio==null?tx("Precio a consultar","Price on request"):(l.q>1?`${money(l.p.precio)} × ${l.q} = ${dual(l.p.precio*l.q)}`:dual(l.p.precio))),
+          sold ? el("span",{class:"warn"},tx("Ya no está disponible; no se incluirá en el pedido","No longer available; it won't be included")) : (typeof l.p.stock==="number" && l.q>l.p.stock) ? el("span",{class:"warn"},tx(`Solo quedan ${l.p.stock}`,`Only ${l.p.stock} left`)) : null),
         el("div",{style:"display:grid;gap:4px;justify-items:end"},
           sold ? null : el("div",{class:"qty"},
-            el("button",{type:"button","aria-label":"Quitar uno",onclick:()=>setQ(l.q-1)},"−"),
+            el("button",{type:"button","aria-label":tx("Quitar uno","One less"),onclick:()=>setQ(l.q-1)},"−"),
             el("span",null,String(l.q)),
-            el("button",{type:"button","aria-label":"Agregar uno",disabled:l.q>=maxQ?"":false,onclick:()=>setQ(l.q+1)},"+")),
-          el("button",{class:"rm",type:"button",onclick:()=>setQ(0)},"Quitar"))
+            el("button",{type:"button","aria-label":tx("Agregar uno","One more"),disabled:l.q>=maxQ?"":false,onclick:()=>setQ(l.q+1)},"+")),
+          el("button",{class:"rm",type:"button",onclick:()=>setQ(0)},tx("Quitar","Remove")))
       ));
     }
     box.append(ul);
     const {total, consultar} = cartTotals();
-    box.append(el("div",{class:"totals"}, el("span",null,"Total"+(consultar?` (+${consultar} a consultar)`:"")), el("span",{class:"t",style:"text-align:right"},money(total)||"$0", soles(total)?el("span",{class:"bigsol"},soles(total)):null)));
+    box.append(el("div",{class:"totals"}, el("span",null,"Total"+(consultar?tx(` (+${consultar} a consultar)`,` (+${consultar} to confirm)`):"")), el("span",{class:"t",style:"text-align:right"},money(total)||"$0", soles(total)?el("span",{class:"bigsol"},soles(total)):null)));
     const totCont = totalContado(lines);
     if(totCont!=null){
       const totTarj = lines.filter(l=>!agotado(l.p) && l.p.precio!=null).reduce((t,l)=>t+Math.round(l.p.precio*l.q*rate()),0);
@@ -835,29 +844,29 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         el("div",{class:"fila contado"}, el("span",null,`Con Yape o efectivo (${descuento()} % menos)`), el("strong",null,`S/ ${totCont.toLocaleString("es-PE")}`)),
         totTarj-totCont>0 ? el("span",{class:"note",style:"margin:0"}, `Ahorras S/ ${(totTarj-totCont).toLocaleString("es-PE")} pagando con Yape o efectivo.`) : null));
     }
-    const nm = el("input",{id:"buyerName",maxlength:"60",placeholder:"Para saber quién escribe",value:buyer.nombre});
-    const nt = el("textarea",{id:"buyerNote",rows:"2",placeholder:"Talla, color, entrega o recogida…"}); nt.value = buyer.nota;
-    const pv = el("div",{class:"preview","aria-label":"Mensaje que se enviará"}, buildMessage());
+    const nm = el("input",{id:"buyerName",maxlength:"60",placeholder:tx("Para saber quién escribe","So the store knows who you are"),value:buyer.nombre});
+    const nt = el("textarea",{id:"buyerNote",rows:"2",placeholder:tx("Talla, color, entrega o recogida…","Size, color, delivery or pickup…")}); nt.value = buyer.nota;
+    const pv = el("div",{class:"preview","aria-label":tx("Mensaje que se enviará","Message that will be sent")}, buildMessage());
     const upd = ()=>{ buyer.nombre=nm.value; buyer.nota=nt.value; saveCart(); pv.textContent=buildMessage(); link.href=waLink(); };
     nm.addEventListener("input",upd); nt.addEventListener("input",upd);
-    box.append(el("label",{class:"f"},"Tu nombre (opcional)", nm), el("label",{class:"f"},"Nota (opcional)", nt),
-      el("div",{style:"display:grid;gap:4px"}, el("span",{class:"note",style:"margin:0"},"Este es el mensaje que llegará:"), pv));
+    box.append(el("label",{class:"f"},tx("Tu nombre (opcional)","Your name (optional)"), nm), el("label",{class:"f"},tx("Nota (opcional)","Note (optional)"), nt),
+      el("div",{style:"display:grid;gap:4px"}, el("span",{class:"note",style:"margin:0"},tx("Este es el mensaje que llegará:","This is the message the store will get:")), pv));
     const wa = waDigits();
     const waLink = ()=>`https://wa.me/${wa}?text=${encodeURIComponent(buildMessage())}`;
-    const link = el("a",{class:"btn tag",href:wa?waLink():"#",target:"_blank",rel:"noopener"},"Enviar pedido por WhatsApp");
-    const copyBtn = el("button",{class:"btn",type:"button",onclick:async()=>{ try{ await navigator.clipboard.writeText(buildMessage()); toast("Mensaje copiado"); }catch(e){ const r=document.createRange(); r.selectNodeContents(pv); const s=getSelection(); s.removeAllRanges(); s.addRange(r); toast("Selecciona y copia el mensaje"); } }},"Copiar mensaje");
+    const link = el("a",{class:"btn tag",href:wa?waLink():"#",target:"_blank",rel:"noopener"},tx("Enviar pedido por WhatsApp","Send order on WhatsApp"));
+    const copyBtn = el("button",{class:"btn",type:"button",onclick:async()=>{ try{ await navigator.clipboard.writeText(buildMessage()); toast(tx("Mensaje copiado","Message copied")); }catch(e){ const r=document.createRange(); r.selectNodeContents(pv); const s=getSelection(); s.removeAllRanges(); s.addRange(r); toast(tx("Selecciona y copia el mensaje","Select and copy the message")); } }},tx("Copiar mensaje","Copy message"));
     const send = el("div",{class:"send"});
     if(S.config && S.config.cobrosActivos && !S.canEdit){
       const pagables = lines.filter(l=>!agotado(l.p));
       const sinPrecio = pagables.some(l=>l.p.precio==null);
       const payBtn = el("button",{class:"btn primary",type:"button",disabled:sinPrecio?"":false,onclick:async()=>{
-        payBtn.disabled=true; payBtn.textContent="Abriendo pago seguro…";
+        payBtn.disabled=true; payBtn.textContent=tx("Abriendo pago seguro…","Opening secure checkout…");
         try{ const r = await pagarPedido(pagables.map(l=>({id:l.id,q:l.q})), buyer.nombre.trim(), buyer.nota.trim()); location.href = r.url; }
-        catch(e){ toast((e&&e.message)||"No se pudo iniciar el pago"); payBtn.disabled=false; payBtn.textContent="Pagar con tarjeta"; }
-      }},"Pagar con tarjeta");
-      send.append(payBtn, el("span",{class:"note",style:"margin:0;text-align:center"}, sinPrecio ? "Algunos productos no tienen precio: consúltalos por WhatsApp o quítalos para pagar con tarjeta." : descuento() ? "Pago seguro con Stripe, al precio normal con tarjeta." : "Pago seguro con Stripe. El total final se muestra en la página de pago."));
+        catch(e){ toast((e&&e.message)||tx("No se pudo iniciar el pago","Couldn't start the payment")); payBtn.disabled=false; payBtn.textContent=tx("Pagar con tarjeta","Pay with card"); }
+      }},tx("Pagar con tarjeta","Pay with card"));
+      send.append(payBtn, el("span",{class:"note",style:"margin:0;text-align:center"}, sinPrecio ? tx("Algunos productos no tienen precio: consúltalos por WhatsApp o quítalos para pagar con tarjeta.","Some items have no price: ask on WhatsApp or remove them to pay by card.") : descuento() ? "Pago seguro con Stripe, al precio normal con tarjeta." : tx("Pago seguro con Stripe. El total final se muestra en la página de pago.","Secure payment with Stripe. You'll see the final total on the checkout page.")));
     }
-    if(S.config && (S.config.yapeNumero || S.config.yapeQr) && !S.canEdit){
+    if(S.config && !esUS() && (S.config.yapeNumero || S.config.yapeQr) && !S.canEdit){
       const pagables = lines.filter(l=>!agotado(l.p));
       const sinPrecio = pagables.some(l=>l.p.precio==null);
       const sinCambio = !(S.config.tipoCambio > 0);
@@ -866,12 +875,12 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       if(sinPrecio) send.append(el("span",{class:"note",style:"margin:0;text-align:center"},"Algunos productos no tienen precio: consúltalos por WhatsApp o quítalos para pagar con Yape."));
     }
     if(wa){
-      send.append(link, copyBtn, el("span",{class:"note",style:"margin:0;text-align:center"},"Se abre WhatsApp con tu pedido escrito; solo tocas enviar. Si no se abre, copia el mensaje y escríbelo al ", el("span",{class:"copy"},S.config.whatsapp)));
+      send.append(link, copyBtn, el("span",{class:"note",style:"margin:0;text-align:center"},tx("Se abre WhatsApp con tu pedido escrito; solo tocas enviar. Si no se abre, copia el mensaje y escríbelo al ","WhatsApp opens with your order already written; just tap send. If it doesn't open, copy the message and send it to "), el("span",{class:"copy"},S.config.whatsapp)));
     } else {
-      send.append(copyBtn, el("span",{class:"note",style:"margin:0;text-align:center"},"La tienda todavía no ha puesto su número de WhatsApp. Copia el mensaje para enviarlo cuando lo tengas."));
+      send.append(copyBtn, el("span",{class:"note",style:"margin:0;text-align:center"},tx("La tienda todavía no ha puesto su número de WhatsApp. Copia el mensaje para enviarlo cuando lo tengas.","The store hasn't added its WhatsApp number yet. Copy the message to send it later.")));
     }
     box.append(send,
-      el("button",{class:"rm",type:"button",style:"justify-self:center",onclick:()=>{ cart={}; saveCart(); render(); closeCart(); toast("Pedido vaciado"); }},"Vaciar pedido"));
+      el("button",{class:"rm",type:"button",style:"justify-self:center",onclick:()=>{ cart={}; saveCart(); render(); closeCart(); toast(tx("Pedido vaciado","Order cleared")); }},tx("Vaciar pedido","Clear order")));
     ov.append(box);
   }
   function closeCart(){ cartOpen=false; $("overlay").hidden=true; $("overlay").textContent=""; }
@@ -938,7 +947,14 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     // El WhatsApp de la tienda va en un botón flotante (solo para clientes), no en la barra.
     const c=$("contact"); c.textContent=""; c.hidden=true; const wa=waDigits();
     const fl=$("waFloat"); fl.hidden = !wa || S.canEdit;
-    if(wa) fl.href = `https://wa.me/${wa}?text=${encodeURIComponent(`Hola${S.config.nombre?" "+S.config.nombre:""}, vi tu tienda online y tengo una consulta.`)}`;
+    if(wa) fl.href = `https://wa.me/${wa}?text=${encodeURIComponent(tx(`Hola${S.config.nombre?" "+S.config.nombre:""}, vi tu tienda online y tengo una consulta.`, `Hi${S.config.nombre?" "+S.config.nombre:""}, I saw your online store and have a question.`))}`;
+    fl.setAttribute("aria-label", tx("Escríbenos por WhatsApp","Message us on WhatsApp")); fl.querySelector("span").textContent = tx("Escríbenos","Chat with us");
+    // Tienda de EE. UU.: el sello "Traído de USA" no aplica; el cliente ve la tienda en inglés.
+    document.querySelector(".brand .stamp").hidden = esUS();
+    document.documentElement.lang = EN() ? "en" : "es";
+    $("q").placeholder = tx("Buscar producto…","Search products…"); $("q").setAttribute("aria-label", tx("Buscar producto","Search products"));
+    if(document.activeElement!==$("setPais")) $("setPais").value = esUS() ? "US" : "PE";
+    document.querySelectorAll(".solo-pe").forEach(x=>{ x.hidden = esUS(); });
     if(document.activeElement!==$("setName")) $("setName").value = S.config.nombre||"";
     if(document.activeElement!==$("setWa")) $("setWa").value = S.config.whatsapp||"";
     if(document.activeElement!==$("setRate")) $("setRate").value = S.config.tipoCambio!=null ? String(S.config.tipoCambio) : "";
@@ -971,6 +987,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         descuentoContado: Math.min(30, Math.max(0, parseMargen($("setDesc").value) || 0)),
         yapeNumero:$("setYapeNum").value.trim(), yapeNombre:$("setYapeName").value.trim(),
         yapeQr: yapeQrNuevo!==undefined ? yapeQrNuevo : (S.config.yapeQr||""),
+        pais: $("setPais").value === "US" ? "US" : "PE",
       });
       yapeQrNuevo = undefined; $("settings").hidden=true; toast("Datos guardados");
     }catch(e){ toast("No se pudo guardar. Intenta de nuevo."); }
@@ -1091,8 +1108,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   }
   function mensajeEstadoPublico(){
     const c = estadoCatalogo(); if(!c) return;
-    if(c.estado==="no_existe"){ $("emptyTitle").textContent="Esta vitrina no existe"; $("emptyText").textContent="Revisa el enlace que te compartieron."; show("empty", true); }
-    else if(!c.productos){ $("emptyTitle").textContent = c.estado==="suspendida" ? "Esta vitrina no está disponible" : "Esta vitrina abrirá pronto"; $("emptyText").textContent = c.estado==="suspendida" ? "La tienda está pausada por ahora." : "La tienda está terminando de prepararse. Vuelve en un rato."; show("empty", true); }
+    if(c.estado==="no_existe"){ $("emptyTitle").textContent="Esta vitrina no existe / Store not found"; $("emptyText").textContent="Revisa el enlace que te compartieron. / Check the link you received."; show("empty", true); }
+    else if(!c.productos){ $("emptyTitle").textContent = c.estado==="suspendida" ? tx("Esta vitrina no está disponible","This store isn't available") : tx("Esta vitrina abrirá pronto","This store opens soon"); $("emptyText").textContent = c.estado==="suspendida" ? tx("La tienda está pausada por ahora.","The store is paused for now.") : tx("La tienda está terminando de prepararse. Vuelve en un rato.","The store is getting ready. Check back soon."); show("empty", true); }
     else if(c.vistaPrevia) toast("Vista previa: los clientes aún no ven esta vitrina");
   }
   function bannerVendedora(t){
@@ -1190,12 +1207,12 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
           PLANES.indexOf(pl) > PLANES.indexOf(u.plan) ? "Elegir este plan" : "Cambiar a este plan");
       grid.append(el("div",{class:"plan-card"+(pl.id===u.plan.id?" on":"")},
         el("strong",null,pl.nombre),
-        el("div",{class:"plan-price"}, pl.precio ? `S/ ${pl.precio}` : "Gratis", pl.precio ? el("small",null," /mes") : null),
+        el("div",{class:"plan-price"}, pl.precio ? (esUS() ? `$${pl.precioUsd}` : `S/ ${pl.precio}`) : "Gratis", pl.precio ? el("small",null," /mes") : null),
         el("span",null, pl.limite==null ? "Productos ilimitados" : `Hasta ${pl.limite} productos`),
         el("span",null, "Fotos mejoradas automáticamente"),
         pl.extra ? el("span",{class:"extra"}, "+ " + pl.extra) : null, btn));
     }
-    card.append(grid, el("p",{class:"note",style:"margin:0"},"Pago mensual con tarjeta a través de Stripe. Puedes volver a Free cuando quieras."));
+    card.append(grid, el("p",{class:"note",style:"margin:0"},`Pago mensual con tarjeta a través de Stripe${esUS() ? ", en dólares" : ", en soles"}. Puedes volver a Free cuando quieras.`));
     ov.append(card);
   }
   // Antes de subir: recorta el lote a lo que permite el plan
@@ -1284,12 +1301,17 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       cart = {}; saveCart();
       const num = (params.get("pedido")||"").slice(0,8).toUpperCase();
       const aviso = el("section",{class:"paid",role:"status"},
-        el("h2",null,"¡Pago recibido!"),
+        el("h2",null,"¡Pago recibido! / Payment received!"),
         el("p",{style:"margin:0"}, `Tu pedido ${num ? "N.° "+num+" " : ""}está pagado. La tienda se pondrá en contacto contigo para coordinar la entrega.`));
       $("vitrina").prepend(aviso);
-      setTimeout(()=>{ const wa = waDigits(); if(wa) aviso.append(el("a",{class:"btn tag",href:`https://wa.me/${wa}?text=${encodeURIComponent(`Hola, acabo de pagar mi pedido ${num} en la web.`)}`,target:"_blank",rel:"noopener",style:"justify-self:start;text-decoration:none"},"Avisar por WhatsApp")); }, 1500);
+      // El texto se ajusta al idioma cuando ya cargó la tienda
+      setTimeout(()=>{
+        aviso.querySelector("h2").textContent = tx("¡Pago recibido!","Payment received!");
+        aviso.querySelector("p").textContent = tx(`Tu pedido ${num ? "N.° "+num+" " : ""}está pagado. La tienda se pondrá en contacto contigo para coordinar la entrega.`, `Your order ${num ? "#"+num+" " : ""}is paid. The store will contact you about delivery.`);
+        const wa = waDigits(); if(wa) aviso.append(el("a",{class:"btn tag",href:`https://wa.me/${wa}?text=${encodeURIComponent(tx(`Hola, acabo de pagar mi pedido ${num} en la web.`,`Hi, I just paid for order #${num} on your website.`))}`,target:"_blank",rel:"noopener",style:"justify-self:start;text-decoration:none"},tx("Avisar por WhatsApp","Let the store know on WhatsApp")));
+      }, 1500);
     }
-    if(pago==="cancelado") toast("No se realizó el pago. Tu pedido sigue guardado.");
+    if(pago==="cancelado") setTimeout(()=>toast(tx("No se realizó el pago. Tu pedido sigue guardado.","Payment not completed. Your order is still saved.")), 1200);
     limpiarParams("pago","pedido");
   }
 
@@ -1436,11 +1458,11 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       show("onboard", true); $("obName").focus();
       $("onboard").addEventListener("submit", async e=>{
         e.preventDefault(); const er=$("obErr"); er.hidden=true;
-        const nombre=$("obName").value.trim(), slug=limpiarSlug($("obSlug").value), whatsapp=$("obWa").value.trim();
+        const nombre=$("obName").value.trim(), slug=limpiarSlug($("obSlug").value), whatsapp=$("obWa").value.trim(), pais=$("obPais").value==="US"?"US":"PE";
         if(!nombre){ er.textContent="Escribe el nombre de tu tienda"; er.hidden=false; return; }
         if(!SLUG_RE.test(slug)){ er.textContent="El enlace debe tener entre 3 y 40 letras, números o guiones"; er.hidden=false; return; }
         $("obBtn").disabled=true;
-        try{ await crearTienda({ slug, nombre, whatsapp, email: ses.email }); location.reload(); }
+        try{ await crearTienda({ slug, nombre, whatsapp, email: ses.email, pais }); location.reload(); }
         catch(err){ er.textContent = err && err.code==="exists" ? "Ese enlace ya lo usa otra tienda. Prueba con otro." : err && err.code==="invalid" ? "Ese enlace no está permitido. Prueba con otro." : "No se pudo crear la vitrina: "+((err&&err.message)||""); er.hidden=false; }
         finally{ $("obBtn").disabled=false; }
       });

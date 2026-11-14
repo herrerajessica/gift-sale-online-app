@@ -1,15 +1,19 @@
 // Planes de las vendedoras. Fuente única para el cobro, el webhook y el catálogo.
 // limite: cantidad máxima de productos visibles en la tienda (null = ilimitado).
-// precio: en soles por mes (0 = gratis).
+// precio: en soles por mes para tiendas de Perú (0 = gratis).
+// precioUsd: en dólares por mes para tiendas de EE. UU. (PROVISIONALES: cámbialos aquí y en src/amplify-adapter.js).
 // Fondo blanco con IA (Nova Canvas): solo en Plus, porque cada foto tiene costo.
 export type PlanId = 'free' | 'basico' | 'pro' | 'plus';
 
-export const PLANES: Record<PlanId, { nombre: string; limite: number | null; precio: number }> = {
-  free:   { nombre: 'Free',   limite: 10,   precio: 0 },
-  basico: { nombre: 'Básico', limite: 30,   precio: 19 },
-  pro:    { nombre: 'Pro',    limite: 150,  precio: 49 },
-  plus:   { nombre: 'Plus',   limite: null, precio: 99 },
+export const PLANES: Record<PlanId, { nombre: string; limite: number | null; precio: number; precioUsd: number }> = {
+  free:   { nombre: 'Free',   limite: 10,   precio: 0,  precioUsd: 0 },
+  basico: { nombre: 'Básico', limite: 30,   precio: 19, precioUsd: 9 },
+  pro:    { nombre: 'Pro',    limite: 150,  precio: 49, precioUsd: 19 },
+  plus:   { nombre: 'Plus',   limite: null, precio: 99, precioUsd: 39 },
 };
+
+export type Pais = 'PE' | 'US';
+export const paisDe = (t: { pais?: string | null }): Pais => (t.pais === 'US' ? 'US' : 'PE');
 
 export const esPlan = (p: unknown): p is PlanId => typeof p === 'string' && p in PLANES;
 

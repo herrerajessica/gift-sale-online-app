@@ -92,15 +92,16 @@ export const handler = async (event: Evento) => {
         const ventas = (d: number) => pedidos.filter((p) => ['pagado', 'entregado'].includes(p.estado) && Date.parse(p.createdAt) >= hace(d));
         const suma = (l: Record<string, any>[]) => l.reduce((s, p) => s + (p.total || 0), 0) / 100;
         return {
-          tienda: t.nombre, plan: PLANES[plan].nombre, limite_productos: PLANES[plan].limite ?? 'ilimitado', tipo_cambio: t.tipoCambio ?? null, descuento_yape_o_efectivo: t.descuentoContado ?? 0,
+          tienda: t.nombre, pais: t.pais === 'US' ? 'US' : 'PE', plan: PLANES[plan].nombre, limite_productos: PLANES[plan].limite ?? 'ilimitado', tipo_cambio: t.tipoCambio ?? null, descuento_yape_o_efectivo: t.descuentoContado ?? 0,
           productos_visibles: visibles.length, sin_precio: visibles.filter((p) => typeof p.precio !== 'number').length,
           sin_descripcion: visibles.filter((p) => !p.descripcion).length,
           agotados: visibles.filter((p) => p.stock === 0 || p.estado === 'vendido').length,
           poco_stock: visibles.filter((p) => typeof p.stock === 'number' && p.stock > 0 && p.stock <= 2).length,
           pedidos_por_confirmar: pedidos.filter((p) => p.estado === 'por_confirmar').length,
           pedidos_por_entregar: pedidos.filter((p) => p.estado === 'pagado').length,
-          ventas_7_dias: { pedidos: ventas(7).length, total_soles: suma(ventas(7)) },
-          ventas_30_dias: { pedidos: ventas(30).length, total_soles: suma(ventas(30)) },
+          moneda_ventas: t.pais === 'US' ? 'USD' : 'soles',
+          ventas_7_dias: { pedidos: ventas(7).length, total: suma(ventas(7)) },
+          ventas_30_dias: { pedidos: ventas(30).length, total: suma(ventas(30)) },
         };
       }
       case 'buscar_productos': {

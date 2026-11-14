@@ -64,7 +64,7 @@ export const handler: Schema['catalogo']['functionHandler'] = async (event) => {
   return JSON.stringify({
     estado,
     vistaPrevia: estado !== 'aprobada',
-    tienda: { id: t.id, nombre: t.nombre, whatsapp: t.whatsapp || '', tipoCambio: t.tipoCambio ?? null, cobrosActivos: !!t.cobrosActivos,
+    tienda: { id: t.id, nombre: t.nombre, pais: t.pais === 'US' ? 'US' : 'PE', whatsapp: t.whatsapp || '', tipoCambio: t.tipoCambio ?? null, cobrosActivos: !!t.cobrosActivos,
       descuentoContado: typeof t.descuentoContado === 'number' ? t.descuentoContado : 0,
       yapeNumero: t.yapeNumero || '', yapeNombre: t.yapeNombre || '', yapeQr: t.yapeQr || '' },
     productos: visibles,

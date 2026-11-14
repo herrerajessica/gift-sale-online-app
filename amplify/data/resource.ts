@@ -30,6 +30,8 @@ const schema = a.schema({
       yapeQr: a.string(),       // ruta de la imagen del QR en S3
       // Descuento (%) por pagar con Yape o efectivo; el precio normal es el de tarjeta
       descuentoContado: a.float(),
+      // País de la tienda: PE (soles, Yape, tienda en español) o US (solo dólares, tienda del cliente en inglés)
+      pais: a.enum(['PE', 'US']),
       estado: a.enum(['pendiente', 'aprobada', 'suspendida']).authorization(soloLecturaDueña),
       // Plan: free (10), basico (30), pro (150), plus (ilimitado)
       plan: a.enum(['free', 'basico', 'pro', 'plus']).authorization(soloLecturaDueña),
@@ -96,7 +98,7 @@ const schema = a.schema({
 
   clasificarFotos: a
     .query()
-    .arguments({ paths: a.string().array().required() })
+    .arguments({ paths: a.string().array().required(), idioma: a.string() })
     .returns(a.string())
     .handler(a.handler.function(clasificar))
     .authorization((allow) => [allow.authenticated()]),

@@ -4,7 +4,7 @@
 
 type Linea = { nombre?: string; q?: number; monto?: number };
 type Pedido = { id: string; cliente?: string; items?: string; total?: number; moneda?: string; metodo?: string; operacion?: string; nota?: string };
-type Tienda = { id: string; nombre?: string; email?: string; whatsapp?: string };
+type Tienda = { id: string; nombre?: string; email?: string; whatsapp?: string; pais?: string | null };
 
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 const emailValido = (s: unknown) => typeof s === 'string' && s.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
@@ -32,15 +32,15 @@ export async function enviarCorreo(c: { para: string; asunto: string; html: stri
   }
 }
 
-function lineasHtml(p: Pedido) {
+function lineasHtml(p: Pedido, _ingles = false) {
   let lineas: Linea[] = [];
   try { lineas = JSON.parse(p.items || '[]'); } catch { /* sin detalle */ }
   const filas = lineas.map((l) => `<tr><td style="padding:8px 0;border-bottom:1px solid #eee">${esc(l.nombre)}${(l.q || 1) > 1 ? ` × ${l.q}` : ''}</td><td style="padding:8px 0;border-bottom:1px solid #eee;text-align:right;white-space:nowrap">${plata(l.monto || 0, p.moneda)}</td></tr>`).join('');
   return `<table role="presentation" style="width:100%;border-collapse:collapse;font-size:15px">${filas}<tr><td style="padding:12px 0 0;font-weight:700">Total</td><td style="padding:12px 0 0;font-weight:700;text-align:right">${plata(p.total || 0, p.moneda)}</td></tr></table>`;
 }
 
-function marco(titulo: string, cuerpo: string, pie: string) {
-  return `<!doctype html><html lang="es"><body style="margin:0;background:#f7f5f0;font-family:Arial,Helvetica,sans-serif;color:#16203a">
+function marco(titulo: string, cuerpo: string, pie: string, lang = 'es') {
+  return `<!doctype html><html lang="${lang}"><body style="margin:0;background:#f7f5f0;font-family:Arial,Helvetica,sans-serif;color:#16203a">
 <div style="max-width:520px;margin:0 auto;padding:24px 16px">
 <div style="background:#fff;border:1px solid #e3dfd6;border-radius:14px;padding:24px">
 <h1 style="margin:0 0 12px;font-size:22px">${titulo}</h1>${cuerpo}</div>
@@ -53,8 +53,19 @@ const waLink = (t: Tienda, texto: string) => {
 };
 const boton = (href: string, texto: string) => href ? `<p style="margin:20px 0 0"><a href="${esc(href)}" style="display:inline-block;background:#157347;color:#fff;text-decoration:none;font-weight:700;padding:12px 18px;border-radius:10px">${esc(texto)}</a></p>` : '';
 
+/** Al cliente de una tienda de EE. UU.: en inglés (solo tarjeta). */
+function correoClienteEn(t: Tienda, p: Pedido) {
+  const num = numeroPedido(p.id);
+  const cuerpo = `<p style="margin:0 0 4px;font-size:15px">Hi${p.cliente ? ' ' + esc(p.cliente) : ''},</p>
+<p style="margin:0 0 16px;font-size:15px">Your card payment to <b>${esc(t.nombre)}</b> was approved. The store has your order and will contact you about delivery.</p>
+<p style="margin:0 0 8px;font-size:13px;color:#5b6275">Order #${num}</p>${lineasHtml(p, true)}
+${boton(waLink(t, `Hi, I'm writing about my order #${num}.`), 'Message the store on WhatsApp')}`;
+  return { asunto: `Payment approved · ${t.nombre || 'Your store'} · Order #${num}`, html: marco('Thanks for your order!', cuerpo, 'This email confirms your order.', 'en') };
+}
+
 /** Al cliente: confirmación de su pedido (tarjeta pagada o Yape por confirmar). */
 export function correoCliente(t: Tienda, p: Pedido) {
+  if (t.pais === 'US') return correoClienteEn(t, p);
   const num = numeroPedido(p.id);
   const yape = p.metodo === 'yape';
   const titulo = yape ? 'Recibimos tu pedido' : '¡Tu pago fue aprobado!';
