@@ -37,12 +37,16 @@ export async function actualizarTienda(id: string, campos: Record<string, unknow
 /** El dueño en Amplify se guarda como "<sub>::<usuario>". */
 export const subDe = (owner: unknown) => String(owner || '').split('::')[0];
 
-/** Solo se permite volver a la propia web (Amplify o localhost). */
+/** Dominio propio de la plataforma (con y sin www). */
+const DOMINIOS = ['https://showroomcito.com', 'https://www.showroomcito.com'];
+
+/** Solo se permite volver a la propia web: el dominio propio, SITE_URL, Amplify o localhost. */
 export function origenSeguro(origen: unknown): string {
   const o = String(origen || '');
-  const permitido = process.env.SITE_URL
-    ? o === process.env.SITE_URL
-    : /^https:\/\/[a-z0-9-]+\.[a-z0-9]+\.amplifyapp\.com$/.test(o) || /^http:\/\/localhost:\d{2,5}$/.test(o);
+  const permitido = DOMINIOS.includes(o)
+    || (!!process.env.SITE_URL && o === process.env.SITE_URL.replace(/\/$/, ''))
+    || /^https:\/\/[a-z0-9-]+\.[a-z0-9]+\.amplifyapp\.com$/.test(o)
+    || /^http:\/\/localhost:\d{2,5}$/.test(o);
   if (!permitido) throw new Error('Origen no permitido');
   return o;
 }
