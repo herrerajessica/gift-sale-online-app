@@ -1121,7 +1121,11 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         if($("newPass").value.length<8) return loginErr("La nueva contraseña debe tener al menos 8 caracteres");
         await trasLogin(await confirmSignIn({ challengeResponse: $("newPass").value }));
       }
-    }catch(err){ loginErr(errAuth(err)); }
+    }catch(err){
+      // Ya había una sesión abierta (por ejemplo, la página no la detectó a tiempo): entrar directo a la vitrina.
+      if(err && err.name==="UserAlreadyAuthenticatedException"){ location.href = location.pathname; return; }
+      loginErr(errAuth(err));
+    }
     finally{ $("loginBtn").disabled=false; }
   });
 
