@@ -1451,7 +1451,14 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     if(!ses.logged){ show("landing", true); show("vitrina", false); if(location.hash==="#entrar") abrirAuth("login"); return; }
 
     let tienda = null;
-    try{ tienda = await miTienda(ses.sub); }catch(e){ toast("No se pudo cargar tu cuenta. Recarga la página."); return; }
+    try{ tienda = await miTienda(ses.sub); }catch(e){
+      // Antes solo salía un aviso y la página quedaba en blanco: ahora el motivo queda a la vista con un botón para reintentar.
+      show("vitrina", true); show("upload", false); show("empty", true);
+      $("emptyTitle").textContent = "No se pudo cargar tu cuenta";
+      $("emptyText").textContent = "Si acabas de actualizar la app en AWS, espera un par de minutos y vuelve a intentar." + (e && e.message ? " Detalle: " + String(e.message).slice(0, 200) : "");
+      $("emptyText").append(el("br"), el("button",{class:"btn primary",type:"button",style:"margin-top:12px",onclick:()=>location.reload()},"Reintentar"));
+      return;
+    }
     if(location.hash==="#panel" && ses.superadmin && !tienda){ abrirPanel(); return; }
     if(!tienda){
       if(ses.superadmin){ abrirPanel(); return; }
