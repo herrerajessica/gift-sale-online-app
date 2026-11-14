@@ -219,13 +219,18 @@ import {
       S.assets.delete(trabajo.id).catch(()=>{});
     }
   }
+  // Mensajes simples para la vendedora: nunca se muestran códigos ni textos técnicos de AWS.
+  // El detalle técnico queda en la consola del navegador para revisarlo si hace falta.
   function errText(e){
-    const c = e && e.code;
-    if(c==="too_large") return "archivo demasiado grande";
-    if(c==="quota_or_state") return "se llenó el espacio de la vitrina; borra productos viejos";
-    if(c==="rate_limited") return "demasiadas subidas seguidas; reintenta en un minuto";
-    if(c==="not_granted"||c==="capability_disabled") return "no tienes permiso para subir aquí";
-    return (e && e.message) || "error al subir";
+    const c = e && e.code, m = String((e && e.message) || "");
+    if(e) console.warn("Detalle técnico:", e);
+    if(c==="too_large") return "la foto es demasiado grande";
+    if(c==="quota_or_state") return "se llenó el espacio de tu tienda; borra productos que ya no vendes";
+    if(c==="rate_limited" || /throttl|too many|rate/i.test(m)) return "hubo muchas subidas seguidas; reintenta en un minuto";
+    if(c==="not_granted"||c==="capability_disabled" || /unauthori|not authorized|expired|token/i.test(m)) return "tu sesión venció; sal y vuelve a entrar";
+    if(/network|fetch|timeout|timed out|conexi/i.test(m)) return "se cortó la conexión";
+    if(/decode|image|imagen|format/i.test(m)) return "no se pudo leer la foto; prueba con otra (JPG o PNG)";
+    return "no se pudo subir";
   }
 
   // ---------- Fotos repetidas ----------
@@ -386,6 +391,7 @@ import {
     const price = parsePrice($("defPrice").value), cat = $("defCat").value.trim(), marca = $("defMarca").value.trim(), stock = parseStock($("defStock").value), margen = parseMargen($("defMargen").value), condicion = $("defCond").value;
     const useAI = S.ai && $("aiToggle").checked;
     const total = files.length; let done = 0, ok = 0; const errs = $("errs"); errs.textContent="";
+    const fallidas = [], motivos = new Set();
     const textoSubida = modoFoto==="fondo" ? "Quitando fondos con IA y subiendo…" : modoFoto==="mejorar" ? "Mejorando y subiendo fotos…" : "Subiendo fotos…";
     $("progress").hidden=false; setProg(0,total,textoSubida);
     const col = S.db.collection("productos"); const base = Date.now();
@@ -405,7 +411,7 @@ import {
             if(useAI) toClassify.push({ id:ref.id, blob, name:nombre==="Producto nuevo", cat:!cat, marca:!marca, cond:!condicion, desc:true, margen: price==null ? margen : null });
           }
           ok++;
-        }catch(e){ errs.append(el("li",null,f.name+": "+errText(e))); }
+        }catch(e){ fallidas.push(f); motivos.add(errText(e)); }
         done++; setProg(done,total, done<total ? textoSubida : "");
       }
     }
@@ -415,6 +421,12 @@ import {
       if(got.length){ try{ const nombre=nameFromFile(files[0]), ref=col.doc(); creados.push({ id:ref.id, orden:0 }); await ref.set({ nombre, marca, precio:price, stock, categoria:cat, publico:"", descripcion:"", condicion, estado:"disponible", fotos:got.map(g=>g.ph), creado:base }); if(useAI) toClassify.push({ id:ref.id, blob:got[0].blob, name:nombre==="Producto nuevo", cat:!cat, marca:!marca, cond:!condicion, desc:true, margen: price==null ? margen : null }); }catch(e){ errs.append(el("li",null,"No se pudo crear el producto: "+errText(e))); ok=0; } }
     }
     const fail = total-ok;
+    // Un solo aviso amable con las fotos que faltaron y un botón para reintentarlas.
+    if(fallidas.length){
+      const n = fallidas.length, porQue = [...motivos].join("; ");
+      const reintentar = el("button",{class:"btn",type:"button",onclick:()=>{ errs.textContent=""; handleFiles(fallidas); }}, n===1 ? "Reintentar esta foto" : `Reintentar estas ${n} fotos`);
+      errs.append(el("li",null, el("span",null, `${n===1 ? "1 foto no se subió" : n+" fotos no se subieron"} (${porQue}). Las demás quedaron guardadas.`), reintentar));
+    }
     if(S.fondoFallos) errs.append(el("li",null,`${S.fondoFallos} foto(s) se subieron mejoradas pero sin quitar el fondo (la IA no respondió). Puedes reintentarlas más tarde.`));
     const doneMsg = fail ? `Listo: ${ok} subidas, ${fail} con problema` : (group ? `Listo: 1 producto con ${ok} fotos` : `Listo: ${ok} productos publicados`);
     setProg(total,total, doneMsg);
@@ -451,9 +463,9 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       try { res = await S.ai.json(prompt, { images: batch.map(b=>b.blob), modelTier:"quick", idioma: esUS() ? "en" : "es" }); }
       catch(e){
         const c = e && e.code;
-        if(c==="not_granted"||c==="sampling_disabled"||c==="images_unavailable"||c==="capability_disabled"||c==="capability_removed"||c==="not_declared"){ S.ai=null; $("aiRow").hidden=true; $("bulkAI").hidden=true; S.aiMsg="La IA no está disponible" + (e && e.message ? ": " + String(e.message).slice(0,200) : "; pon las categorías a mano"); toast(S.aiMsg); return; }
+        if(c==="not_granted"||c==="sampling_disabled"||c==="images_unavailable"||c==="capability_disabled"||c==="capability_removed"||c==="not_declared"){ S.ai=null; $("aiRow").hidden=true; $("bulkAI").hidden=true; console.warn("IA no disponible:", e); S.aiMsg="La IA no está disponible en este momento; completa los datos a mano o intenta más tarde"; toast(S.aiMsg); return; }
         if(c==="rate_limited"){ S.aiMsg=`IA en pausa: ${items.length-n} sin clasificar (usa "Editar varios" › Clasificar con IA más tarde)`; return; }
-        fails += batch.length; n += batch.length; S.aiError = (e && e.message ? String(e.message).slice(0,160) : "") || c || "sin respuesta"; continue;
+        console.warn("La IA no respondió:", e); fails += batch.length; n += batch.length; S.aiError = "sin respuesta"; continue;
       }
       const arr = Array.isArray(res) ? res : [];
       await Promise.all(batch.map(async (b, j)=>{
@@ -474,7 +486,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       }));
       n += batch.length; setProg(n, items.length, "Detectando categorías con IA…");
     }
-    S.aiMsg = fails ? `IA: ${items.length-fails} clasificados, ${fails} sin clasificar${S.aiError ? ` (${S.aiError})` : ""}` : `IA: ${items.length} clasificados`;
+    S.aiMsg = fails ? `IA: ${items.length-fails} completados, ${fails} sin completar (márcalos y toca "Clasificar con IA" para reintentar)` : `IA: ${items.length} completados`;
     S.aiError = "";
     toast(S.aiMsg);
   }

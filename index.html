@@ -68,7 +68,10 @@ button{cursor:pointer}
 .progress-top{display:flex;justify-content:space-between;gap:10px;font-size:14px;font-weight:600;flex-wrap:wrap}
 .meter{height:8px;border-radius:99px;background:var(--line);overflow:hidden}
 .meter i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
-.errs{margin:0;padding-left:18px;color:var(--sold);font-size:13px}
+.errs{margin:0;padding:0;list-style:none;font-size:14px;display:grid;gap:8px}
+.errs li{display:flex;flex-wrap:wrap;align-items:center;gap:10px;background:#fff7ed;color:#7c2d12;border:1px solid #fed7aa;border-radius:10px;padding:10px 12px}
+.errs li span{flex:1 1 260px}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .errs li{background:#3a2412;color:#fed7aa;border-color:#7c2d12}}
 
 /* Filtros */
 .tools{margin-top:22px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
