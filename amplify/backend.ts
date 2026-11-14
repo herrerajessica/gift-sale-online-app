@@ -103,6 +103,11 @@ asistenteFn.addToRolePolicy(new PolicyStatement({
     'arn:aws:bedrock:::foundation-model/anthropic.claude-haiku-5-5*',
     'arn:aws:bedrock:*:*:inference-profile/global.anthropic.claude-haiku-5-5*',
     'arn:aws:bedrock:*:*:inference-profile/us.anthropic.claude-haiku-5-5*',
+    // Amazon Nova 2 Lite (versión de prueba)
+    'arn:aws:bedrock:*::foundation-model/amazon.nova-2-lite*',
+    'arn:aws:bedrock:::foundation-model/amazon.nova-2-lite*',
+    'arn:aws:bedrock:*:*:inference-profile/global.amazon.nova-2-lite*',
+    'arn:aws:bedrock:*:*:inference-profile/us.amazon.nova-2-lite*',
   ],
 }));
 
@@ -118,5 +123,10 @@ clasificarFn.addToRolePolicy(new PolicyStatement({
     'arn:aws:bedrock:::foundation-model/anthropic.claude-haiku-5-5*',
     'arn:aws:bedrock:*:*:inference-profile/global.anthropic.claude-haiku-5-5*',
     'arn:aws:bedrock:*:*:inference-profile/us.anthropic.claude-haiku-5-5*',
+    // Amazon Nova 2 Lite (versión de prueba)
+    'arn:aws:bedrock:*::foundation-model/amazon.nova-2-lite*',
+    'arn:aws:bedrock:::foundation-model/amazon.nova-2-lite*',
+    'arn:aws:bedrock:*:*:inference-profile/global.amazon.nova-2-lite*',
+    'arn:aws:bedrock:*:*:inference-profile/us.amazon.nova-2-lite*',
   ],
 }));

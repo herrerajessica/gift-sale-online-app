@@ -9,7 +9,9 @@ export const clasificar = defineFunction({
   memoryMB: 512,
   environment: {
     // Claude Haiku 5.5 en Bedrock, perfil de inferencia entre regiones de EE. UU.
-    // Perfil de inferencia global de Bedrock (el ID exacto aparece en Bedrock › Perfiles de inferencia).
-    MODEL_ID: 'global.anthropic.claude-haiku-5-5',
+    // Perfil de inferencia de Bedrock (el ID exacto aparece en Bedrock › Perfiles de inferencia).
+    // Versión de prueba: Amazon Nova 2 Lite (funciona en el plan gratuito de AWS).
+    // Producción con Claude: cambiar a 'global.anthropic.claude-haiku-5-5' (requiere el plan de pago de AWS).
+    MODEL_ID: 'global.amazon.nova-2-lite-v1:0',
   },
 });
