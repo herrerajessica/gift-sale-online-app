@@ -2,6 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%20fill%3D%22none%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2214%22%20fill%3D%22%23F4A51C%22/%3E%3Cg%20transform%3D%22translate%286%206%29%20scale%28.8125%29%22%3E%3Crect%20x%3D%2215%22%20y%3D%2224%22%20width%3D%2234%22%20height%3D%2236%22%20rx%3D%226%22%20fill%3D%22%23FFFFFF%22%20stroke%3D%22%2316203A%22%20stroke-width%3D%224.5%22/%3E%3Cpath%20d%3D%22M14%208h36l6%2014H8L14%208z%22%20fill%3D%22%2316203A%22/%3E%3Cpath%20d%3D%22M8%2022a6%206%200%200%200%2012%200a6%206%200%200%200%2012%200a6%206%200%200%200%2012%200a6%206%200%200%200%2012%200z%22%20fill%3D%22%23FFFFFF%22%20stroke%3D%22%2316203A%22%20stroke-width%3D%223.5%22/%3E%3Cpath%20d%3D%22M27%2052h10%22%20stroke%3D%22%2316203A%22%20stroke-width%3D%224%22%20stroke-linecap%3D%22round%22/%3E%3C/g%3E%3C/svg%3E">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="description" content="Productos originales traídos de USA. Arma tu pedido y envíalo por WhatsApp.">
 <title>Showroomcito</title>
@@ -198,6 +199,11 @@ img{max-width:100%}
 .login h2{margin:0;font-family:var(--display);font-weight:800;font-size:22px}
 .login .err{margin:0;color:var(--sold);font-size:14px;font-weight:600}
 .hero{margin-block:40px 24px;display:grid;gap:14px;max-width:62ch}
+.logo-row{display:flex;align-items:center;gap:12px}
+.logo-txt{font-family:var(--display);font-weight:800;font-size:30px;letter-spacing:-.03em;color:var(--ink,#16203A)}
+.logo-txt span{color:#B26A00}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .logo-txt span{color:#F4A51C}}
+:root[data-theme="dark"] .logo-txt span{color:#F4A51C}
 .hero h2{margin:0;font-family:var(--display);font-weight:800;font-size:clamp(30px,6vw,48px);line-height:1.05;text-wrap:balance}
 .hero p{margin:0;color:var(--muted);font-size:17px}
 .banner{margin-top:16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
@@ -332,7 +338,8 @@ td small{color:var(--muted);font-family:var(--mono)}
 
 <main class="wrap">
   <section class="hero" id="landing" hidden>
-    <span class="stamp" style="color:var(--accent)">Showroomcito · para mercaditos, ventas desde casa y viajeras</span>
+    <div class="logo-row"><svg aria-hidden="true" width="52" height="52" viewBox="0 0 64 64" fill="none" stroke-linejoin="round"><rect width="64" height="64" rx="14" fill="#F4A51C"/><g transform="translate(6 6) scale(.8125)"><rect x="15" y="24" width="34" height="36" rx="6" fill="#FFFFFF" stroke="#16203A" stroke-width="4.5"/><path d="M14 8h36l6 14H8L14 8z" fill="#16203A"/><path d="M8 22a6 6 0 0 0 12 0a6 6 0 0 0 12 0a6 6 0 0 0 12 0a6 6 0 0 0 12 0z" fill="#FFFFFF" stroke="#16203A" stroke-width="3.5"/><path d="M27 52h10" stroke="#16203A" stroke-width="4" stroke-linecap="round"/></g></svg><span class="logo-txt">showroom<span>cito</span></span></div>
+    <span class="stamp" style="color:var(--accent)">Para mercaditos, ventas desde casa y viajeras</span>
     <h2>Tu showroom en el celular</h2>
     <p>Sube todas tus fotos de una vez, nuevas o usadas. La IA les pone nombre, categoría y precio, y tus clientes te piden por WhatsApp y pagan con Yape o tarjeta.</p>
     <div class="actions" style="justify-content:flex-start"><button class="btn primary" type="button" id="goSignup">Crear mi vitrina</button><button class="btn" type="button" id="goLogin">Ya tengo cuenta</button></div>
