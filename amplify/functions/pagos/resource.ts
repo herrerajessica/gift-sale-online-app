@@ -2,6 +2,8 @@ import { defineFunction, secret } from '@aws-amplify/backend';
 
 export const pagos = defineFunction({
   name: 'pagos',
+  // En el stack de datos: lee las tablas y responde consultas de AppSync (evita dependencias circulares).
+  resourceGroupName: 'data',
   entry: './handler.ts',
   timeoutSeconds: 30,
   memoryMB: 256,

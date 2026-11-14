@@ -2,6 +2,8 @@ import { defineFunction } from '@aws-amplify/backend';
 
 export const clasificar = defineFunction({
   name: 'clasificar',
+  // En el stack de datos: lee las tablas y responde consultas de AppSync (evita dependencias circulares).
+  resourceGroupName: 'data',
   entry: './handler.ts',
   timeoutSeconds: 90,
   memoryMB: 512,
