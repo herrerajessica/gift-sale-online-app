@@ -19,7 +19,9 @@ const soloLecturaDueña = (allow: any) => [allow.owner().to(['read']), allow.gro
 const schema = a.schema({
   Tienda: a
     .model({
-      // id = enlace público de la vitrina (ej. "maria")
+      // id = enlace público de la vitrina (ej. "maria"). Se declara explícito porque la tabla tiene
+      // permisos por campo: sin esto, AppSync rechaza crear o editar la tienda con "Unauthorized on [id]".
+      id: a.id().required(),
       nombre: a.string().required(),
       email: a.string(),
       whatsapp: a.string(),
