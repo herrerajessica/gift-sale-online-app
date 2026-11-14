@@ -7,7 +7,7 @@ import {
   miTiendaActual, listarPedidos, cambiarEstadoPedido, cambiarPlanTienda,
 } from './amplify-adapter.js';
 
-// Lógica de la Vitrina USA (misma que la versión de Claude).
+// Lógica de Showroomcito (misma que la versión de Claude).
 
   const $ = id => document.getElementById(id);
   const S = { db:null, assets:null, canEdit:false, products:[], config:{}, q:"", cat:"", mode:"each", pub:"",
@@ -942,7 +942,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   function waDigits(){ return String(S.config.whatsapp||"").replace(/\D/g,""); }
   let yapeQrNuevo;  // QR de Yape en edición: undefined = sin cambios; "" = quitar; ruta = nuevo QR
   function renderConfig(){
-    const name = S.config.nombre || "Vitrina USA";
+    const name = S.config.nombre || "Showroomcito";
     $("shopName").textContent = name; document.title = name;
     // El WhatsApp de la tienda va en un botón flotante (solo para clientes), no en la barra.
     const c=$("contact"); c.textContent=""; c.hidden=true; const wa=waDigits();

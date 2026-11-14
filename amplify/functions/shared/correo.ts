@@ -19,7 +19,7 @@ export async function enviarCorreo(c: { para: string; asunto: string; html: stri
       method: 'POST',
       headers: { Authorization: `Bearer ${clave}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: process.env.CORREO_REMITENTE || 'Vitrina AI <onboarding@resend.dev>',
+        from: process.env.CORREO_REMITENTE || 'Showroomcito <onboarding@resend.dev>',
         to: [c.para], subject: c.asunto, html: c.html,
         ...(emailValido(c.responderA) ? { reply_to: c.responderA } : {}),
       }),
@@ -87,7 +87,7 @@ export function correoVendedora(t: Tienda, p: Pedido) {
     : `<b>${esc(p.cliente || 'Un cliente')}</b> pagó con tarjeta. El dinero llega a tu cuenta de Stripe.`}</p>
 <p style="margin:0 0 8px;font-size:13px;color:#5b6275">Pedido N.° ${num}</p>${lineasHtml(p)}
 ${p.nota ? `<p style="margin:16px 0 0;font-size:14px"><b>Nota del cliente:</b> ${esc(p.nota)}</p>` : ''}`;
-  return { asunto: `${yape ? 'Nuevo pedido por Yape: confirma el pago' : 'Nuevo pedido pagado'} · N.° ${num}`, html: marco(yape ? 'Nuevo pedido por Yape' : 'Nuevo pedido pagado', cuerpo, 'Aviso automático de tu tienda en Vitrina AI.') };
+  return { asunto: `${yape ? 'Nuevo pedido por Yape: confirma el pago' : 'Nuevo pedido pagado'} · N.° ${num}`, html: marco(yape ? 'Nuevo pedido por Yape' : 'Nuevo pedido pagado', cuerpo, 'Aviso automático de tu tienda en Showroomcito.') };
 }
 
 /** Envía los dos correos de un pedido nuevo. Nunca lanza error. */

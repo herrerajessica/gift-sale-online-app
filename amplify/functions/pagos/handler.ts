@@ -42,8 +42,8 @@ async function pagarPlan(a: Record<string, any>, ident: Identidad) {
       quantity: 1,
       // Tiendas de EE. UU. pagan el plan en dólares; las de Perú, en soles.
       price_data: paisDe(t) === 'US'
-        ? { currency: 'usd', unit_amount: Math.round(plan.precioUsd * 100), recurring: { interval: 'month' }, product_data: { name: `Vitrina AI · ${plan.nombre} plan` } }
-        : { currency: process.env.MONEDA_PLANES || 'pen', unit_amount: Math.round(plan.precio * 100), recurring: { interval: 'month' }, product_data: { name: `Vitrina AI · Plan ${plan.nombre}` } },
+        ? { currency: 'usd', unit_amount: Math.round(plan.precioUsd * 100), recurring: { interval: 'month' }, product_data: { name: `Showroomcito · ${plan.nombre} plan` } }
+        : { currency: process.env.MONEDA_PLANES || 'pen', unit_amount: Math.round(plan.precio * 100), recurring: { interval: 'month' }, product_data: { name: `Showroomcito · Plan ${plan.nombre}` } },
     }],
     metadata: { tipo: 'plan', tiendaId: t.id, plan: a.plan },
     subscription_data: { metadata: { tipo: 'plan', tiendaId: t.id, plan: a.plan } },

@@ -25,7 +25,7 @@ const tablaPedido = tablas['Pedido'];
 // CDN para que las fotos carguen rápido y sin URLs firmadas.
 // Se crea en el mismo stack del bucket para evitar referencias circulares.
 const cdn = new Distribution(Stack.of(bucket), 'FotosCdn', {
-  comment: 'Vitrina USA - fotos de productos',
+  comment: 'Showroomcito - fotos de productos',
   defaultBehavior: {
     origin: S3BucketOrigin.withOriginAccessControl(bucket),
     viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,

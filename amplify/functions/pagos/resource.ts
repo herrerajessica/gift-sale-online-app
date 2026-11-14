@@ -11,8 +11,8 @@ export const pagos = defineFunction({
     // Correos de pedidos con Resend. Para no enviar correos, guarda el secreto con el valor "no".
     RESEND_API_KEY: secret('RESEND_API_KEY'),
     // Remitente: con onboarding@resend.dev Resend solo entrega a tu propio correo (ideal para la demo).
-    // Con un dominio verificado en Resend, cámbialo, p. ej. 'Vitrina AI <pedidos@tudominio.com>'.
-    CORREO_REMITENTE: 'Vitrina AI <onboarding@resend.dev>',
+    // Con un dominio verificado en Resend, cámbialo, p. ej. 'Showroomcito <pedidos@tudominio.com>'.
+    CORREO_REMITENTE: 'Showroomcito <onboarding@resend.dev>',
     // Moneda de los planes (los precios de PLANES están en soles).
     MONEDA_PLANES: 'pen',
     // País de las cuentas Stripe de las vendedoras (Stripe Connect Express).

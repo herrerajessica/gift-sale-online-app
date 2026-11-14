@@ -10,8 +10,8 @@ export const stripeWebhook = defineFunction({
     // Correos de pedidos con Resend. Para no enviar correos, guarda el secreto con el valor "no".
     RESEND_API_KEY: secret('RESEND_API_KEY'),
     // Remitente: con onboarding@resend.dev Resend solo entrega a tu propio correo (ideal para la demo).
-    // Con un dominio verificado en Resend, cámbialo, p. ej. 'Vitrina AI <pedidos@tudominio.com>'.
-    CORREO_REMITENTE: 'Vitrina AI <onboarding@resend.dev>',
+    // Con un dominio verificado en Resend, cámbialo, p. ej. 'Showroomcito <pedidos@tudominio.com>'.
+    CORREO_REMITENTE: 'Showroomcito <onboarding@resend.dev>',
     // Firma del webhook: confirma que el aviso viene de Stripe y no de un tercero.
     STRIPE_WEBHOOK_SECRET: secret('STRIPE_WEBHOOK_SECRET'),
   },

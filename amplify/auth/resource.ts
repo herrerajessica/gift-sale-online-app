@@ -18,7 +18,7 @@ const urls = ['http://localhost:5173/', ...(sitio ? [`${sitio}/`] : [])];
 export const auth = defineAuth({
   loginWith: {
     email: {
-      verificationEmailSubject: 'Tu código para Vitrina USA',
+      verificationEmailSubject: 'Tu código para Showroomcito',
       verificationEmailBody: (code) => `Tu código de verificación es ${code()}`,
     },
     ...(conGoogle

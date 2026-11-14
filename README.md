@@ -1,6 +1,6 @@
-# Vitrina USA
+# Showroomcito
 
-Plataforma para revendedoras de productos traídos de USA. Cada vendedora crea su cuenta y su vitrina con enlace propio, sube fotos en bloque (la IA les pone categoría, público y nombre), y sus clientes arman un pedido con precios en dólares y soles que pueden pagar con tarjeta (Stripe), con Yape (QR) o enviar por WhatsApp. Las vendedoras pagan un plan mensual según cuántos productos publican.
+**Tu showroom en el celular.** Plataforma para mercaditos, personas que venden desde casa (nuevos y usados) y mujeres que compran en EE. UU. o en sus viajes y revenden, en Perú y en EE. UU. Dominio: showroomcito.com. Cada vendedora crea su cuenta y su vitrina con enlace propio, sube fotos en bloque (la IA les pone categoría, público y nombre), y sus clientes arman un pedido con precios en dólares y soles que pueden pagar con tarjeta (Stripe), con Yape (QR) o enviar por WhatsApp. Las vendedoras pagan un plan mensual según cuántos productos publican.
 
 ## Cómo está armada
 
@@ -80,7 +80,7 @@ Tarjeta de prueba: `4242 4242 4242 4242`, cualquier fecha futura y cualquier CVC
 2. En **API Keys**, crea una clave (`re_...`).
 3. En Amplify › Hosting › **Secrets**, crea `RESEND_API_KEY` con esa clave y vuelve a desplegar. Si no quieres correos, guárdalo con el valor `no`.
 4. Para la demo, el remitente es `onboarding@resend.dev`: con él, Resend **solo entrega a tu propio correo** (el de tu cuenta de Resend). Úsalo como correo del cliente y de la tienda en las pruebas.
-5. Para enviar a cualquier persona, verifica tu dominio en Resend (› *Domains*) y cambia `CORREO_REMITENTE` en `amplify/functions/pagos/resource.ts` y `amplify/functions/stripe-webhook/resource.ts`, por ejemplo `Vitrina AI <pedidos@tudominio.com>`.
+5. Para enviar a cualquier persona, verifica tu dominio en Resend (› *Domains*) y cambia `CORREO_REMITENTE` en `amplify/functions/pagos/resource.ts` y `amplify/functions/stripe-webhook/resource.ts`, por ejemplo `Showroomcito <pedidos@showroomcito.com>`.
 
 El correo confirma el pedido, pero no reemplaza la boleta o factura electrónica de SUNAT.
 

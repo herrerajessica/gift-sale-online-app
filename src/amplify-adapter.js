@@ -1,4 +1,4 @@
-// Capa de datos de la Vitrina USA sobre AWS Amplify.
+// Capa de datos de Showroomcito sobre AWS Amplify.
 // Expone la misma interfaz que usaba la versión de Claude (db, assets, ai)
 // para que la lógica de la vitrina no cambie, más las funciones de cuentas
 // y del panel de la dueña.
