@@ -117,8 +117,9 @@ async function armarPedido(t: Record<string, any>, itemsJson: unknown, soloSoles
   const r = await ddb.send(new BatchGetCommand({ RequestItems: { [PRODUCTO()]: { Keys: pedidos.map((p) => ({ id: p.id })) } } }));
   const productos = new Map((r.Responses?.[PRODUCTO()] || []).map((p) => [p.id, p]));
 
-  // Tiendas de EE. UU.: todo en dólares. Tiendas de Perú: en soles con su tipo de cambio.
-  const rate = paisDe(t) !== 'US' && typeof t.tipoCambio === 'number' && t.tipoCambio > 0 ? t.tipoCambio : null;
+  // Tiendas de EE. UU.: todo en dólares. Tiendas de Perú: en soles (precios ya en soles, o en dólares × tipo de cambio).
+  const enSoles = paisDe(t) !== 'US' && t.moneda === 'PEN';
+  const rate = enSoles ? 1 : (paisDe(t) !== 'US' && typeof t.tipoCambio === 'number' && t.tipoCambio > 0 ? t.tipoCambio : null);
   if (soloSoles && !rate) fallo('La tienda no tiene tipo de cambio configurado para cobrar en soles');
   const moneda = rate ? 'pen' : 'usd';
   const lineas: Linea[] = [];
@@ -132,7 +133,10 @@ async function armarPedido(t: Record<string, any>, itemsJson: unknown, soloSoles
     }
     // Monto en la unidad mínima: soles redondeados como en la tienda, o centavos de dólar.
     const factor = 1 - Math.min(30, Math.max(0, descuento)) / 100;
-    const monto = rate ? Math.round(prod!.precio * p.q * rate * factor) * 100 : Math.round(prod!.precio * p.q * factor * 100);
+    // Precios en soles: con tarjeta se cobra exacto (céntimos); con Yape se redondea al sol, igual que en la tienda.
+    const monto = enSoles && !soloSoles ? Math.round(prod!.precio * p.q * factor * 100)
+      : rate ? Math.round(prod!.precio * p.q * rate * factor) * 100
+      : Math.round(prod!.precio * p.q * factor * 100);
     lineas.push({ id: p.id, nombre: prod!.nombre, q: p.q, precioUsd: prod!.precio, monto });
   }
   const total = lineas.reduce((s, l) => s + l.monto, 0);

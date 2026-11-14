@@ -34,6 +34,8 @@ const schema = a.schema({
       descuentoContado: a.float(),
       // País de la tienda: PE (soles, Yape, tienda en español) o US (solo dólares, tienda del cliente en inglés)
       pais: a.enum(['PE', 'US']),
+      // Moneda de los precios: PEN (soles, tiendas de Perú) o USD. Sin valor = USD (tiendas antiguas).
+      moneda: a.enum(['USD', 'PEN']),
       // Texto y no enum: Amplify no permite permisos por campo en un enum. Valores: pendiente | aprobada | suspendida
       estado: a.string().authorization(soloLecturaDueña),
       // Plan: free (10), basico (30), pro (150), plus (ilimitado)

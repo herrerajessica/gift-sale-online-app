@@ -12,7 +12,10 @@ import {
   const $ = id => document.getElementById(id);
   const S = { db:null, assets:null, canEdit:false, products:[], config:{}, q:"", cat:"", mode:"each", pub:"",
               selecting:false, sel:new Set(), pending:[] };
-  const money = n => (typeof n === "number" && isFinite(n)) ? "$" + n.toLocaleString("en-US",{minimumFractionDigits: n%1?2:0, maximumFractionDigits:2}) : "";
+  // Dólares siempre (el costo de la etiqueta está en USD).
+  const usd = n => (typeof n === "number" && isFinite(n)) ? "$" + n.toLocaleString("en-US",{minimumFractionDigits: n%1?2:0, maximumFractionDigits:2}) : "";
+  // Precio en la moneda de la tienda: soles si la vendedora de Perú pone sus precios en soles; si no, dólares.
+  const money = n => (typeof n === "number" && isFinite(n)) ? (enSoles() ? "S/ " + n.toLocaleString("es-PE",{minimumFractionDigits: n%1?2:0, maximumFractionDigits:2}) : usd(n)) : "";
   // País de la tienda: "US" = solo dólares y tienda del cliente en inglés; "PE" (o vacío) = soles, Yape y español.
   const esUS = () => !!S.config && S.config.pais === "US";
   const EN = () => esUS() && !S.canEdit;           // el cliente de una tienda de EE. UU. ve todo en inglés
@@ -21,11 +24,22 @@ import {
   const PUB_EN = { "Mujer":"Women", "Hombre":"Men", "Niños":"Kids", "Unisex":"Unisex" };
   const catTxt = c => EN() ? (CAT_EN[c]||c) : c;
   const pubTxt = x => EN() ? (PUB_EN[x]||x) : x;
-  const rate = () => { if(esUS()) return null; const r = parseFloat(S.config.tipoCambio); return isFinite(r) && r>0 ? r : null; };
+  // Tipo de cambio (S/ por 1 USD) de la tienda.
+  const tipoCambio = () => { if(esUS()) return null; const r = parseFloat(S.config.tipoCambio); return isFinite(r) && r>0 ? r : null; };
+  // ¿Esta tienda pone sus precios en soles? (Perú; las tiendas de EE. UU. siempre en dólares)
+  const enSoles = () => !esUS() && !!S.config && S.config.moneda === "PEN";
+  // Factor para pasar un precio guardado a soles: 1 si ya está en soles; el tipo de cambio si está en dólares.
+  const rate = () => enSoles() ? 1 : tipoCambio();
+  // El costo de la etiqueta (USD) llevado a la moneda de la tienda, para calcular márgenes.
+  const costoMon = c => (typeof c === "number" && c > 0) ? (enSoles() ? (tipoCambio() ? c * tipoCambio() : null) : c) : null;
+  // Precio con margen: en dólares redondea al dólar; en soles convierte el costo y redondea al sol.
+  const precioConMargen = (costo, margen) => { const c = costoMon(costo); return c ? Math.max(1, Math.ceil(c * (1 + margen/100))) : null; };
+  const simbolo = () => enSoles() ? "S/" : "$";
   // Descuento por pagar con Yape o efectivo: el precio publicado es el de tarjeta. Solo tiendas de Perú.
   const descuento = () => { if(esUS()) return 0; const d = Number(S.config && S.config.descuentoContado); return isFinite(d) && d > 0 ? Math.min(30, d) : 0; };
   const solesContado = n => { const r = rate(), d = descuento(); return (r && d && typeof n==="number" && isFinite(n)) ? Math.round(n*r*(1-d/100)) : null; };
-  const soles = n => { const r=rate(); return (r && typeof n==="number" && isFinite(n)) ? "S/ " + Math.round(n*r).toLocaleString("es-PE") : ""; };
+  // Precio equivalente en soles, como dato secundario (no hace falta si el precio ya está en soles).
+  const soles = n => { const r=rate(); return (!enSoles() && r && typeof n==="number" && isFinite(n)) ? "S/ " + Math.round(n*r).toLocaleString("es-PE") : ""; };
   const dual = n => { const a=money(n), b=soles(n); return a && b ? a+" · "+b : a; };
   const parseStock = v => { const t=String(v??"").trim(); if(t==="") return null; const n=parseInt(t.replace(/\D/g,""),10); return isFinite(n) ? Math.min(n, 99999) : null; };
   // Un producto no se puede pedir si está vendido o su cantidad llegó a 0.
@@ -444,7 +458,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         if(b.marca!==false && typeof r.marca==="string" && r.marca.trim()) patch.marca = r.marca.trim().slice(0,40);
         if(typeof r.costo==="number" && r.costo>0 && r.costo<10000){
           patch.costo = Math.round(r.costo*100)/100;
-          if(b.margen!=null) patch.precio = conMargen(patch.costo, b.margen);
+          if(b.margen!=null){ const pm = precioConMargen(patch.costo, b.margen); if(pm!=null) patch.precio = pm; }
         }
         if(typeof r.talla==="string" && r.talla.trim()) patch.talla = r.talla.trim().slice(0,12);
         if(Object.keys(patch).length){ try{ await S.db.doc("productos/"+b.id).update(patch); }catch(e){ fails++; } }
@@ -515,7 +529,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       if(S.selecting) ph.append(el("span",{class:"check","aria-hidden":"true"}, S.sel.has(p.id)?"✓":""));
       else if(p.fotos && p.fotos.length>1) ph.append(el("span",{class:"multi"}, p.fotos.length+tx(" fotos"," photos")));
       const contado = p.precio!=null && !agotado(p) ? solesContado(p.precio) : null;
-      open.append(ph, el("div",{class:"info",style:"padding-bottom:0"}, contado!=null ? el("span",{class:"contado"}, `S/ ${contado.toLocaleString("es-PE")} con Yape o efectivo`) : null, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, el("span",{class:"name"},p.nombre||tx("Sin nombre","Untitled")), el("span",{class:"meta"}, el("span",null,[catTxt(p.categoria), p.talla ? tx("Talla ","Size ")+p.talla : ""].filter(Boolean).join(" · ")), el("span",null,pubTxt(p.publico||""))), S.canEdit && p.costo!=null ? el("span",{class:"costo"}, `Costo ${money(p.costo)}`+(p.precio!=null && p.costo>0 ? ` · margen ${Math.round((p.precio/p.costo-1)*100)} %` : "")) : null, stockTxt(p) ? el("span",{class:"stockpill"+(S.canEdit && p.stock>3?" ok":"")}, stockTxt(p)) : null));
+      open.append(ph, el("div",{class:"info",style:"padding-bottom:0"}, contado!=null ? el("span",{class:"contado"}, `S/ ${contado.toLocaleString("es-PE")} con Yape o efectivo`) : null, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, el("span",{class:"name"},p.nombre||tx("Sin nombre","Untitled")), el("span",{class:"meta"}, el("span",null,[catTxt(p.categoria), p.talla ? tx("Talla ","Size ")+p.talla : ""].filter(Boolean).join(" · ")), el("span",null,pubTxt(p.publico||""))), S.canEdit && p.costo!=null ? el("span",{class:"costo"}, `Costo ${usd(p.costo)}`+(p.precio!=null && costoMon(p.costo) ? ` · margen ${Math.round((p.precio/costoMon(p.costo)-1)*100)} %` : "")) : null, stockTxt(p) ? el("span",{class:"stockpill"+(S.canEdit && p.stock>3?" ok":"")}, stockTxt(p)) : null));
       card.append(open);
       if(!S.selecting) card.append(el("div",{class:"info",style:"padding-top:0"}, addButton(p)));
       grid.append(card);
@@ -551,7 +565,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     let sinCosto = 0;
     const fails = await runPool(ids, id=>{
       const p = S.products.find(x=>x.id===id); const cambio = { ...patch };
-      if(mg!=null){ if(p && p.costo>0) cambio.precio = conMargen(p.costo, mg); else sinCosto++; }
+      if(mg!=null){ const pm = p ? precioConMargen(p.costo, mg) : null; if(pm!=null) cambio.precio = pm; else sinCosto++; }
       return Object.keys(cambio).length ? S.db.doc("productos/"+id).update(cambio) : Promise.resolve();
     });
     if(sinCosto) toast(`${sinCosto} producto(s) sin costo: el margen no se aplicó a esos`);
@@ -576,7 +590,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   const COLS_LOTE = [
     { k:"nombre", label:"Nombre", cls:"c-nombre", tipo:"text", max:120 },
     { k:"marca", label:"Marca", cls:"c-marca w-marca", tipo:"text", max:40, list:"marcaList" },
-    { k:"precio", label:"Precio $", cls:"c-precio w-num", tipo:"precio" },
+    { k:"precio", get label(){ return "Precio " + simbolo(); }, cls:"c-precio w-num", tipo:"precio" },
     { k:"stock", label:"Cantidad", cls:"c-stock w-num", tipo:"stock" },
     { k:"talla", label:"Talla", cls:"c-talla w-talla", tipo:"text", max:12 },
     { k:"descripcion", label:"Descripción", cls:"c-desc", tipo:"area" },
@@ -623,7 +637,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
             const v = parsePrice(inp.value);
             const partes = [];
             if(v!=null && soles(v)) partes.push(soles(v));
-            if(p.costo!=null) partes.push(`costo ${money(p.costo)}` + (v!=null && p.costo>0 ? ` · ${Math.round((v/p.costo-1)*100)} %` : ""));
+            if(p.costo!=null) partes.push(`costo ${usd(p.costo)}` + (v!=null && costoMon(p.costo) ? ` · ${Math.round((v/costoMon(p.costo)-1)*100)} %` : ""));
             hint.textContent = partes.join(" · ");
           };
           pintarHint(); td.append(hint);
@@ -731,7 +745,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
           el("label",{class:"f"},"Costo USD (privado)", el("input",{id:"eCosto",inputmode:"decimal",value:v("eCosto",p.costo==null?"":String(p.costo)),placeholder:"Precio de la etiqueta"})),
           el("label",{class:"f"},"Talla", el("input",{id:"eTalla",maxlength:"12",value:v("eTalla",p.talla||""),placeholder:"Ej. 8, M, 32x30"}))),
         el("div",{class:"row2"},
-          el("label",{class:"f"},"Precio (USD)", el("input",{id:"ePrice",inputmode:"decimal",value:v("ePrice",p.precio==null?"":String(p.precio)),placeholder:"Consultar"})),
+          el("label",{class:"f"},enSoles() ? "Precio (S/)" : "Precio (USD)", el("input",{id:"ePrice",inputmode:"decimal",value:v("ePrice",p.precio==null?"":String(p.precio)),placeholder:"Consultar"})),
           el("label",{class:"f"},"Estado", (()=>{ const s=el("select",{id:"eStatus"}); [["disponible","Disponible"],["apartado","Apartado"],["vendido","Vendido"],["oculto","Oculto (no se muestra en la tienda)"]].forEach(([k,l])=>s.append(el("option",{value:k},l))); s.value=v("eStatus",p.estado||"disponible"); return s; })())
         ),
         el("div",{class:"row2"},
@@ -797,7 +811,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       const pr = l.p.precio==null ? tx("precio a consultar","price on request") : (l.q>1 ? `${l.q} × ${money(l.p.precio)} = ${dual(l.p.precio*l.q)}` : dual(l.p.precio));
       m += `${i+1}. ${l.p.nombre}${l.q>1&&l.p.precio==null?tx(` (${l.q} unidades)`,` (${l.q} units)`):""} — ${pr}\n`;
     });
-    m += `\nTotal: ${dual(total)||"$0"}${consultar?tx(` + ${consultar} producto(s) a consultar`,` + ${consultar} item(s) to confirm price`):""}`;
+    m += `\nTotal: ${dual(total)||money(0)}${consultar?tx(` + ${consultar} producto(s) a consultar`,` + ${consultar} item(s) to confirm price`):""}`;
     { const tc = totalContado(lines); if(tc!=null) m += `\nTotal pagando con Yape o efectivo: S/ ${tc.toLocaleString("es-PE")}`; }
     if(buyer.nombre.trim()) m += tx(`\nMi nombre: ${buyer.nombre.trim()}`,`\nMy name: ${buyer.nombre.trim()}`);
     if(buyer.nota.trim()) m += tx(`\nNota: ${buyer.nota.trim()}`,`\nNote: ${buyer.nota.trim()}`);
@@ -835,7 +849,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     }
     box.append(ul);
     const {total, consultar} = cartTotals();
-    box.append(el("div",{class:"totals"}, el("span",null,"Total"+(consultar?tx(` (+${consultar} a consultar)`,` (+${consultar} to confirm)`):"")), el("span",{class:"t",style:"text-align:right"},money(total)||"$0", soles(total)?el("span",{class:"bigsol"},soles(total)):null)));
+    box.append(el("div",{class:"totals"}, el("span",null,"Total"+(consultar?tx(` (+${consultar} a consultar)`,` (+${consultar} to confirm)`):"")), el("span",{class:"t",style:"text-align:right"},money(total)||money(0), soles(total)?el("span",{class:"bigsol"},soles(total)):null)));
     const totCont = totalContado(lines);
     if(totCont!=null){
       const totTarj = lines.filter(l=>!agotado(l.p) && l.p.precio!=null).reduce((t,l)=>t+Math.round(l.p.precio*l.q*rate()),0);
@@ -869,7 +883,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     if(S.config && !esUS() && (S.config.yapeNumero || S.config.yapeQr) && !S.canEdit){
       const pagables = lines.filter(l=>!agotado(l.p));
       const sinPrecio = pagables.some(l=>l.p.precio==null);
-      const sinCambio = !(S.config.tipoCambio > 0);
+      const sinCambio = !rate();
       const yBtn = el("button",{class:"btn yape",type:"button",disabled:(sinPrecio||sinCambio)?"":false,onclick:()=>mostrarYape(box, pagables)},"Pagar con Yape");
       send.append(yBtn);
       if(sinPrecio) send.append(el("span",{class:"note",style:"margin:0;text-align:center"},"Algunos productos no tienen precio: consúltalos por WhatsApp o quítalos para pagar con Yape."));
@@ -887,7 +901,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
 
   // ----- Pago con Yape (QR) -----
   // El total en soles se muestra aquí, pero el servidor lo vuelve a calcular con los precios guardados.
-  const solesDe = lines => lines.reduce((t,l)=> t + Math.round(l.p.precio * l.q * S.config.tipoCambio * (1 - descuento()/100)), 0);
+  const solesDe = lines => lines.reduce((t,l)=> t + Math.round(l.p.precio * l.q * rate() * (1 - descuento()/100)), 0);
   function mostrarYape(box, pagables){
     const total = solesDe(pagables);
     box.textContent = "";
@@ -955,6 +969,11 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     $("q").placeholder = tx("Buscar producto…","Search products…"); $("q").setAttribute("aria-label", tx("Buscar producto","Search products"));
     if(document.activeElement!==$("setPais")) $("setPais").value = esUS() ? "US" : "PE";
     document.querySelectorAll(".solo-pe").forEach(x=>{ x.hidden = esUS(); });
+    if(document.activeElement!==$("setMoneda")) $("setMoneda").value = enSoles() ? "PEN" : "USD";
+    $("defPrice").placeholder = $("bulkPrice").placeholder = "Precio " + simbolo();
+    $("monedaNota").textContent = enSoles()
+      ? "Tus precios están en soles. El tipo de cambio solo se usa para convertir el costo de la etiqueta (en dólares) y calcular tu margen."
+      : "Pones los precios en dólares y el catálogo muestra también el precio en soles con este tipo de cambio, redondeado al sol.";
     if(document.activeElement!==$("setName")) $("setName").value = S.config.nombre||"";
     if(document.activeElement!==$("setWa")) $("setWa").value = S.config.whatsapp||"";
     if(document.activeElement!==$("setRate")) $("setRate").value = S.config.tipoCambio!=null ? String(S.config.tipoCambio) : "";
@@ -981,15 +1000,26 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     finally{ $("setYapeUp").disabled = false; }
   };
   $("saveSettings").onclick = async ()=>{
+    const antes = enSoles() ? "PEN" : "USD";
+    const pais = $("setPais").value === "US" ? "US" : "PE";
+    const moneda = pais === "US" ? "USD" : ($("setMoneda").value === "PEN" ? "PEN" : "USD");
+    const tc = parsePrice($("setRate").value);
+    const conPrecio = S.products.filter(p=>typeof p.precio==="number");
+    if(moneda!==antes && conPrecio.length && !(tc>0)){ toast("Escribe el tipo de cambio para convertir tus precios"); $("setRate").focus(); return; }
     try{
       await S.db.doc("config/tienda").set({
         nombre:$("setName").value.trim(), whatsapp:$("setWa").value.trim(), tipoCambio: parsePrice($("setRate").value),
         descuentoContado: Math.min(30, Math.max(0, parseMargen($("setDesc").value) || 0)),
         yapeNumero:$("setYapeNum").value.trim(), yapeNombre:$("setYapeName").value.trim(),
         yapeQr: yapeQrNuevo!==undefined ? yapeQrNuevo : (S.config.yapeQr||""),
-        pais: $("setPais").value === "US" ? "US" : "PE",
+        pais, moneda,
       });
-      yapeQrNuevo = undefined; $("settings").hidden=true; toast("Datos guardados");
+      // Si cambió la moneda, se convierten los precios ya publicados para que el cliente vea lo mismo.
+      if(moneda!==antes && conPrecio.length){
+        const fails = await runPool(conPrecio.map(p=>p.id), id=>{ const p = S.products.find(x=>x.id===id); const v = moneda==="PEN" ? Math.round(p.precio*tc) : Math.round(p.precio/tc*100)/100; return S.db.doc("productos/"+id).update({ precio: v }); });
+        toast(fails ? `Datos guardados; ${fails} precios no se pudieron convertir` : `Datos guardados y ${conPrecio.length} precios convertidos a ${moneda==="PEN" ? "soles" : "dólares"}`);
+      } else toast("Datos guardados");
+      yapeQrNuevo = undefined; $("settings").hidden=true;
     }catch(e){ toast("No se pudo guardar. Intenta de nuevo."); }
   };
 
@@ -1331,7 +1361,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   const ESTADO_PED = { por_confirmar:"Por confirmar", pagado:"Pagado", entregado:"Entregado", cancelado:"Cancelado", pendiente:"Pago pendiente" };
   function guardarAsis(){ try{ localStorage.setItem(ASIS_KEY(), JSON.stringify(asisLog.slice(-40))); }catch(e){} }
   function cargarAsis(){ try{ asisLog = JSON.parse(localStorage.getItem(ASIS_KEY()) || "[]"); }catch(e){ asisLog = []; } }
-  const valorCampo = (k, v) => v==null || v==="" ? "—" : (k==="precio"||k==="costo") ? money(Number(v)) : String(v);
+  const valorCampo = (k, v) => v==null || v==="" ? "—" : k==="precio" ? money(Number(v)) : k==="costo" ? usd(Number(v)) : String(v);
 
   function tarjetaPropuesta(m){
     const p = m.propuesta, total = p.productos.length + p.pedidos.length;
@@ -1469,7 +1499,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         if(!nombre){ er.textContent="Escribe el nombre de tu tienda"; er.hidden=false; return; }
         if(!SLUG_RE.test(slug)){ er.textContent="El enlace debe tener entre 3 y 40 letras, números o guiones"; er.hidden=false; return; }
         $("obBtn").disabled=true;
-        try{ await crearTienda({ slug, nombre, whatsapp, email: ses.email, pais }); location.reload(); }
+        try{ await crearTienda({ slug, nombre, whatsapp, email: ses.email, pais, moneda: pais==="US" ? "USD" : "PEN" }); location.reload(); }
         catch(err){ er.textContent = err && err.code==="exists" ? "Ese enlace ya lo usa otra tienda. Prueba con otro." : err && err.code==="invalid" ? "Ese enlace no está permitido. Prueba con otro." : "No se pudo crear la vitrina: "+((err&&err.message)||""); er.hidden=false; }
         finally{ $("obBtn").disabled=false; }
       });

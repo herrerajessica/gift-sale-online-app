@@ -367,7 +367,7 @@ td small{color:var(--muted);font-family:var(--mono)}
     <label class="f">Enlace de tu vitrina<input id="obSlug" maxlength="40" placeholder="maria-importados" autocapitalize="off" spellcheck="false" required></label>
     <p class="note" style="margin:0">Tus clientes entrarán a <span class="copy" id="obPreview">…/?tienda=</span></p>
     <label class="f">WhatsApp (con código de país)<input id="obWa" inputmode="tel" placeholder="+51 986 639 533"></label>
-    <label class="f">¿Dónde están tus clientes?<select id="obPais"><option value="PE">Perú: precios en dólares y soles, Yape y tarjeta</option><option value="US">Estados Unidos: precios en dólares, tarjeta, tienda en inglés</option></select></label>
+    <label class="f">¿Dónde están tus clientes?<select id="obPais"><option value="PE">Perú: precios en soles, Yape y tarjeta</option><option value="US">Estados Unidos: precios en dólares, tarjeta, tienda en inglés</option></select></label>
     <p class="err" id="obErr" role="alert" hidden></p>
     <div class="actions" style="justify-content:flex-end"><button class="btn primary" type="submit" id="obBtn">Crear vitrina</button></div>
   </form>
@@ -403,6 +403,7 @@ td small{color:var(--muted);font-family:var(--mono)}
     <div class="row2">
       <label class="f">Nombre de la tienda<input id="setName" maxlength="60" placeholder="Ej. María Importados"></label>
       <label class="f">WhatsApp (con código de país)<input id="setWa" inputmode="tel" placeholder="+1 305 555 0123"></label>
+      <label class="f solo-pe">Mis precios están en<select id="setMoneda"><option value="PEN">Soles (S/)</option><option value="USD">Dólares (US$), mostrando también soles</option></select></label>
       <label class="f">País de tus clientes<select id="setPais"><option value="PE">Perú (soles, Yape, español)</option><option value="US">Estados Unidos (dólares, inglés)</option></select></label>
       <label class="f solo-pe">Tipo de cambio (S/ por 1 USD)<input id="setRate" inputmode="decimal" placeholder="3.46"></label>
       <label class="f solo-pe">Descuento por Yape o efectivo (%)<input id="setDesc" inputmode="decimal" placeholder="Ej. 7" title="Tus precios son con tarjeta; quien paga con Yape o efectivo paga este porcentaje menos"></label>
@@ -422,7 +423,7 @@ td small{color:var(--muted);font-family:var(--mono)}
         </div>
       </div>
     </fieldset>
-    <div class="actions"><span class="note solo-pe" style="margin:0">Pones los precios en dólares y el catálogo muestra también el precio en soles con este tipo de cambio, redondeado al sol.</span><button class="btn primary" id="saveSettings">Guardar</button></div>
+    <div class="actions"><span class="note solo-pe" id="monedaNota" style="margin:0">Pones los precios en dólares y el catálogo muestra también el precio en soles con este tipo de cambio, redondeado al sol.</span><button class="btn primary" id="saveSettings">Guardar</button></div>
   </section>
 
   <div id="vitrina" hidden>

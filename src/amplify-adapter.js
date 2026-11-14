@@ -70,10 +70,10 @@ export async function miTienda(sub) {
   return items.find((t) => String(t.owner || '').split('::')[0] === sub) || null;
 }
 
-export async function crearTienda({ slug, nombre, whatsapp, email, pais = 'PE' }) {
+export async function crearTienda({ slug, nombre, whatsapp, email, pais = 'PE', moneda }) {
   if (!SLUG_RE.test(slug) || RESERVADOS.has(slug)) throw { code: 'invalid', message: 'Enlace no válido' };
   const esUS = pais === 'US';
-  const r = await client.models.Tienda.create({ id: slug, nombre, whatsapp, email, pais: esUS ? 'US' : 'PE', tipoCambio: esUS ? null : 3.46 }, { authMode: 'userPool' });
+  const r = await client.models.Tienda.create({ id: slug, nombre, whatsapp, email, pais: esUS ? 'US' : 'PE', moneda: esUS ? 'USD' : (moneda === 'USD' ? 'USD' : 'PEN'), tipoCambio: esUS ? null : 3.46 }, { authMode: 'userPool' });
   return check(r);
 }
 
@@ -185,6 +185,7 @@ function configRef() {
         yapeNumero: d.yapeNumero || '', yapeNombre: d.yapeNombre || '', yapeQr: d.yapeQr || '',
         descuentoContado: typeof d.descuentoContado === 'number' ? d.descuentoContado : 0,
         ...(d.pais === 'US' || d.pais === 'PE' ? { pais: d.pais } : {}),
+        ...(d.moneda === 'USD' || d.moneda === 'PEN' ? { moneda: d.moneda } : {}),
       };
       check(await client.models.Tienda.update({ id: TIENDA, ...datos }, { authMode: 'userPool' }));
       emitirConfig();

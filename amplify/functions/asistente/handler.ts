@@ -92,7 +92,7 @@ export const handler = async (event: Evento) => {
         const ventas = (d: number) => pedidos.filter((p) => ['pagado', 'entregado'].includes(p.estado) && Date.parse(p.createdAt) >= hace(d));
         const suma = (l: Record<string, any>[]) => l.reduce((s, p) => s + (p.total || 0), 0) / 100;
         return {
-          tienda: t.nombre, pais: t.pais === 'US' ? 'US' : 'PE', plan: PLANES[plan].nombre, limite_productos: PLANES[plan].limite ?? 'ilimitado', tipo_cambio: t.tipoCambio ?? null, descuento_yape_o_efectivo: t.descuentoContado ?? 0,
+          tienda: t.nombre, pais: t.pais === 'US' ? 'US' : 'PE', moneda_precios: t.pais !== 'US' && t.moneda === 'PEN' ? 'soles' : 'dólares', plan: PLANES[plan].nombre, limite_productos: PLANES[plan].limite ?? 'ilimitado', tipo_cambio: t.tipoCambio ?? null, descuento_yape_o_efectivo: t.descuentoContado ?? 0,
           productos_visibles: visibles.length, sin_precio: visibles.filter((p) => typeof p.precio !== 'number').length,
           sin_descripcion: visibles.filter((p) => !p.descripcion).length,
           agotados: visibles.filter((p) => p.stock === 0 || p.estado === 'vendido').length,
