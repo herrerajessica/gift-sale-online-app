@@ -98,7 +98,10 @@ backend.asistente.addEnvironment('PEDIDO_TABLE', tablaPedido.tableName);
 asistenteFn.addToRolePolicy(new PolicyStatement({
   actions: ['bedrock:InvokeModel'],
   resources: [
+    // Perfil global: puede atender desde cualquier región, por eso el modelo va sin región fija.
     'arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-5-5*',
+    'arn:aws:bedrock:::foundation-model/anthropic.claude-haiku-5-5*',
+    'arn:aws:bedrock:*:*:inference-profile/global.anthropic.claude-haiku-5-5*',
     'arn:aws:bedrock:*:*:inference-profile/us.anthropic.claude-haiku-5-5*',
   ],
 }));
@@ -110,7 +113,10 @@ backend.clasificar.addEnvironment('BUCKET_NAME', bucket.bucketName);
 clasificarFn.addToRolePolicy(new PolicyStatement({
   actions: ['bedrock:InvokeModel'],
   resources: [
+    // Perfil global: puede atender desde cualquier región, por eso el modelo va sin región fija.
     'arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-5-5*',
+    'arn:aws:bedrock:::foundation-model/anthropic.claude-haiku-5-5*',
+    'arn:aws:bedrock:*:*:inference-profile/global.anthropic.claude-haiku-5-5*',
     'arn:aws:bedrock:*:*:inference-profile/us.anthropic.claude-haiku-5-5*',
   ],
 }));

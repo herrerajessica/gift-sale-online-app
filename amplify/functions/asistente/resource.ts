@@ -9,6 +9,7 @@ export const asistente = defineFunction({
   memoryMB: 512,
   environment: {
     // Claude en Bedrock con herramientas (Converse API). Haiku es rápido y barato.
-    MODEL_ID: 'us.anthropic.claude-haiku-5-5',
+    // Perfil de inferencia global de Bedrock (el ID exacto aparece en Bedrock › Perfiles de inferencia).
+    MODEL_ID: 'global.anthropic.claude-haiku-5-5',
   },
 });
