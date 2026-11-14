@@ -1,0 +1,36 @@
+{
+  "name": "vitrina-usa",
+  "version": "2.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "sandbox": "ampx sandbox",
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:req": "playwright test --grep",
+    "report": "playwright show-report",
+    "trace:check": "node scripts/check-traceability.js"
+  },
+  "dependencies": {
+    "aws-amplify": "^6.6.0",
+    "stripe": "^17.7.0"
+  },
+  "devDependencies": {
+    "@aws-amplify/backend": "^1.4.0",
+    "@aws-amplify/backend-cli": "^1.4.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.650.0",
+    "@aws-sdk/client-dynamodb": "^3.650.0",
+    "@aws-sdk/client-s3": "^3.650.0",
+    "@aws-sdk/lib-dynamodb": "^3.650.0",
+    "@playwright/test": "^1.48.0",
+    "@types/node": "^20.0.0",
+    "aws-cdk-lib": "^2.160.0",
+    "constructs": "^10.3.0",
+    "esbuild": "^0.23.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.4.0",
+    "vite": "^5.4.0"
+  }
+}

@@ -1,0 +1,53 @@
+# AWS CodeBuild: se dispara con webhook de GitHub en push a main
+# (es decir, solo después de que QA aprobó y se hizo merge del PR).
+# Variables a configurar en el proyecto CodeBuild:
+#   REPORT_BUCKET  -> nombre del bucket S3 (texto plano)
+#   BASE_URL       -> URL del ambiente a probar (texto plano)
+#   TEST_STORE / TEST_PENDING_STORE -> enlaces de vitrinas de prueba (texto plano)
+#   TEST_USER / TEST_PASSWORD -> desde AWS Secrets Manager (ver env.secrets-manager)
+version: 0.2
+
+env:
+  variables:
+    CI: "true"
+  secrets-manager:
+    TEST_USER: qa/playwright:TEST_USER
+    TEST_PASSWORD: qa/playwright:TEST_PASSWORD
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 20
+    commands:
+      - npm install --no-audit --no-fund
+      - npx playwright install --with-deps chromium
+
+  pre_build:
+    commands:
+      - echo "Validando trazabilidad y aprobación QA..."
+      - node scripts/check-traceability.js --require-approval
+
+  build:
+    commands:
+      - npx playwright test || echo "TESTS_FAILED" > test-results/failed.flag
+
+  post_build:
+    commands:
+      - RUN_ID=$(date +%Y%m%d-%H%M%S)-${CODEBUILD_RESOLVED_SOURCE_VERSION:0:7}
+      - aws s3 sync playwright-report "s3://${REPORT_BUCKET}/reportes/${RUN_ID}/html" --delete
+      - aws s3 cp test-results "s3://${REPORT_BUCKET}/reportes/${RUN_ID}/results" --recursive
+      - aws s3 cp docs/matriz-trazabilidad.csv "s3://${REPORT_BUCKET}/reportes/${RUN_ID}/matriz-trazabilidad.csv"
+      - aws s3 sync playwright-report "s3://${REPORT_BUCKET}/reportes/latest/html" --delete
+      - echo "Reporte: s3://${REPORT_BUCKET}/reportes/${RUN_ID}/html/index.html"
+      - if [ -f test-results/failed.flag ]; then echo "Hay pruebas fallidas"; exit 1; fi
+
+reports:
+  playwright-junit:
+    files:
+      - test-results/junit.xml
+    file-format: JUNITXML
+
+artifacts:
+  files:
+    - playwright-report/**/*
+    - test-results/**/*

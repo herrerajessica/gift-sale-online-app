@@ -1,0 +1,23 @@
+# AWS Amplify Hosting: despliega backend (Cognito, AppSync, DynamoDB, S3, CloudFront,
+# Lambda + Bedrock) y luego publica la web. Se ejecuta en cada push a la rama conectada.
+version: 1
+backend:
+  phases:
+    build:
+      commands:
+        - npm install --no-audit --no-fund
+        - node scripts/check-traceability.js
+        - npx ampx pipeline-deploy --branch $AWS_BRANCH --app-id $AWS_APP_ID
+frontend:
+  phases:
+    build:
+      commands:
+        - npm run build
+  artifacts:
+    baseDirectory: dist
+    files:
+      - '**/*'
+  cache:
+    paths:
+      - .npm/**/*
+      - node_modules/**/*

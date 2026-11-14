@@ -1,0 +1,39 @@
+# Revisión y aprobación QA
+# En cada Pull Request: valida trazabilidad y corre Playwright.
+# La aprobación formal se hace con:
+#   - Branch protection en main: "Require approval" + CODEOWNERS (equipo QA)
+#   - Columna Estado_Revision_QA = "Aprobado" en la matriz
+name: QA Review
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  trazabilidad-y-pruebas:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-audit --no-fund
+      - name: Verificar matriz de trazabilidad
+        run: node scripts/check-traceability.js
+      - run: npx playwright install --with-deps chromium
+      - name: Ejecutar Playwright
+        run: npx playwright test
+        env:
+          BASE_URL: ${{ vars.BASE_URL_QA }}
+          TEST_USER: ${{ secrets.TEST_USER }}
+          TEST_PASSWORD: ${{ secrets.TEST_PASSWORD }}
+          TEST_STORE: ${{ vars.TEST_STORE }}
+          TEST_PENDING_STORE: ${{ vars.TEST_PENDING_STORE }}
+          TEST_STORE_COBROS: ${{ vars.TEST_STORE_COBROS }}
+          TEST_STORE_YAPE: ${{ vars.TEST_STORE_YAPE }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
