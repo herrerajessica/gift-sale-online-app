@@ -52,7 +52,7 @@ async function contarUso(t: Record<string, any>) {
 
 const resumirProducto = (p: Record<string, any>) => ({
   id: p.id, nombre: p.nombre, marca: p.marca || '', precio: p.precio ?? null, costo: p.costo ?? null,
-  stock: typeof p.stock === 'number' ? p.stock : null, talla: p.talla || '', categoria: p.categoria || '',
+  stock: typeof p.stock === 'number' ? p.stock : null, talla: p.talla || '', condicion: p.condicion || '', categoria: p.categoria || '',
   publico: p.publico || '', estado: p.estado || 'disponible', descripcion: (p.descripcion || '').slice(0, 200),
 });
 

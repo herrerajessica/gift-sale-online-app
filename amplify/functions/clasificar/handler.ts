@@ -13,7 +13,9 @@ export const CATEGORIAS = [
 export const PUBLICOS = ['Mujer', 'Hombre', 'Niños', 'Unisex'];
 const MAX_FOTOS = 8;
 
-type Resultado = { i: number; categoria?: string; publico?: string; nombre?: string; marca?: string; costo?: number; talla?: string };
+export const CONDICIONES = ['nuevo_etiqueta', 'nuevo', 'caja_abierta', 'como_nuevo', 'usado'];
+
+type Resultado = { i: number; categoria?: string; publico?: string; nombre?: string; marca?: string; costo?: number; talla?: string; condicion?: string; descripcion?: string };
 
 async function leerFoto(path: string): Promise<Uint8Array> {
   if (!path.startsWith('productos/')) throw new Error('Ruta no permitida');
@@ -34,7 +36,9 @@ ${nombre}
 - "marca": la marca solo si su logo, etiqueta o diseño característico se ve claramente en la foto; si no, "".
 - "costo": el precio en dólares que se lee en la etiqueta de precio de la tienda (si hay varios, el más bajo o el de liquidación), como número; si no se ve claro, null.
 - "talla": la talla si se lee en la etiqueta o en el producto (ej. "8", "M", "32x30"); si no, "".
-Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","publico":"Mujer","nombre":"Mocasines rosados con lazo","marca":"","costo":19.99,"talla":"8"}]`;
+- "condicion": exactamente una de: ${CONDICIONES.join(', ')}. Usa nuevo_etiqueta si se ve la etiqueta de la tienda colgando; caja_abierta si está en su caja abierta; si no estás segura, "".
+- "descripcion": 1 o 2 frases cortas para vender, ${ingles ? 'EN INGLÉS' : 'en español'}, solo con lo que se ve (tipo, color, estilo, detalles, si trae caja o etiqueta). No inventes materiales, medidas ni que es original.
+Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","publico":"Mujer","nombre":"Mocasines rosados con lazo","marca":"","costo":19.99,"talla":"8","condicion":"nuevo_etiqueta","descripcion":"Mocasines rosados con lazo, nuevos con etiqueta. Cómodos para el día a día."}]`;
 }
 
 function limpiar(arr: unknown, n: number): Resultado[] {
@@ -49,6 +53,8 @@ function limpiar(arr: unknown, n: number): Resultado[] {
       marca: typeof r.marca === 'string' && r.marca.trim() ? r.marca.trim().slice(0, 40) : undefined,
       costo: typeof r.costo === 'number' && r.costo > 0 && r.costo < 10000 ? Math.round(r.costo * 100) / 100 : undefined,
       talla: typeof r.talla === 'string' && r.talla.trim() ? r.talla.trim().slice(0, 12) : undefined,
+      condicion: CONDICIONES.includes(String(r.condicion)) ? String(r.condicion) : undefined,
+      descripcion: typeof r.descripcion === 'string' && r.descripcion.trim() ? r.descripcion.trim().slice(0, 300) : undefined,
     }))
     .filter((r) => r.i >= 0 && r.i < n);
 }
@@ -67,7 +73,7 @@ export const handler: Schema['clasificarFotos']['functionHandler'] = async (even
         { text: prompt(paths.length, event.arguments.idioma === 'en') },
       ],
     }],
-    inferenceConfig: { maxTokens: 1024, temperature: 0 },
+    inferenceConfig: { maxTokens: 2048, temperature: 0 },
   }));
 
   const texto: string = (res.output?.message?.content ?? []).map((c) => c.text ?? '').join('');

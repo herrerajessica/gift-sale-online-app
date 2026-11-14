@@ -112,6 +112,10 @@ button{cursor:pointer}
 .totals2 .fila{display:flex;justify-content:space-between;gap:10px}
 .totals2 .fila strong{font-family:var(--mono);font-variant-numeric:tabular-nums}
 .marca-tag{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.cond-tag{display:inline-block;width:fit-content;font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;background:#e7f3ec;color:#14532d;margin-top:2px}
+.cond-tag.cond-caja_abierta{background:#eef2ff;color:#312e81}
+.cond-tag.cond-como_nuevo,.cond-tag.cond-usado{background:#fdf2e3;color:#7c2d12}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .cond-tag{background:#173a26;color:#bbf7d0}:root:not([data-theme="light"]) .cond-tag.cond-caja_abierta{background:#23284d;color:#c7d2fe}:root:not([data-theme="light"]) .cond-tag.cond-como_nuevo,:root:not([data-theme="light"]) .cond-tag.cond-usado{background:#3f2410;color:#fed7aa}}
 .status.oculto{color:var(--muted);border:1.5px dashed currentColor}
 .card.oculto .ph img{opacity:.45}
 .status.apartado{color:var(--hold);border:1.5px solid currentColor}
@@ -442,6 +446,7 @@ td small{color:var(--muted);font-family:var(--mono)}
         <input id="defMarca" placeholder="Marca" list="marcaList">
         <input id="defStock" inputmode="numeric" placeholder="Cantidad c/u">
         <input id="defMargen" inputmode="decimal" placeholder="Margen %" title="Precio = costo de la etiqueta + este margen">
+        <select id="defCond" aria-label="Condición de todas las fotos" title="Si lo dejas vacío, la IA la sugiere por cada foto"><option value="">Condición…</option><option value="nuevo_etiqueta">Nuevo con etiqueta</option><option value="nuevo">Nuevo sin etiqueta</option><option value="caja_abierta">Caja abierta</option><option value="como_nuevo">Usado como nuevo</option><option value="usado">Usado</option></select>
       </div>
       <p class="defaults" id="modoFotoInfo" hidden style="margin:0"><span id="modoFotoTxt"></span> · <button class="linkish" type="button" id="modoFotoCambiar" style="font-size:13px">Cambiar</button></p>
       <label class="defaults" id="aiRow" hidden><input type="checkbox" id="aiToggle" checked style="width:auto"> Detectar categoría, público y nombre con IA</label>
@@ -477,6 +482,7 @@ td small{color:var(--muted);font-family:var(--mono)}
     <input id="bulkStock" inputmode="numeric" placeholder="Cantidad" aria-label="Cantidad para seleccionados">
     <input id="bulkMargen" inputmode="decimal" placeholder="Margen %" aria-label="Margen sobre el costo para seleccionados">
     <select id="bulkStatus" aria-label="Estado para seleccionados"><option value="">Estado…</option><option value="disponible">Disponible</option><option value="apartado">Apartado</option><option value="vendido">Vendido</option><option value="oculto">Ocultar de la tienda</option></select>
+    <select id="bulkCond" aria-label="Condición para seleccionados"><option value="">Condición…</option><option value="nuevo_etiqueta">Nuevo con etiqueta</option><option value="nuevo">Nuevo sin etiqueta</option><option value="caja_abierta">Caja abierta</option><option value="como_nuevo">Usado como nuevo</option><option value="usado">Usado</option></select>
     <select id="bulkPub" aria-label="Público para seleccionados"><option value="">Para…</option><option>Mujer</option><option>Hombre</option><option>Niños</option><option>Unisex</option></select>
     <button class="btn primary" id="bulkApply">Aplicar</button>
     <button class="btn" id="bulkAI" hidden>Clasificar con IA</button>

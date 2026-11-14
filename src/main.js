@@ -23,6 +23,11 @@ import {
   const CAT_EN = { "Ropa":"Clothing", "Zapatos":"Shoes", "Carteras y bolsos":"Bags", "Accesorios":"Accessories", "Relojes y joyería":"Watches & jewelry", "Perfumes y belleza":"Beauty & fragrance", "Electrónica":"Electronics", "Hogar":"Home", "Juguetes":"Toys", "Otros":"Other" };
   const PUB_EN = { "Mujer":"Women", "Hombre":"Men", "Niños":"Kids", "Unisex":"Unisex" };
   const catTxt = c => EN() ? (CAT_EN[c]||c) : c;
+  // Condición del producto (nuevo, usado…): se guarda la clave, se muestra el texto en el idioma del cliente.
+  const CONDICIONES = [["nuevo_etiqueta","Nuevo con etiqueta","New with tags"],["nuevo","Nuevo sin etiqueta","New without tags"],["caja_abierta","Caja abierta","Open box"],["como_nuevo","Usado como nuevo","Like new"],["usado","Usado","Used"]];
+  const CLAVES_COND = CONDICIONES.map(c=>c[0]);
+  const condTxt = k => { const c = CONDICIONES.find(x=>x[0]===k); return c ? (EN() ? c[2] : c[1]) : ""; };
+  const opcionesCond = (vacio) => [["", vacio], ...CONDICIONES.map(c=>[c[0], c[1]])];
   const pubTxt = x => EN() ? (PUB_EN[x]||x) : x;
   // Tipo de cambio (S/ por 1 USD) de la tienda.
   const tipoCambio = () => { if(esUS()) return null; const r = parseFloat(S.config.tipoCambio); return isFinite(r) && r>0 ? r : null; };
@@ -378,7 +383,7 @@ import {
       }
     }
     S.fondoFallos = 0;
-    const price = parsePrice($("defPrice").value), cat = $("defCat").value.trim(), marca = $("defMarca").value.trim(), stock = parseStock($("defStock").value), margen = parseMargen($("defMargen").value);
+    const price = parsePrice($("defPrice").value), cat = $("defCat").value.trim(), marca = $("defMarca").value.trim(), stock = parseStock($("defStock").value), margen = parseMargen($("defMargen").value), condicion = $("defCond").value;
     const useAI = S.ai && $("aiToggle").checked;
     const total = files.length; let done = 0, ok = 0; const errs = $("errs"); errs.textContent="";
     const textoSubida = modoFoto==="fondo" ? "Quitando fondos con IA y subiendo…" : modoFoto==="mejorar" ? "Mejorando y subiendo fotos…" : "Subiendo fotos…";
@@ -395,9 +400,9 @@ import {
           if(group){ groupPhotos[idx]={ph,blob}; }
           else {
             const nombre = nameFromFile(f), ref = col.doc();
-            await ref.set({ nombre, marca, precio:price, stock, categoria:cat, publico:"", descripcion:"", estado:"disponible", fotos:[ph], huella: huellas[idx] || "", creado: base + (total-idx) });
+            await ref.set({ nombre, marca, precio:price, stock, categoria:cat, publico:"", descripcion:"", condicion, estado:"disponible", fotos:[ph], huella: huellas[idx] || "", creado: base + (total-idx) });
             creados.push({ id:ref.id, orden:idx });
-            if(useAI) toClassify.push({ id:ref.id, blob, name:nombre==="Producto nuevo", cat:!cat, marca:!marca, margen: price==null ? margen : null });
+            if(useAI) toClassify.push({ id:ref.id, blob, name:nombre==="Producto nuevo", cat:!cat, marca:!marca, cond:!condicion, desc:true, margen: price==null ? margen : null });
           }
           ok++;
         }catch(e){ errs.append(el("li",null,f.name+": "+errText(e))); }
@@ -407,7 +412,7 @@ import {
     await Promise.all(Array.from({length:Math.min(modoFoto==="fondo"?2:4,files.length)}, worker));
     if(group){
       const got = groupPhotos.filter(Boolean);
-      if(got.length){ try{ const nombre=nameFromFile(files[0]), ref=col.doc(); creados.push({ id:ref.id, orden:0 }); await ref.set({ nombre, marca, precio:price, stock, categoria:cat, publico:"", descripcion:"", estado:"disponible", fotos:got.map(g=>g.ph), creado:base }); if(useAI) toClassify.push({ id:ref.id, blob:got[0].blob, name:nombre==="Producto nuevo", cat:!cat, marca:!marca, margen: price==null ? margen : null }); }catch(e){ errs.append(el("li",null,"No se pudo crear el producto: "+errText(e))); ok=0; } }
+      if(got.length){ try{ const nombre=nameFromFile(files[0]), ref=col.doc(); creados.push({ id:ref.id, orden:0 }); await ref.set({ nombre, marca, precio:price, stock, categoria:cat, publico:"", descripcion:"", condicion, estado:"disponible", fotos:got.map(g=>g.ph), creado:base }); if(useAI) toClassify.push({ id:ref.id, blob:got[0].blob, name:nombre==="Producto nuevo", cat:!cat, marca:!marca, cond:!condicion, desc:true, margen: price==null ? margen : null }); }catch(e){ errs.append(el("li",null,"No se pudo crear el producto: "+errText(e))); ok=0; } }
     }
     const fail = total-ok;
     if(S.fondoFallos) errs.append(el("li",null,`${S.fondoFallos} foto(s) se subieron mejoradas pero sin quitar el fondo (la IA no respondió). Puedes reintentarlas más tarde.`));
@@ -439,7 +444,9 @@ ${esUS() ? '- "nombre": nombre corto de venta EN INGLÉS (la tienda vende a clie
 - "marca": la marca solo si su logo, etiqueta o diseño característico se ve claramente en la foto; si no, "".
 - "costo": el precio en dólares que se lee en la etiqueta de precio de la tienda (si hay varios, el más bajo o el de liquidación), como número; si no se ve claro, null.
 - "talla": la talla si se lee en la etiqueta o en el producto (ej. "8", "M", "32x30"); si no, "".
-Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","publico":"Mujer","nombre":"Mocasines rosados con lazo","marca":"","costo":19.99,"talla":"8"}]`;
+- "condicion": exactamente una de: ${CLAVES_COND.join(", ")}. Usa nuevo_etiqueta si se ve la etiqueta de la tienda colgando; caja_abierta si está en su caja abierta; si no estás segura, "".
+- "descripcion": 1 o 2 frases cortas para vender, ${esUS() ? "EN INGLÉS" : "en español"}, solo con lo que se ve (tipo, color, estilo, detalles, si trae caja o etiqueta). No inventes materiales, medidas ni que es original.
+Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","publico":"Mujer","nombre":"Mocasines rosados con lazo","marca":"","costo":19.99,"talla":"8","condicion":"nuevo_etiqueta","descripcion":"Mocasines rosados con lazo, nuevos con etiqueta. Cómodos para el día a día."}]`;
       let res;
       try { res = await S.ai.json(prompt, { images: batch.map(b=>b.blob), modelTier:"quick", idioma: esUS() ? "en" : "es" }); }
       catch(e){
@@ -461,6 +468,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
           if(b.margen!=null){ const pm = precioConMargen(patch.costo, b.margen); if(pm!=null) patch.precio = pm; }
         }
         if(typeof r.talla==="string" && r.talla.trim()) patch.talla = r.talla.trim().slice(0,12);
+        if(b.cond!==false && CLAVES_COND.includes(r.condicion)) patch.condicion = r.condicion;
+        if(b.desc && typeof r.descripcion==="string" && r.descripcion.trim()) patch.descripcion = r.descripcion.trim().slice(0,300);
         if(Object.keys(patch).length){ try{ await S.db.doc("productos/"+b.id).update(patch); }catch(e){ fails++; } }
       }));
       n += batch.length; setProg(n, items.length, "Detectando categorías con IA…");
@@ -476,7 +485,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const items=[];
     for(const id of ids){
       const p=S.products.find(x=>x.id===id), f=p&&p.fotos&&p.fotos[0]; if(!f) continue;
-      items.push({ id, blob:f.full||f.thumb, name:true, cat:true });
+      items.push({ id, blob:f.full||f.thumb, name:true, cat:true, cond:!p.condicion, desc:!p.descripcion });
     }
     if(!items.length){ toast("Esos productos no tienen fotos"); return; }
     await classify(items); setProg(items.length, items.length, S.aiMsg||"Listo");
@@ -487,7 +496,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   // ---------- Render ----------
   function filtered(){
     const q = S.q.toLowerCase();
-    return S.products.filter(p => (!S.cat || p.categoria===S.cat) && (!S.pub || p.publico===S.pub || (S.pub!=="Niños" && p.publico==="Unisex")) && (!q || (p.nombre+" "+(p.marca||"")+" "+(p.talla?"talla size "+p.talla:"")+" "+(p.categoria||"")+" "+catTxt(p.categoria||"")+" "+(p.publico||"")+" "+pubTxt(p.publico||"")+" "+(p.descripcion||"")).toLowerCase().includes(q)));
+    return S.products.filter(p => (!S.cat || p.categoria===S.cat) && (!S.pub || p.publico===S.pub || (S.pub!=="Niños" && p.publico==="Unisex")) && (!q || (p.nombre+" "+(p.marca||"")+" "+(p.talla?"talla size "+p.talla:"")+" "+(p.categoria||"")+" "+catTxt(p.categoria||"")+" "+(p.publico||"")+" "+pubTxt(p.publico||"")+" "+condTxt(p.condicion)+" "+(p.descripcion||"")).toLowerCase().includes(q)));
   }
   function renderCats(){
     const counts = {}; S.products.forEach(p=>{ if(p.categoria) counts[p.categoria]=(counts[p.categoria]||0)+1; });
@@ -529,7 +538,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       if(S.selecting) ph.append(el("span",{class:"check","aria-hidden":"true"}, S.sel.has(p.id)?"✓":""));
       else if(p.fotos && p.fotos.length>1) ph.append(el("span",{class:"multi"}, p.fotos.length+tx(" fotos"," photos")));
       const contado = p.precio!=null && !agotado(p) ? solesContado(p.precio) : null;
-      open.append(ph, el("div",{class:"info",style:"padding-bottom:0"}, contado!=null ? el("span",{class:"contado"}, `S/ ${contado.toLocaleString("es-PE")} con Yape o efectivo`) : null, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, el("span",{class:"name"},p.nombre||tx("Sin nombre","Untitled")), el("span",{class:"meta"}, el("span",null,[catTxt(p.categoria), p.talla ? tx("Talla ","Size ")+p.talla : ""].filter(Boolean).join(" · ")), el("span",null,pubTxt(p.publico||""))), S.canEdit && p.costo!=null ? el("span",{class:"costo"}, `Costo ${usd(p.costo)}`+(p.precio!=null && costoMon(p.costo) ? ` · margen ${Math.round((p.precio/costoMon(p.costo)-1)*100)} %` : "")) : null, stockTxt(p) ? el("span",{class:"stockpill"+(S.canEdit && p.stock>3?" ok":"")}, stockTxt(p)) : null));
+      open.append(ph, el("div",{class:"info",style:"padding-bottom:0"}, contado!=null ? el("span",{class:"contado"}, `S/ ${contado.toLocaleString("es-PE")} con Yape o efectivo`) : null, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, el("span",{class:"name"},p.nombre||tx("Sin nombre","Untitled")), p.condicion ? el("span",{class:"cond-tag cond-"+p.condicion}, condTxt(p.condicion)) : null, el("span",{class:"meta"}, el("span",null,[catTxt(p.categoria), p.talla ? tx("Talla ","Size ")+p.talla : ""].filter(Boolean).join(" · ")), el("span",null,pubTxt(p.publico||""))), S.canEdit && p.costo!=null ? el("span",{class:"costo"}, `Costo ${usd(p.costo)}`+(p.precio!=null && costoMon(p.costo) ? ` · margen ${Math.round((p.precio/costoMon(p.costo)-1)*100)} %` : "")) : null, stockTxt(p) ? el("span",{class:"stockpill"+(S.canEdit && p.stock>3?" ok":"")}, stockTxt(p)) : null));
       card.append(open);
       if(!S.selecting) card.append(el("div",{class:"info",style:"padding-top:0"}, addButton(p)));
       grid.append(card);
@@ -557,9 +566,9 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   $("bulkAll").onclick = ()=>{ const ids=filtered().map(p=>p.id); const all=ids.every(id=>S.sel.has(id)); ids.forEach(id=>all?S.sel.delete(id):S.sel.add(id)); render(); };
   async function runPool(ids, fn){ let i=0, fails=0; await Promise.all(Array.from({length:Math.min(4,ids.length)},async()=>{ while(i<ids.length){ const id=ids[i++]; try{ await fn(id); }catch(e){ fails++; } } })); return fails; }
   $("bulkApply").onclick = async ()=>{
-    const patch={}; const pv=$("bulkPrice").value.trim(), cv=$("bulkCat").value.trim(), sv=$("bulkStatus").value, pb=$("bulkPub").value, mv=$("bulkMarca").value.trim(), qv=$("bulkStock").value.trim(), mg=parseMargen($("bulkMargen").value);
-    if(pv) patch.precio=parsePrice(pv); if(cv) patch.categoria=cv; if(sv) patch.estado=sv; if(pb) patch.publico=pb; if(mv) patch.marca=mv; if(qv) patch.stock=parseStock(qv);
-    if(!Object.keys(patch).length && mg==null){ toast("Escribe un precio, margen, marca, cantidad o categoría, o elige un estado"); return; }
+    const patch={}; const pv=$("bulkPrice").value.trim(), cv=$("bulkCat").value.trim(), sv=$("bulkStatus").value, pb=$("bulkPub").value, mv=$("bulkMarca").value.trim(), qv=$("bulkStock").value.trim(), cdv=$("bulkCond").value, mg=parseMargen($("bulkMargen").value);
+    if(pv) patch.precio=parsePrice(pv); if(cv) patch.categoria=cv; if(sv) patch.estado=sv; if(pb) patch.publico=pb; if(mv) patch.marca=mv; if(qv) patch.stock=parseStock(qv); if(cdv) patch.condicion=cdv;
+    if(!Object.keys(patch).length && mg==null){ toast("Escribe un precio, margen, marca, cantidad o categoría, o elige un estado o una condición"); return; }
     if(pv && mg!=null){ toast("Usa precio fijo o margen, no los dos"); return; }
     const ids=[...S.sel]; $("bulkApply").disabled=true;
     let sinCosto = 0;
@@ -569,7 +578,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       return Object.keys(cambio).length ? S.db.doc("productos/"+id).update(cambio) : Promise.resolve();
     });
     if(sinCosto) toast(`${sinCosto} producto(s) sin costo: el margen no se aplicó a esos`);
-    $("bulkPrice").value=$("bulkCat").value=$("bulkMarca").value=$("bulkStock").value=$("bulkMargen").value=""; $("bulkStatus").value=""; $("bulkPub").value="";
+    $("bulkPrice").value=$("bulkCat").value=$("bulkMarca").value=$("bulkStock").value=$("bulkMargen").value=""; $("bulkStatus").value=""; $("bulkPub").value=""; $("bulkCond").value="";
     toast(fails ? `Actualizados ${ids.length-fails}; ${fails} fallaron` : `${ids.length} productos actualizados`); renderBulk();
   };
   $("bulkAI").onclick = ()=>classifySelected();
@@ -743,6 +752,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
           el("label",{class:"f"},"Cantidad disponible", el("input",{id:"eStock",inputmode:"numeric",value:v("eStock",p.stock==null?"":String(p.stock)),placeholder:"Sin control"}))),
         el("div",{class:"row2"},
           el("label",{class:"f"},"Costo USD (privado)", el("input",{id:"eCosto",inputmode:"decimal",value:v("eCosto",p.costo==null?"":String(p.costo)),placeholder:"Precio de la etiqueta"})),
+          el("label",{class:"f"},"Condición", (()=>{ const s=el("select",{id:"eCond"}); opcionesCond("—").forEach(([k,l])=>s.append(el("option",{value:k},l))); s.value=v("eCond",p.condicion||""); return s; })())),
+        el("div",{class:"row2"},
           el("label",{class:"f"},"Talla", el("input",{id:"eTalla",maxlength:"12",value:v("eTalla",p.talla||""),placeholder:"Ej. 8, M, 32x30"}))),
         el("div",{class:"row2"},
           el("label",{class:"f"},enSoles() ? "Precio (S/)" : "Precio (USD)", el("input",{id:"ePrice",inputmode:"decimal",value:v("ePrice",p.precio==null?"":String(p.precio)),placeholder:"Consultar"})),
@@ -757,7 +768,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       side.append(el("div",{class:"actions"},
         el("button",{class:"btn danger",type:"button",onclick:()=>{conf.hidden=false;}},"Borrar"),
         el("div",{style:"display:flex;gap:8px"}, el("button",{class:"btn",type:"button",onclick:closeSheet},"Cerrar"),
-          el("button",{class:"btn primary",type:"button",onclick:async()=>{ const patch={ nombre:$("eName").value.trim()||"Producto nuevo", marca:$("eMarca").value.trim(), stock:parseStock($("eStock").value), costo:parsePrice($("eCosto").value), talla:$("eTalla").value.trim(), precio:parsePrice($("ePrice").value), estado:$("eStatus").value, categoria:$("eCat").value.trim(), publico:$("ePub").value, descripcion:$("eDesc").value.trim() }; try{ await S.db.doc("productos/"+p.id).update(patch); toast("Guardado"); closeSheet(); }catch(e){ toast("No se pudo guardar. Revisa tu conexión e intenta de nuevo."); } }},"Guardar"))
+          el("button",{class:"btn primary",type:"button",onclick:async()=>{ const patch={ nombre:$("eName").value.trim()||"Producto nuevo", marca:$("eMarca").value.trim(), stock:parseStock($("eStock").value), costo:parsePrice($("eCosto").value), talla:$("eTalla").value.trim(), condicion:$("eCond").value, precio:parsePrice($("ePrice").value), estado:$("eStatus").value, categoria:$("eCat").value.trim(), publico:$("ePub").value, descripcion:$("eDesc").value.trim() }; try{ await S.db.doc("productos/"+p.id).update(patch); toast("Guardado"); closeSheet(); }catch(e){ toast("No se pudo guardar. Revisa tu conexión e intenta de nuevo."); } }},"Guardar"))
       ), conf);
     } else {
       const st=p.estado||"disponible";
@@ -765,6 +776,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         el("div",{class:"bigprice"}, p.precio==null?tx("Precio a consultar","Price on request"):money(p.precio), p.precio!=null && soles(p.precio) ? el("span",{class:"bigsol"}, soles(p.precio) + " con tarjeta") : null),
         p.precio!=null && solesContado(p.precio)!=null ? el("span",{class:"contado",style:"font-size:15px"}, `S/ ${solesContado(p.precio).toLocaleString("es-PE")} pagando con Yape o efectivo (${descuento()} % menos)`) : null,
         st!=="disponible" ? el("span",{class:"status "+st,style:"position:static;justify-self:start"}, st==="vendido"?tx("Vendido","Sold"):tx("Apartado","On hold")) : p.stock===0 ? el("span",{class:"status agotado",style:"position:static;justify-self:start"},tx("Agotado","Sold out")) : null,
+        p.condicion ? el("span",{class:"cond-tag cond-"+p.condicion,style:"justify-self:start"}, condTxt(p.condicion)) : null,
         p.talla ? el("span",null, el("strong",null,tx("Talla: ","Size: ")), p.talla) : null,
         stockTxt(p) ? el("span",{class:"stockpill"}, stockTxt(p)) : null,
         (p.categoria||p.publico) ? el("span",{class:"note",style:"margin:0"}, [catTxt(p.categoria),pubTxt(p.publico)].filter(Boolean).join(" · ")) : null,
@@ -809,7 +821,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     let m = tx(`Hola${S.config.nombre?" "+S.config.nombre:""}, quiero hacer este pedido:\n\n`, `Hi${S.config.nombre?" "+S.config.nombre:""}, I'd like to order:\n\n`);
     lines.forEach((l,i)=>{
       const pr = l.p.precio==null ? tx("precio a consultar","price on request") : (l.q>1 ? `${l.q} × ${money(l.p.precio)} = ${dual(l.p.precio*l.q)}` : dual(l.p.precio));
-      m += `${i+1}. ${l.p.nombre}${l.q>1&&l.p.precio==null?tx(` (${l.q} unidades)`,` (${l.q} units)`):""} — ${pr}\n`;
+      m += `${i+1}. ${l.p.nombre}${l.p.condicion ? " ("+condTxt(l.p.condicion).toLowerCase()+")" : ""}${l.q>1&&l.p.precio==null?tx(` (${l.q} unidades)`,` (${l.q} units)`):""} — ${pr}\n`;
     });
     m += `\nTotal: ${dual(total)||money(0)}${consultar?tx(` + ${consultar} producto(s) a consultar`,` + ${consultar} item(s) to confirm price`):""}`;
     { const tc = totalContado(lines); if(tc!=null) m += `\nTotal pagando con Yape o efectivo: S/ ${tc.toLocaleString("es-PE")}`; }

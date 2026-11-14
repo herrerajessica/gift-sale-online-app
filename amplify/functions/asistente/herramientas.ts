@@ -14,9 +14,9 @@ ${us ? '- Es una tienda de EE. UU.: los precios están en dólares (USD) y se co
 - Tú no ves las fotos: los nombres los puso la IA y pueden ser distintos a como la vendedora los llama. Si encuentras menos productos de los que ella menciona, NO digas que no existen: busca otra vez con otras palabras (singular, sinónimos, la categoría) o sin filtros y revisa los nombres. Si aún faltan, dile cuáles encontraste y pídele que toque el botón "Editar varios", toque cada producto en su lista y te vuelva a escribir.
 - Si la vendedora tiene productos marcados en su lista, te los paso abajo. Cuando diga "estos", "los marcados", "los seleccionados" o un número que coincida, usa esos.
 ${us ? '' : `- Precio con Yape o efectivo: ${t.descuentoContado ? `la tienda da ${t.descuentoContado} % de descuento si pagan con Yape o efectivo (soles × (1 − ${t.descuentoContado}/100), redondeado al sol); con tarjeta se cobra el precio normal` : 'esta tienda no tiene descuento por Yape o efectivo'}. Ese porcentaje solo lo cambia la vendedora en Datos de la tienda; tú no puedes cambiarlo, solo explicárselo.\n`}- El "costo" es lo que pagó la vendedora; es privado y sirve para calcular márgenes.
-- Para CUALQUIER cambio (precios, descripciones, marca, cantidad, estado, categoría, talla, nombre, o el estado de un pedido) usa la herramienta proponer_cambios. Tú no cambias nada directamente: la vendedora revisa la propuesta y toca "Aplicar". Después de proponer, explica en una frase qué propusiste y pídele que revise. Nunca digas que ya está cambiado.
+- Para CUALQUIER cambio (precios, descripciones, marca, cantidad, estado, condición (nuevo, usado, caja abierta…), categoría, talla, nombre, o el estado de un pedido) usa la herramienta proponer_cambios. Tú no cambias nada directamente: la vendedora revisa la propuesta y toca "Aplicar". Después de proponer, explica en una frase qué propusiste y pídele que revise. Nunca digas que ya está cambiado.
 - Precios con margen: ${pen ? `precio en soles = costo (USD) × ${t.tipoCambio || 'tipo de cambio'} × (1 + margen), redondeado hacia arriba al sol` : 'precio = costo × (1 + margen), redondeado hacia arriba al dólar'}.
-- Descripciones: 1 o 2 frases útiles para vender, solo con datos que tengas (nombre, marca, talla, categoría, descripción actual). No inventes materiales, medidas ni que es original si no lo sabes.
+- Descripciones: 1 o 2 frases útiles para vender, solo con datos que tengas (nombre, marca, talla, categoría, condición, descripción actual). No inventes materiales, medidas ni que es original si no lo sabes.
 - Si piden algo que afecta muchos productos, primero búscalos y luego propone todo en una sola propuesta.
 - Si te piden algo que no tiene que ver con la tienda, dilo con amabilidad y ofrece ayuda con la tienda.`;
 }
@@ -73,6 +73,7 @@ export const HERRAMIENTAS: { name: string; description: string; schema: Esquema 
               descripcion: { type: 'string' }, marca: { type: 'string' }, nombre: { type: 'string' },
               talla: { type: 'string' }, categoria: { type: 'string' },
               estado: { type: 'string', enum: ['disponible', 'apartado', 'vendido', 'oculto'] },
+              condicion: { type: 'string', enum: ['nuevo_etiqueta', 'nuevo', 'caja_abierta', 'como_nuevo', 'usado'], description: 'Nuevo con etiqueta, nuevo sin etiqueta, caja abierta, usado como nuevo o usado' },
             },
             required: ['id'],
           },
@@ -92,7 +93,8 @@ export const HERRAMIENTAS: { name: string; description: string; schema: Esquema 
   },
 ];
 
-const CAMPOS_PRODUCTO = ['precio', 'costo', 'stock', 'descripcion', 'marca', 'nombre', 'talla', 'categoria', 'estado'] as const;
+const CAMPOS_PRODUCTO = ['precio', 'costo', 'stock', 'descripcion', 'marca', 'nombre', 'talla', 'categoria', 'estado', 'condicion'] as const;
+const CONDICIONES = ['nuevo_etiqueta', 'nuevo', 'caja_abierta', 'como_nuevo', 'usado'];
 
 /** Deja solo cambios válidos sobre productos y pedidos que existen en esta tienda. */
 export function limpiarPropuesta(
@@ -109,6 +111,7 @@ export function limpiarPropuesta(
       if (k === 'precio' || k === 'costo') { v = Number(v); if (!(v >= 0 && v < 100000)) continue; v = Math.round((v as number) * 100) / 100; }
       else if (k === 'stock') { v = Math.floor(Number(v)); if (!(v >= 0 && v < 100000)) continue; }
       else v = String(v).trim().slice(0, k === 'descripcion' ? 600 : 120);
+      if (k === 'condicion' && !CONDICIONES.includes(v as string)) continue;
       if (actual[k] !== v) campos[k] = v;
     }
     if (!Object.keys(campos).length) return [];
