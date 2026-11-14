@@ -140,7 +140,12 @@ function aCampos(d) {
 
 const productoRef = (id) => ({
   id,
-  set: async (d) => { check(await client.models.Producto.create({ id, tiendaId: TIENDA, ...aCampos(d) }, { authMode: 'userPool' })); },
+  set: async (d) => {
+    // El id es nuevo y al azar: si DynamoDB dice que ya existe es porque un reintento de la red
+    // ya lo había guardado. Se cuenta como guardado (antes salía "conditional request failed").
+    try { check(await client.models.Producto.create({ id, tiendaId: TIENDA, ...aCampos(d) }, { authMode: 'userPool' })); }
+    catch (e) { if (e && e.code === 'exists') return; throw e; }
+  },
   update: async (d) => { check(await client.models.Producto.update({ id, ...aCampos(d) }, { authMode: 'userPool' })); },
   delete: async () => { check(await client.models.Producto.delete({ id }, { authMode: 'userPool' })); },
 });
