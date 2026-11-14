@@ -37,7 +37,13 @@ let TIENDA = null;        // id (enlace) de la tienda activa
 
 export async function sesion() {
   try {
-    const s = await fetchAuthSession();
+    // Si una sesión guardada quedó a medias, fetchAuthSession puede quedarse esperando:
+    // a los 8 segundos se descarta en este navegador y se muestra la pantalla de inicio.
+    const espera = new Promise((_, no) => setTimeout(() => no(new Error('timeout')), 8000));
+    const s = await Promise.race([fetchAuthSession(), espera]).catch(async (e) => {
+      if (e && e.message === 'timeout') { try { await signOut({ global: false }); } catch { /* ya estaba cerrada */ } }
+      throw e;
+    });
     if (!s.tokens) return { logged: false };
     const p = s.tokens.idToken ? s.tokens.idToken.payload : s.tokens.accessToken.payload;
     const g = s.tokens.accessToken.payload['cognito:groups'];
