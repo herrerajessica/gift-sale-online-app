@@ -19,7 +19,7 @@ export const auth = defineAuth({
   loginWith: {
     email: {
       verificationEmailSubject: 'Tu código para Showroomcito',
-      verificationEmailBody: (code) => `Tu código de verificación es ${code()}`,
+      verificationEmailBody: (code: () => string) => `Tu código de verificación es ${code()}`,
     },
     ...(conGoogle
       ? {

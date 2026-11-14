@@ -32,9 +32,11 @@ const schema = a.schema({
       descuentoContado: a.float(),
       // País de la tienda: PE (soles, Yape, tienda en español) o US (solo dólares, tienda del cliente en inglés)
       pais: a.enum(['PE', 'US']),
-      estado: a.enum(['pendiente', 'aprobada', 'suspendida']).authorization(soloLecturaDueña),
+      // Texto y no enum: Amplify no permite permisos por campo en un enum. Valores: pendiente | aprobada | suspendida
+      estado: a.string().authorization(soloLecturaDueña),
       // Plan: free (10), basico (30), pro (150), plus (ilimitado)
-      plan: a.enum(['free', 'basico', 'pro', 'plus']).authorization(soloLecturaDueña),
+      // Valores: free | basico | pro | plus (lo cambian SUPERADMIN o el webhook de Stripe)
+      plan: a.string().authorization(soloLecturaDueña),
       planVence: a.float().authorization(soloLecturaDueña),
       planCancelado: a.boolean().authorization(soloLecturaDueña),
       stripeCustomerId: a.string().authorization(soloLecturaDueña),
