@@ -86,6 +86,13 @@ import {
     if(s < 1){ src = document.createElement("canvas"); src.width=Math.round(c.width*s); src.height=Math.round(c.height*s); const x=src.getContext("2d"); x.imageSmoothingQuality="high"; x.drawImage(c,0,0,src.width,src.height); }
     return new Promise((res,rej)=>src.toBlob(b=>b?res(b):rej(new Error("encode")),"image/jpeg",q));
   }
+  // Fotos livianas: tamaño máximo por foto. Si queda pesada, baja la calidad de a poco (sin bajar de 55 %).
+  const FOTO = { grande: 1280, grandeKB: 250, mini: 480, miniKB: 60 };
+  async function aBlobLiviano(c, max, q, maxKB){
+    let b = await aBlob(c, max, q);
+    while(b.size > maxKB*1024 && q > 0.56){ q = Math.round((q - 0.08)*100)/100; b = await aBlob(c, max, q); }
+    return b;
+  }
 
   // ---------- Mejora automática de fotos (en el navegador, sin costo) ----------
   // Corrige luz y color (niveles por canal), aclara fotos oscuras, sube un poco la saturación y la nitidez.
@@ -194,9 +201,9 @@ import {
       try { return await fotoSinFondo(img, up); }
       catch(e){ S.fondoFallos = (S.fondoFallos||0) + 1; modo = "mejorar"; }
     }
-    const c = lienzo(img, 1600);
+    const c = lienzo(img, FOTO.grande);
     if(modo==="mejorar" || modo==="fondo") mejorarPixeles(c);
-    const full = await aBlob(c,1600,.82), thumb = await aBlob(c,520,.78);
+    const full = await aBlobLiviano(c, FOTO.grande, .82, FOTO.grandeKB), thumb = await aBlobLiviano(c, FOTO.mini, .78, FOTO.miniKB);
     const f = await up(full); const t = await up(thumb);
     return { full:f.id, thumb:t.id, _blob:thumb };
   }
@@ -212,7 +219,7 @@ import {
       const pad = Math.round(Math.max(png.width, png.height) * .06);
       const out = document.createElement("canvas"); out.width = png.width + pad*2; out.height = png.height + pad*2;
       const x = out.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0,0,out.width,out.height); x.drawImage(png, pad, pad);
-      const full = await aBlob(out, 1600, .86), thumb = await aBlob(out, 520, .8);
+      const full = await aBlobLiviano(out, FOTO.grande, .86, FOTO.grandeKB), thumb = await aBlobLiviano(out, FOTO.mini, .8, FOTO.miniKB);
       const f = await up(full); const t = await up(thumb);
       return { full:f.id, thumb:t.id, _blob:thumb };
     } finally {
