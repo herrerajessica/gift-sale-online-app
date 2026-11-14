@@ -1,5 +1,6 @@
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
-import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
+// Converse API: el mismo código sirve para Amazon Nova y para Claude; solo cambia MODEL_ID.
+import { BedrockRuntimeClient, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
 import type { Schema } from '../../data/resource';
 
 const s3 = new S3Client({});
@@ -14,11 +15,10 @@ const MAX_FOTOS = 8;
 
 type Resultado = { i: number; categoria?: string; publico?: string; nombre?: string; marca?: string; costo?: number; talla?: string };
 
-async function leerFoto(path: string): Promise<string> {
+async function leerFoto(path: string): Promise<Uint8Array> {
   if (!path.startsWith('productos/')) throw new Error('Ruta no permitida');
   const obj = await s3.send(new GetObjectCommand({ Bucket: process.env.BUCKET_NAME, Key: path }));
-  const bytes = await obj.Body!.transformToByteArray();
-  return Buffer.from(bytes).toString('base64');
+  return obj.Body!.transformToByteArray();
 }
 
 function prompt(n: number, ingles: boolean): string {
@@ -58,24 +58,19 @@ export const handler: Schema['clasificarFotos']['functionHandler'] = async (even
   if (!paths.length) return JSON.stringify([]);
 
   const imagenes = await Promise.all(paths.map(leerFoto));
-  const content = [
-    ...imagenes.map((data) => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } })),
-    { type: 'text', text: prompt(paths.length, event.arguments.idioma === 'en') },
-  ];
-
-  const res = await bedrock.send(new InvokeModelCommand({
+  const res = await bedrock.send(new ConverseCommand({
     modelId: process.env.MODEL_ID,
-    contentType: 'application/json',
-    accept: 'application/json',
-    body: JSON.stringify({
-      anthropic_version: 'bedrock-2023-05-31',
-      max_tokens: 1024,
-      messages: [{ role: 'user', content }],
-    }),
+    messages: [{
+      role: 'user',
+      content: [
+        ...imagenes.map((bytes) => ({ image: { format: 'jpeg' as const, source: { bytes } } })),
+        { text: prompt(paths.length, event.arguments.idioma === 'en') },
+      ],
+    }],
+    inferenceConfig: { maxTokens: 1024, temperature: 0 },
   }));
 
-  const out = JSON.parse(new TextDecoder().decode(res.body));
-  const texto: string = (out.content ?? []).map((c: { text?: string }) => c.text ?? '').join('');
+  const texto: string = (res.output?.message?.content ?? []).map((c) => c.text ?? '').join('');
   const inicio = texto.indexOf('['), fin = texto.lastIndexOf(']');
   let parsed: unknown = [];
   try { parsed = JSON.parse(texto.slice(inicio, fin + 1)); } catch { parsed = []; }
