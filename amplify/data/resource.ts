@@ -152,6 +152,7 @@ const schema = a.schema({
       tiendaId: a.string().required(),
       items: a.string().required(),
       nombre: a.string().required(),
+      email: a.string(),
       nota: a.string(),
       operacion: a.string(),
     })

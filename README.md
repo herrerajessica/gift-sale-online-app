@@ -57,7 +57,8 @@ La idea central es **subir muchas fotos de una vez**. Al arrastrar el lote se pu
 - **Pedidos:** el cliente puede pagar con tarjeta si la vendedora activó cobros (Stripe Connect Express). El precio se lee de la base de datos, no del navegador. El dinero va a la cuenta Stripe de la vendedora y la plataforma retiene una comisión (`COMISION_PORCENTAJE`, 8 % por defecto, que cubre el ~6.8 % que cobra Stripe con tarjetas peruanas). WhatsApp sigue disponible.
 - **Precio con Yape o efectivo:** cada vendedora define en *Datos de la tienda* un descuento (%) para quien paga con Yape o efectivo. El precio publicado es el de tarjeta y el descuento se muestra junto a cada producto, en el pedido y en el mensaje de WhatsApp, antes de pagar (como pide Indecopi). Se presenta como descuento y no como recargo por tarjeta, para cumplir las reglas de las marcas de tarjeta. El servidor calcula el monto con descuento al registrar un pedido por Yape.
 - **Yape (QR):** como Stripe no acepta Yape, cada vendedora configura su número y la imagen de su QR en *Datos de la tienda*. El cliente ve el monto exacto en soles (calculado en el servidor), yapea y envía su pedido con su nombre y, si quiere, el código de operación. El pedido queda **Por confirmar** hasta que la vendedora revisa su app de Yape y toca *Confirmar pago* o *No llegó*. No hay comisión.
-- **Claves:** `STRIPE_SECRET_KEY` y `STRIPE_WEBHOOK_SECRET` se guardan como secretos de Amplify, nunca en el código.
+- **Correos (Resend):** al registrarse un pedido (pagado con tarjeta o por confirmar con Yape), el cliente recibe un correo con el detalle y un botón de WhatsApp, y la vendedora recibe el aviso del pedido nuevo. Si Resend falla, el pedido igual queda registrado.
+- **Claves:** `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` y `RESEND_API_KEY` se guardan como secretos de Amplify, nunca en el código.
 - **Limitaciones:** Stripe no acepta Yape ni Plin (por eso Yape va por QR con confirmación manual), y no abre cuentas a empresas registradas en Perú. Para la demostración se usa el **modo de prueba**. Para cobrar dinero real en Perú habría que cambiar a Mercado Pago o Culqi, o tener una empresa en un país soportado por Stripe.
 
 ### Configurar Stripe (modo de prueba)
@@ -71,6 +72,16 @@ La idea central es **subir muchas fotos de una vez**. Al arrastrar el lote se pu
 7. Copia el **Signing secret** (`whsec_...`), actualiza el secreto `STRIPE_WEBHOOK_SECRET` en Amplify y vuelve a desplegar.
 
 Tarjeta de prueba: `4242 4242 4242 4242`, cualquier fecha futura y cualquier CVC.
+
+### Configurar los correos con Resend
+
+1. Crea una cuenta gratis en [resend.com](https://resend.com) (unos 3,000 correos al mes).
+2. En **API Keys**, crea una clave (`re_...`).
+3. En Amplify › Hosting › **Secrets**, crea `RESEND_API_KEY` con esa clave y vuelve a desplegar. Si no quieres correos, guárdalo con el valor `no`.
+4. Para la demo, el remitente es `onboarding@resend.dev`: con él, Resend **solo entrega a tu propio correo** (el de tu cuenta de Resend). Úsalo como correo del cliente y de la tienda en las pruebas.
+5. Para enviar a cualquier persona, verifica tu dominio en Resend (› *Domains*) y cambia `CORREO_REMITENTE` en `amplify/functions/pagos/resource.ts` y `amplify/functions/stripe-webhook/resource.ts`, por ejemplo `Vitrina AI <pedidos@tudominio.com>`.
+
+El correo confirma el pedido, pero no reemplaza la boleta o factura electrónica de SUNAT.
 
 ## Iniciar sesión con Google (opcional)
 

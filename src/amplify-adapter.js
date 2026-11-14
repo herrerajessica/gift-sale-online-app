@@ -270,8 +270,8 @@ export const pagarPlan = (plan) => llamar('pagarPlan', { tiendaId: TIENDA, plan,
 export const cancelarPlan = () => llamar('cancelarPlan', { tiendaId: TIENDA }, 'userPool');
 export const conectarCobros = () => llamar('conectarCobros', { tiendaId: TIENDA, origen: origen() }, 'userPool');
 export const estadoCobros = () => llamar('estadoCobros', { tiendaId: TIENDA }, 'userPool');
-export const pedidoYape = (items, nombre, nota, operacion) =>
-  llamar('pedidoYape', { tiendaId: TIENDA, items: JSON.stringify(items), nombre, nota, operacion }, AUTH);
+export const pedidoYape = (items, nombre, nota, operacion, email) =>
+  llamar('pedidoYape', { tiendaId: TIENDA, items: JSON.stringify(items), nombre, nota, operacion, email: email || null }, AUTH);
 export const pagarPedido = (items, nombre, nota) =>
   llamar('pagarPedido', { tiendaId: TIENDA, items: JSON.stringify(items), nombre, nota, origen: origen() }, AUTH);
 

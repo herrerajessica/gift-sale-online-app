@@ -759,7 +759,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
 
   // ---------- Pedido por WhatsApp ----------
   const CART_KEY = "vitrina-pedido";
-  let cart = {}, buyer = { nombre:"", nota:"" };
+  let cart = {}, buyer = { nombre:"", nota:"", email:"" };
   try { const raw = JSON.parse(localStorage.getItem(CART_KEY)||"{}"); cart = raw.items||{}; buyer = Object.assign(buyer, raw.buyer||{}); } catch(e){}
   function saveCart(){ try{ localStorage.setItem(CART_KEY, JSON.stringify({items:cart, buyer})); }catch(e){} }
   const cartLines = () => Object.entries(cart).map(([id,q])=>({ p:S.products.find(x=>x.id===id), id, q })).filter(l=>l.p);
@@ -885,6 +885,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const volver = el("button",{class:"btn",type:"button",onclick:drawCart},"Volver");
     const nom = el("input",{id:"yapeNombreCliente",maxlength:"60",autocomplete:"name",placeholder:"Para que la tienda identifique tu pago",value:buyer.nombre});
     const op = el("input",{id:"yapeOperacion",maxlength:"40",inputmode:"numeric",placeholder:"Aparece en tu constancia de Yape"});
+    const mail = el("input",{id:"yapeEmail",type:"email",maxlength:"254",autocomplete:"email",placeholder:"Te enviamos la confirmación",value:buyer.email||""});
     const err = el("p",{class:"err",role:"alert",hidden:""});
     const enviar = el("button",{class:"btn yape",type:"button"},"Ya pagué, enviar pedido");
     const panel = el("div",{class:"yape-pay"},
@@ -899,15 +900,18 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       panel,
       el("label",{class:"f"},"Tu nombre", nom),
       el("label",{class:"f"},"Código de operación (opcional)", op),
+      el("label",{class:"f"},"Tu correo (opcional)", mail),
       err, el("div",{class:"send"}, enviar));
     enviar.onclick = async ()=>{
       err.hidden = true;
       const nombre = nom.value.trim();
       if(!nombre){ err.textContent="Escribe tu nombre para que la tienda reconozca tu pago"; err.hidden=false; nom.focus(); return; }
-      buyer.nombre = nombre; saveCart();
+      const email = mail.value.trim();
+      if(email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ err.textContent="Revisa tu correo: parece que falta algo"; err.hidden=false; mail.focus(); return; }
+      buyer.nombre = nombre; buyer.email = email; saveCart();
       enviar.disabled = true; enviar.textContent = "Enviando…";
       try{
-        const r = await pedidoYape(pagables.map(l=>({id:l.id,q:l.q})), nombre, buyer.nota.trim(), op.value.trim());
+        const r = await pedidoYape(pagables.map(l=>({id:l.id,q:l.q})), nombre, buyer.nota.trim(), op.value.trim(), email);
         const num = String(r.pedidoId||"").slice(0,8).toUpperCase();
         cart = {}; saveCart(); render();
         const wa = waDigits();
@@ -915,7 +919,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         box.textContent = "";
         box.append(
           el("div",{class:"cart-head"}, el("h2",null,"¡Pedido enviado!"), el("button",{class:"btn",type:"button",onclick:closeCart},"Cerrar")),
-          el("p",{style:"margin:0"}, `Tu pedido N.° ${num} quedó registrado. La tienda revisará tu Yape y te confirmará.`),
+          el("p",{style:"margin:0"}, `Tu pedido N.° ${num} quedó registrado. La tienda revisará tu Yape y te confirmará.` + (email ? ` Te enviamos la confirmación a ${email}.` : "")),
           wa ? el("a",{class:"btn tag",href:`https://wa.me/${wa}?text=${encodeURIComponent(msg)}`,target:"_blank",rel:"noopener",style:"text-decoration:none;justify-content:center"},"Avisar por WhatsApp") : null);
       }catch(e){
         err.textContent = (e && e.message) || "No se pudo enviar el pedido. Intenta de nuevo."; err.hidden = false;

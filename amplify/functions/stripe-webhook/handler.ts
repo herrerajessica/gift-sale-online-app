@@ -3,6 +3,7 @@ import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { esPlan } from '../shared/planes';
 import { ddb, PEDIDO, leerTienda, actualizarTienda } from '../shared/tablas';
 import { descontarStock } from '../shared/stock';
+import { avisarPedido } from '../shared/correo';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
 
@@ -82,6 +83,9 @@ export const handler = async (event: UrlEvent) => {
           if (cambio) {
             const { Item } = await ddb.send(new GetCommand({ TableName: PEDIDO(), Key: { id: s.metadata.pedidoId } }));
             await descontarStock(Item?.items);
+            // Correo de confirmación al cliente y aviso a la vendedora (si falla, el pago igual queda registrado)
+            const t = Item && await leerTienda(String(Item.tiendaId));
+            if (t && Item) await avisarPedido(t as any, Item as any, s.customer_details?.email || undefined);
           }
         }
         if (s.metadata?.tipo === 'plan' && s.subscription) {

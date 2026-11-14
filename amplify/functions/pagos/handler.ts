@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { BatchGetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { PLANES, esPlan } from '../shared/planes';
 import { ddb, PRODUCTO, PEDIDO, leerTienda, actualizarTienda, subDe, origenSeguro } from '../shared/tablas';
+import { avisarPedido } from '../shared/correo';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
 
@@ -198,15 +199,16 @@ async function pedidoYape(a: Record<string, any>) {
   const { lineas, total, moneda } = await armarPedido(t, a.items, true, descuento);
   const pedidoId = randomUUID();
   const ahora = new Date().toISOString();
-  await ddb.send(new PutCommand({
-    TableName: PEDIDO(),
-    Item: {
-      id: pedidoId, __typename: 'Pedido', tiendaId: t.id, owner: t.owner,
-      items: JSON.stringify(lineas), total, moneda, comision: 0,
-      cliente: nombre, nota: texto(a.nota, 300), operacion: texto(a.operacion, 40),
-      metodo: 'yape', estado: 'por_confirmar', createdAt: ahora, updatedAt: ahora,
-    },
-  }));
+  const email = texto(a.email, 254) || undefined;
+  const pedido = {
+    id: pedidoId, __typename: 'Pedido', tiendaId: t.id, owner: t.owner,
+    items: JSON.stringify(lineas), total, moneda, comision: 0,
+    cliente: nombre, email, nota: texto(a.nota, 300), operacion: texto(a.operacion, 40),
+    metodo: 'yape', estado: 'por_confirmar', createdAt: ahora, updatedAt: ahora,
+  };
+  await ddb.send(new PutCommand({ TableName: PEDIDO(), Item: pedido }));
+  // Correo al cliente ("recibimos tu pedido") y a la vendedora ("confirma el pago"). Nunca rompe el pedido.
+  await avisarPedido(t as any, pedido, email);
   return { pedidoId, total, moneda };
 }
 
