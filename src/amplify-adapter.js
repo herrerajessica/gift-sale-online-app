@@ -77,10 +77,10 @@ export async function miTienda(sub) {
   return items.find((t) => String(t.owner || '').split('::')[0] === sub) || null;
 }
 
-export async function crearTienda({ slug, nombre, whatsapp, email, pais = 'PE', moneda }) {
+export async function crearTienda({ slug, nombre, whatsapp, email, pais = 'PE', moneda, rubro = 'moda' }) {
   if (!SLUG_RE.test(slug) || RESERVADOS.has(slug)) throw { code: 'invalid', message: 'Enlace no válido' };
   const esUS = pais === 'US';
-  const r = await client.models.Tienda.create({ id: slug, nombre, whatsapp, email, pais: esUS ? 'US' : 'PE', moneda: esUS ? 'USD' : (moneda === 'USD' ? 'USD' : 'PEN'), tipoCambio: esUS ? null : 3.46 }, { authMode: 'userPool' });
+  const r = await client.models.Tienda.create({ id: slug, nombre, whatsapp, email, pais: esUS ? 'US' : 'PE', moneda: esUS ? 'USD' : (moneda === 'USD' ? 'USD' : 'PEN'), tipoCambio: esUS ? null : 3.46, rubro }, { authMode: 'userPool' });
   return check(r);
 }
 
@@ -129,6 +129,7 @@ const toProducto = (it) => ({
   codigo: it.codigo || '',
   huella: it.huella || '',
   categoria: it.categoria || '',
+  tipo: it.tipo || '',
   publico: it.publico || '',
   descripcion: it.descripcion || '',
   estado: it.estado || 'disponible',
@@ -228,6 +229,7 @@ function configRef() {
         ...(Number.isInteger(d.diasSeparado) ? { diasSeparado: d.diasSeparado } : {}),
         ...(typeof d.grupoWhatsapp === 'string' ? { grupoWhatsapp: d.grupoWhatsapp } : {}),
         ...(typeof d.chatClientes === 'boolean' ? { chatClientes: d.chatClientes } : {}),
+        ...(typeof d.rubro === 'string' && d.rubro ? { rubro: d.rubro } : {}),
         ...(d.pais === 'US' || d.pais === 'PE' ? { pais: d.pais } : {}),
         ...(d.moneda === 'USD' || d.moneda === 'PEN' ? { moneda: d.moneda } : {}),
       };
@@ -278,15 +280,15 @@ export const assets = {
 export const ai = {
   async json(_prompt, opts) {
     const paths = [].concat((opts && opts.images) || []).filter((p) => typeof p === 'string');
-    const r = await client.queries.clasificarFotos({ paths, idioma: (opts && opts.idioma) || 'es' }, { authMode: 'userPool' });
+    const r = await client.queries.clasificarFotos({ paths, idioma: (opts && opts.idioma) || 'es', rubro: (opts && opts.rubro) || 'moda' }, { authMode: 'userPool' });
     const d = check(r);
     return typeof d === 'string' ? JSON.parse(d) : d;
   },
 };
 
 // Dictado por voz: un texto por producto → datos del producto (IA de la función "clasificar").
-export async function interpretarDictado(textos, idioma = 'es', moneda = 'USD') {
-  const r = await client.queries.interpretarDictado({ textos, idioma, moneda }, { authMode: 'userPool' });
+export async function interpretarDictado(textos, idioma = 'es', moneda = 'USD', rubro = 'moda') {
+  const r = await client.queries.interpretarDictado({ textos, idioma, moneda, rubro }, { authMode: 'userPool' });
   const d = check(r);
   return typeof d === 'string' ? JSON.parse(d) : (d || []);
 }

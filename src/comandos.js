@@ -136,6 +136,13 @@ export function interpretarComando(texto, ctx) {
       etiqueta = `los ${objetivo.length} marcados`; usado.push([m.index, m.index + m[0].length]);
     }
   }
+  if (!objetivo && ctx.tipoDe) {
+    // Por tipo de producto: "todas las faldas", "los vestidos", "las zapatillas"
+    const m = /\b(?:todos los|todas las|todo lo de|los de|las de|a los|a las|los|las)\s+([a-z]+(?: de [a-z]+)?)/.exec(n);
+    const tipo = m && (ctx.tipoDe(m[1]) || ctx.tipoDe(m[1].replace(/(es|s)$/, '')));
+    const conTipo = tipo ? productos.filter((p) => p.tipo === tipo) : [];
+    if (conTipo.length) { objetivo = conTipo; etiqueta = `todos los de tipo ${tipo} (${conTipo.length})`; usado.push([m.index, m.index + m[0].length]); }
+  }
   if (!objetivo) {
     let m = /\b(?:categoria|todos los|todas las|todo lo de|los de|las de)\s+(?:la categoria\s+|categoria\s+)?([a-z]+(?: y [a-z]+)?)/.exec(n);
     let cat = m && categoriaDe(m[1].split(' ')[0]);

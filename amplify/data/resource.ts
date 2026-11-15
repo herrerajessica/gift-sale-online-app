@@ -37,6 +37,8 @@ const schema = a.schema({
       diasSeparado: a.integer(),
       // Enlace del grupo de WhatsApp de ventas (https://chat.whatsapp.com/...): la tienda muestra "Únete a mi grupo"
       grupoWhatsapp: a.string(),
+      // Rubro de la tienda (moda, zapatos, carteras, belleza, joyeria, variado): trae sus tipos de producto. Vacío = moda.
+      rubro: a.string(),
       // Asistente para clientes en la tienda ("regalos para niño de 5 años"). Vacío = activado; false = apagado.
       chatClientes: a.boolean(),
       clienteDia: a.string().authorization(soloLecturaDueña),
@@ -78,6 +80,8 @@ const schema = a.schema({
       codigo: a.string(),
       huella: a.string(),        // huella visual de la foto principal, para detectar fotos repetidas
       categoria: a.string(),
+      // Tipo de producto dentro de la categoría (Vestido, Falda, Zapatillas…): ver src/rubros.js
+      tipo: a.string(),
       publico: a.string(),
       descripcion: a.string(),
       estado: a.enum(['disponible', 'apartado', 'vendido', 'oculto']),
@@ -181,7 +185,7 @@ const schema = a.schema({
 
   clasificarFotos: a
     .query()
-    .arguments({ paths: a.string().array().required(), idioma: a.string() })
+    .arguments({ paths: a.string().array().required(), idioma: a.string(), rubro: a.string() })
     .returns(a.string())
     .handler(a.handler.function(clasificar))
     .authorization((allow) => [allow.authenticated()]),
@@ -189,7 +193,7 @@ const schema = a.schema({
   // Dictado por voz: convierte lo que dijo la vendedora (un texto por producto) en datos del producto
   interpretarDictado: a
     .query()
-    .arguments({ textos: a.string().array().required(), idioma: a.string(), moneda: a.string() })
+    .arguments({ textos: a.string().array().required(), idioma: a.string(), moneda: a.string(), rubro: a.string() })
     .returns(a.string())
     .handler(a.handler.function(clasificar))
     .authorization((allow) => [allow.authenticated()]),
