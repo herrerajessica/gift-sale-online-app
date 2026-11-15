@@ -1126,6 +1126,25 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   };
   $("adminLink").onclick = ()=>abrirAuth("signup");
   $("goSignup").onclick = ()=>abrirAuth("signup");
+  // ----- Página principal: planes en soles o dólares y botones para crear la cuenta -----
+  document.querySelectorAll('[data-ir="signup"]').forEach(b=>b.onclick = ()=>abrirAuth("signup"));
+  function pintarPlanesLanding(moneda){
+    const box = $("lPlanes"); if(!box) return; box.textContent = "";
+    document.querySelectorAll(".l-moneda .chip").forEach(b=>b.setAttribute("aria-pressed", String(b.dataset.moneda===moneda)));
+    for(const pl of PLANES){
+      const precio = moneda==="USD" ? pl.precioUsd : pl.precio;
+      box.append(el("div",{class:"plan-card"+(pl.id==="basico"?" on":"")},
+        el("strong",null, pl.nombre),
+        el("div",{class:"plan-price"}, precio ? (moneda==="USD" ? `$${precio}` : `S/ ${precio}`) : "Gratis", precio ? el("small",null," /mes") : null),
+        el("span",null, pl.limite==null ? "Productos ilimitados" : `Hasta ${pl.limite} productos`),
+        el("span",null, "IA, voz, WhatsApp, Yape y tarjeta"),
+        pl.id!=="free" ? el("span",null, "Asistente y tiendas de confianza") : el("span",null, "Ideal para probar"),
+        pl.extra ? el("span",{class:"extra"}, "+ " + pl.extra) : null,
+        el("button",{class:"btn"+(pl.id==="free"?" primary":""),type:"button",onclick:()=>abrirAuth("signup")}, pl.id==="free" ? "Empezar gratis" : "Empezar")));
+    }
+  }
+  document.querySelectorAll(".l-moneda .chip").forEach(b=>b.onclick = ()=>pintarPlanesLanding(b.dataset.moneda));
+  pintarPlanesLanding(/^en-US/i.test(navigator.language||"") ? "USD" : "PEN");
   $("goLogin").onclick = ()=>abrirAuth("login");
   $("authSwitch").onclick = ()=>pasoAuth(paso==="signup"?"login":"signup");
   $("loginCancel").onclick = ()=>{ show("login", false); if(!slugPublico) show("landing", true); };
