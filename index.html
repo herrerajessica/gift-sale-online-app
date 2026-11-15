@@ -392,21 +392,54 @@ td small{color:var(--muted);font-family:var(--mono)}
 /* ----- Página principal de Showroomcito ----- */
 .landing{display:grid;gap:8px;margin-block:8px 32px}
 .btn.big{padding:12px 20px;font-size:16px}
-.l-hero{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:32px;align-items:center;padding-block:32px 24px}
-.l-hero-txt{display:grid;gap:14px;align-content:start}
-.l-kicker{font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--accent)}
-.l-hero h2{margin:0;font-family:var(--display);font-weight:800;font-size:clamp(34px,6.5vw,58px);line-height:1;letter-spacing:-.03em;text-wrap:balance}
-.l-hero p{margin:0;color:var(--muted);font-size:18px;max-width:52ch}
-.l-phone{justify-self:center;width:min(300px,100%);border:10px solid #16203A;border-radius:34px;background:#F7F5F0;padding:12px 10px 14px;display:grid;gap:10px;box-shadow:0 24px 48px -24px rgba(22,32,58,.45);transform:rotate(2deg)}
-.l-phone-bar{background:#16203A;color:#fff;border-radius:12px;padding:8px 10px;display:flex;justify-content:space-between;align-items:center;font-size:13px}
-.l-phone-bar small{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;border:1px solid currentColor;border-radius:3px;padding:1px 5px;opacity:.85}
-.l-phone-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.l-mini{background:#fff;border:1px solid #e3dfd6;border-radius:10px;overflow:hidden;display:grid;gap:2px;padding-bottom:8px;position:relative;color:#16203A}
+.l-tira{overflow:hidden;background:#16203A;color:#fff;border-radius:999px;margin-top:12px;padding:10px 0;font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.l-tira-mov{display:flex;gap:40px;width:max-content;animation:tira 38s linear infinite}
+.l-tira-mov span{white-space:nowrap}
+@keyframes tira{to{transform:translateX(-50%)}}
+.l-hero{position:relative;display:grid;justify-items:center;text-align:center;gap:18px;padding:44px 0 8px;isolation:isolate}
+/* las esferas de fondo llegan hasta el borde de la pantalla sin crear barra de desplazamiento */
+html,body{overflow-x:clip}
+.l-hero .logo-row{justify-content:center}
+.l-hero h2{margin:0;font-family:var(--display);font-weight:800;font-size:clamp(40px,8.4vw,92px);line-height:.98;letter-spacing:-.04em;text-wrap:balance;max-width:14ch}
+.l-hero h2 mark{background:linear-gradient(transparent 58%,#F4A51C 58%,#F4A51C 92%,transparent 92%);color:inherit;padding:0 .06em}
+.l-hero>p{margin:0;color:var(--muted);font-size:clamp(16px,2vw,20px);max-width:56ch}
+.l-btns{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
+.pill{display:inline-flex;align-items:center;gap:12px;border-radius:999px;padding:14px 26px;font-weight:700;font-size:17px;text-decoration:none;border:0;cursor:pointer;font-family:var(--body);text-transform:none;letter-spacing:0}
+.pill.blanco{background:var(--surface);color:var(--ink);box-shadow:0 10px 30px -12px rgba(22,32,58,.35);padding-right:8px}
+.pill.blanco i{font-style:normal;width:40px;height:40px;border-radius:999px;background:#F4A51C;color:#16203A;display:grid;place-items:center;font-size:18px}
+.pill.lleno{background:#16203A;color:#fff;box-shadow:0 10px 30px -12px rgba(22,32,58,.6)}
+:root[data-theme="dark"] .pill.lleno{background:#F4A51C;color:#16203A}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .pill.lleno{background:#F4A51C;color:#16203A}}
+.pill:hover{transform:translateY(-1px)}
+.l-blob{position:absolute;border-radius:999px;z-index:-1;pointer-events:none}
+.l-b1{width:340px;height:340px;left:-260px;top:240px;background:radial-gradient(circle at 35% 35%,#FFE3A3,#F4A51C 70%);opacity:.55;filter:blur(2px)}
+.l-b2{width:420px;height:420px;right:-300px;top:300px;background:radial-gradient(circle at 40% 40%,#FBD3E0,#E9785B 75%);opacity:.35;filter:blur(6px)}
+.l-b3{width:70px;height:70px;left:18%;top:470px;background:radial-gradient(circle at 30% 30%,#E7ECFF,#5B7BE8 70%);box-shadow:0 12px 24px -8px rgba(91,123,232,.6)}
+.l-x{position:absolute;left:14%;top:150px;color:#9AA7F0;font-size:30px;font-weight:900;z-index:-1}
+.l-escena{position:relative;width:min(900px,100%);margin-top:18px;padding:30px 0 0}
+.l-laptop{width:min(720px,88%);margin:0 auto}
+.l-pantalla{background:#fff;border:12px solid #16203A;border-bottom-width:16px;border-radius:18px 18px 0 0;padding:10px;display:grid;gap:10px;color:#16203A}
+.l-base{height:14px;background:linear-gradient(#2a3654,#16203A);border-radius:0 0 18px 18px;width:112%;margin-left:-6%}
+.l-nav{display:flex;gap:14px;align-items:center;font-size:12px;border-bottom:1px solid #e3dfd6;padding:2px 4px 8px}
+.l-nav b{font-family:var(--display);font-size:15px;margin-right:auto}
+.l-nav span{color:#5b6275}
+.l-nav em{font-style:normal;background:#1a8f4a;color:#fff;border-radius:999px;padding:2px 8px;font-weight:700}
+.l-grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.l-phone{position:absolute;right:2%;bottom:-6px;width:min(190px,30%);border:8px solid #16203A;border-radius:26px;background:#F7F5F0;padding:8px 6px 10px;display:grid;gap:8px;box-shadow:0 24px 48px -20px rgba(22,32,58,.55);transform:rotate(4deg)}
+.l-phone-bar{background:#16203A;color:#fff;border-radius:10px;padding:6px 8px;font-size:11px;text-align:left}
+.l-phone-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.l-mini{background:#fff;border:1px solid #e3dfd6;border-radius:10px;overflow:hidden;display:grid;gap:2px;padding-bottom:8px;position:relative;color:#16203A;text-align:left}
 .l-mini i{display:block;aspect-ratio:1}
 .l-mini .p{position:absolute;left:6px;top:calc(50% - 22px);background:#F4A51C;color:#1b1400;font-family:var(--mono);font-weight:700;font-size:11px;padding:1px 6px;border-radius:4px}
 .l-mini b{font-size:12px;padding:4px 8px 0;line-height:1.2}
 .l-mini em{font-style:normal;font-size:10px;font-weight:700;color:#14532d;padding:0 8px}
-.l-phone-wa{background:#1a8f4a;color:#fff;text-align:center;border-radius:999px;padding:8px;font-weight:700;font-size:13px}
+.l-phone-wa{background:#1a8f4a;color:#fff;text-align:center;border-radius:999px;padding:6px;font-weight:700;font-size:11px}
+.l-chip{position:absolute;z-index:2;background:var(--surface);color:var(--ink);border-radius:14px;padding:10px 14px;font-weight:700;font-size:14px;box-shadow:0 14px 30px -14px rgba(22,32,58,.45);white-space:nowrap}
+.l-chip.c1{left:0;top:70px}.l-chip.c2{left:4%;bottom:40px}.l-chip.c3{right:0;top:20px}
+@media (prefers-reduced-motion:no-preference){.l-chip{animation:flota 5s ease-in-out infinite}.l-chip.c2{animation-delay:-1.6s}.l-chip.c3{animation-delay:-3.2s}}
+@media (prefers-reduced-motion:reduce){.l-tira-mov{animation:none}}
+@keyframes flota{50%{transform:translateY(-8px)}}
+@media (max-width:760px){.l-grid4{grid-template-columns:repeat(2,1fr)}.l-nav span{display:none}.l-chip{font-size:12px;padding:8px 10px}.l-chip.c1{top:0}.l-chip.c3{display:none}.l-phone{width:38%}.l-b1,.l-b2{opacity:.3}.l-x,.l-b3{display:none}}
 .l-sec{display:grid;gap:16px;padding-block:28px;border-top:1px solid var(--line)}
 .l-sec h3,.l-cta h3{margin:0;font-family:var(--display);font-weight:800;font-size:clamp(26px,4vw,36px);letter-spacing:-.02em}
 .l-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
@@ -435,8 +468,6 @@ td small{color:var(--muted);font-family:var(--mono)}
 .l-cta{display:grid;gap:10px;justify-items:center;text-align:center;padding:36px 16px;border-radius:20px;background:color-mix(in srgb,#F4A51C 18%,var(--surface));border:1px solid color-mix(in srgb,#F4A51C 45%,var(--line))}
 .l-cta p{margin:0;color:var(--muted)}
 .l-contacto a{color:var(--ink);font-weight:700}
-@media (max-width:760px){.l-hero{grid-template-columns:1fr;padding-top:20px}.l-phone{transform:none;width:min(280px,100%)}}
-@media (prefers-reduced-motion:no-preference){.l-phone{transition:transform .3s}.l-phone:hover{transform:rotate(0)}}
 </style>
 </head>
 <body>
@@ -453,24 +484,37 @@ td small{color:var(--muted);font-family:var(--mono)}
 
 <main class="wrap">
   <div class="landing" id="landing" hidden>
+    <div class="l-tira" aria-hidden="true"><div class="l-tira-mov"><span>⚡ Gratis hasta 10 productos</span><span>⚡ Yape sin comisión</span><span>⚡ Carga tus productos por voz</span><span>⚡ La IA lee la etiqueta</span><span>⚡ Pedidos completos por WhatsApp</span><span>⚡ Perú y Estados Unidos</span><span>⚡ Tiendas de confianza</span><span>⚡ Gratis hasta 10 productos</span><span>⚡ Yape sin comisión</span><span>⚡ Carga tus productos por voz</span><span>⚡ La IA lee la etiqueta</span><span>⚡ Pedidos completos por WhatsApp</span><span>⚡ Perú y Estados Unidos</span><span>⚡ Tiendas de confianza</span></div></div>
     <section class="l-hero">
-      <div class="l-hero-txt">
-        <div class="logo-row"><svg aria-hidden="true" width="52" height="52" viewBox="0 0 64 64" fill="none" stroke-linejoin="round"><rect width="64" height="64" rx="14" fill="#F4A51C"/><g transform="translate(6 6) scale(.8125)"><rect x="15" y="24" width="34" height="36" rx="6" fill="#FFFFFF" stroke="#16203A" stroke-width="4.5"/><path d="M14 8h36l6 14H8L14 8z" fill="#16203A"/><path d="M8 22a6 6 0 0 0 12 0a6 6 0 0 0 12 0a6 6 0 0 0 12 0a6 6 0 0 0 12 0z" fill="#FFFFFF" stroke="#16203A" stroke-width="3.5"/><path d="M27 52h10" stroke="#16203A" stroke-width="4" stroke-linecap="round"/></g></svg><span class="logo-txt">showroom<span>cito</span></span></div>
-        <span class="l-kicker">Para mercaditos, ventas desde casa y viajeras</span>
-        <h2>Tu showroom en el celular</h2>
-        <p>Sube todas tus fotos de una vez, nuevas o usadas. La IA les pone nombre, marca y precio; tú compartes tu enlace y tus clientas te piden por WhatsApp y pagan con Yape o tarjeta.</p>
-        <div class="actions" style="justify-content:flex-start"><button class="btn primary big" type="button" id="goSignup">Crear mi showroom gratis</button><button class="btn big" type="button" id="goLogin">Ya tengo cuenta</button></div>
-        <span class="note" style="margin:0">Gratis hasta 10 productos. Sin tarjeta para empezar.</span>
+      <span class="l-blob l-b1" aria-hidden="true"></span><span class="l-blob l-b2" aria-hidden="true"></span><span class="l-blob l-b3" aria-hidden="true"></span><span class="l-x" aria-hidden="true">✕</span>
+      <div class="logo-row"><svg aria-hidden="true" width="44" height="44" viewBox="0 0 64 64" fill="none" stroke-linejoin="round"><rect width="64" height="64" rx="14" fill="#F4A51C"/><g transform="translate(6 6) scale(.8125)"><rect x="15" y="24" width="34" height="36" rx="6" fill="#FFFFFF" stroke="#16203A" stroke-width="4.5"/><path d="M14 8h36l6 14H8L14 8z" fill="#16203A"/><path d="M8 22a6 6 0 0 0 12 0a6 6 0 0 0 12 0a6 6 0 0 0 12 0a6 6 0 0 0 12 0z" fill="#FFFFFF" stroke="#16203A" stroke-width="3.5"/><path d="M27 52h10" stroke="#16203A" stroke-width="4" stroke-linecap="round"/></g></svg><span class="logo-txt">showroom<span>cito</span></span></div>
+      <h2>Tu <mark>showroom</mark> en el celular</h2>
+      <p>Sube todas tus fotos de una vez, nuevas o usadas. La IA les pone nombre, marca y precio; tú compartes tu enlace y tus clientas te piden por WhatsApp y pagan con Yape o tarjeta.</p>
+      <div class="l-btns">
+        <a class="pill blanco" href="#comoFunciona">Mira cómo funciona <i aria-hidden="true">↓</i></a>
+        <button class="pill lleno" type="button" id="goSignup">Crear mi showroom gratis</button>
       </div>
-      <div class="l-phone" aria-hidden="true">
-        <div class="l-phone-bar"><b>maria-importados</b><small>Traído de USA</small></div>
-        <div class="l-phone-grid">
-          <div class="l-mini"><i style="background:#d9b48f"></i><span class="p">S/ 85</span><b>Cartera camel</b><em>Nuevo con etiqueta</em></div>
-          <div class="l-mini"><i style="background:#b9c4d6"></i><span class="p">S/ 140</span><b>Reloj dorado</b><em>Caja abierta</em></div>
-          <div class="l-mini"><i style="background:#f3c6d3"></i><span class="p">S/ 59</span><b>Perfume floral</b><em>Nuevo</em></div>
-          <div class="l-mini"><i style="background:#a9c7a3"></i><span class="p">S/ 45</span><b>Jean wide leg</b><em>Usado como nuevo</em></div>
+      <span class="note" style="margin:0">Gratis hasta 10 productos · <button class="linkish" type="button" id="goLogin" style="font-size:inherit">Ya tengo cuenta</button></span>
+      <div class="l-escena" aria-hidden="true">
+        <span class="l-chip c1">✨ La IA lee la etiqueta</span>
+        <span class="l-chip c2">💜 Yape sin comisión</span>
+        <span class="l-chip c3">🎙️ Díctalo por voz</span>
+        <div class="l-laptop"><div class="l-pantalla">
+          <div class="l-nav"><b>maria-importados</b><span>Ropa</span><span>Zapatos</span><span>Carteras</span><span>Relojes</span><em>🛒 2</em></div>
+          <div class="l-grid4">
+            <div class="l-mini"><i style="background:#d9b48f"></i><span class="p">S/ 85</span><b>Cartera camel</b><em>Nuevo con etiqueta</em></div>
+            <div class="l-mini"><i style="background:#b9c4d6"></i><span class="p">S/ 140</span><b>Reloj dorado</b><em>Caja abierta</em></div>
+            <div class="l-mini"><i style="background:#f3c6d3"></i><span class="p">S/ 59</span><b>Perfume floral</b><em>Nuevo</em></div>
+            <div class="l-mini"><i style="background:#a9c7a3"></i><span class="p">S/ 45</span><b>Jean wide leg</b><em>Usado como nuevo</em></div>
+          </div></div><div class="l-base"></div></div>
+        <div class="l-phone">
+          <div class="l-phone-bar"><b>maria-importados</b></div>
+          <div class="l-phone-grid">
+            <div class="l-mini"><i style="background:#f5dc8a"></i><span class="p">S/ 35</span><b>Bloques</b><em>Nuevo</em></div>
+            <div class="l-mini"><i style="background:#9fb6e6"></i><span class="p">S/ 22</span><b>Gorra azul</b><em>Nuevo</em></div>
+          </div>
+          <div class="l-phone-wa">Pedir por WhatsApp</div>
         </div>
-        <div class="l-phone-wa">Pedir por WhatsApp</div>
       </div>
     </section>
 
@@ -483,7 +527,7 @@ td small{color:var(--muted);font-family:var(--mono)}
       </div>
     </section>
 
-    <section class="l-sec l-dark">
+    <section class="l-sec l-dark" id="comoFunciona">
       <h3>Así de fácil</h3>
       <ol class="l-pasos">
         <li><b>1</b><div><strong>Sube todas tus fotos</strong><span>De una sola vez: 10, 50 o 100. O díctalos por voz mientras los miras.</span></div></li>

@@ -2144,7 +2144,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       iniciarVitrina();
       return;
     }
-    if(!ses.logged){ show("landing", true); show("vitrina", false); if(location.hash==="#entrar") abrirAuth("login"); return; }
+    if(!ses.logged){ show("landing", true); show("vitrina", false); { const st = document.querySelector(".brand .stamp"); if(st) st.hidden = true; } if(location.hash==="#entrar") abrirAuth("login"); return; }
 
     let tienda = null;
     try{ tienda = await miTienda(ses.sub); }catch(e){
