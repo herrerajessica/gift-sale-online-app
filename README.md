@@ -45,6 +45,10 @@ La idea central es **subir muchas fotos de una vez**. Al arrastrar el lote se pu
 - **Cantidad (stock):** opcional; vacío significa "sin control". El cliente ve "Quedan N" o "¡Última unidad!" cuando quedan 3 o menos, y "Agotado" en 0. No puede pedir más unidades de las disponibles: lo valida la pantalla y también el servidor.
 - **Descuento automático:** al pagar con tarjeta, el webhook descuenta las unidades una sola vez (aunque Stripe reenvíe el aviso). Al confirmar un Yape, se descuentan cuando la vendedora toca *Confirmar pago*. Los pedidos por WhatsApp se ajustan a mano.
 
+## Página de venta: portada y descripción
+
+En Datos de la tienda › **Tu página de venta**: foto de portada (`Tienda.portada`, se achica a 1600 px) y descripción de hasta 300 letras (`Tienda.descripcionTienda`). El cliente ve arriba de la tienda la foto con el nombre, la descripción y cuántos productos hay. Sin foto, la cabecera usa los colores de Showroomcito; sin foto ni descripción, no se muestra.
+
 ## Catálogo por rubro (tipo de producto y marcas)
 
 Al crear la tienda, en la misma pantalla, la vendedora toca **¿Qué vendes?**: Ropa y moda (marcado por defecto), Zapatos, Carteras y accesorios, Belleza y perfumes, Relojes y joyería o De todo un poco (`Tienda.rubro`; se cambia en Datos de la tienda; vacío = moda).

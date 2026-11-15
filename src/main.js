@@ -663,7 +663,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       grid.append(card);
     }
     const n = S.products.length;
-    if(S.canEdit) marcarTab("productos", n, false);
+    if(S.canEdit) marcarTab("productos", n, false); else pintarPortada();
     $("count").textContent = n ? (list.length===n ? tx(`${n} productos`,`${n} products`) : tx(`${list.length} de ${n} productos`,`${list.length} of ${n} products`)) : "";
     const empty=$("empty");
     if(S.loaded && !n){ empty.hidden=false; $("emptyTitle").textContent = S.canEdit ? "Tu vitrina está vacía" : tx("Pronto habrá productos aquí","Products coming soon"); $("emptyText").textContent = S.canEdit ? "Arrastra todas tus fotos al recuadro de arriba. Cada foto se convierte en un producto listo para vender, y después le pones nombre y precio." : tx("Esta tienda todavía no ha publicado productos. Vuelve en un rato.","This store hasn't published any products yet. Check back soon."); }
@@ -1149,6 +1149,9 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     if(document.activeElement!==$("setDias")) $("setDias").value = S.config.diasSeparado ? String(S.config.diasSeparado) : "";
     if(document.activeElement!==$("setGrupo")) $("setGrupo").value = S.config.grupoWhatsapp || "";
     $("setChatCli").checked = S.config.chatClientes !== false;
+    if(document.activeElement!==$("setDescTienda")){ $("setDescTienda").value = S.config.descripcionTienda || ""; $("setDescCuenta").textContent = `${$("setDescTienda").value.length} / 300`; }
+    if(portadaNueva===undefined) pintarPortadaConfig(S.config.portada||"");
+    pintarPortada();
     if(document.activeElement!==$("setRubro")){ const sr=$("setRubro"); if(!sr.options.length) RUBROS.forEach(r=>sr.append(el("option",{value:r.id},r.nombre))); sr.value = rubroActual(); }
     pintarCliBtn();
     // Botón "Únete a mi grupo" para los clientes
@@ -1176,6 +1179,36 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     catch(e){ console.warn("Detalle técnico:", e); toast(e && e.name==="NotAuthorizedException" ? "La contraseña actual no es correcta" : e && /LimitExceeded|TooManyRequests/.test(e.name) ? "Muchos intentos seguidos. Espera unos minutos." : "No se pudo cambiar la contraseña. Si entras con Google, cámbiala desde tu cuenta de Google."); }
     finally{ b.disabled = false; }
   };
+  // ---------- Página de venta: portada y descripción ----------
+  let portadaNueva;  // undefined = sin cambios; "" = quitar; ruta = nueva foto
+  function pintarPortadaConfig(path){
+    const prev = $("setPortadaPrev");
+    prev.style.backgroundImage = path ? `url("${src(path)}")` : ""; $("setPortadaVacia").hidden = !!path;
+    $("setPortadaDel").hidden = !path; $("setPortadaUp").textContent = path ? "Cambiar foto" : "Subir foto de portada";
+  }
+  $("setPortadaUp").onclick = ()=>$("setPortadaFile").click();
+  $("setPortadaDel").onclick = ()=>{ portadaNueva = ""; pintarPortadaConfig(""); };
+  $("setDescTienda").addEventListener("input", ()=>{ $("setDescCuenta").textContent = `${$("setDescTienda").value.length} / 300`; });
+  $("setPortadaFile").onchange = async e=>{
+    const f = e.target.files && e.target.files[0]; e.target.value = ""; if(!f) return;
+    $("setPortadaUp").disabled = true; $("setPortadaUp").textContent = "Subiendo…";
+    try{ const img = await decode(f); const c = lienzo(img, 1600); const blob = await aBlobLiviano(c, 1600, .84, 320); const r = await S.assets.upload(blob, {type:"image/jpeg"}); portadaNueva = r.id; pintarPortadaConfig(r.id); toast("Foto lista. Toca Guardar."); }
+    catch(err){ toast("No se pudo subir la foto: " + errText(err)); pintarPortadaConfig(S.config.portada||""); }
+    finally{ $("setPortadaUp").disabled = false; }
+  };
+  // Cabecera de la tienda para el cliente: foto, nombre, descripción y cuántos productos hay
+  function pintarPortada(){
+    const box = $("portadaTienda"); if(!box) return;
+    const foto = S.config && S.config.portada, desc = (S.config && S.config.descripcionTienda) || "";
+    box.hidden = S.canEdit || !(foto || desc);
+    if(box.hidden) return;
+    box.classList.toggle("con-foto", !!foto);
+    box.style.backgroundImage = foto ? `url("${src(foto)}")` : "";
+    $("portadaNombre").textContent = S.config.nombre || "";
+    $("portadaDesc").textContent = desc; $("portadaDesc").hidden = !desc;
+    const n = S.products.filter(p=>p.estado!=="oculto").length;
+    $("portadaMeta").textContent = n ? tx(`${n} producto${n===1?"":"s"}`, `${n} item${n===1?"":"s"}`) : "";
+  }
   // QR de Yape: se sube al elegirlo y se guarda junto con los demás datos.
   function pintarQrConfig(path){
     const img=$("setYapeImg");
@@ -1207,6 +1240,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         grupoWhatsapp: grupoValido($("setGrupo").value) || "",
         chatClientes: $("setChatCli").checked,
         rubro: $("setRubro").value || "moda",
+        portada: portadaNueva!==undefined ? portadaNueva : (S.config.portada||""),
+        descripcionTienda: $("setDescTienda").value.trim().slice(0,300),
         yapeNumero:$("setYapeNum").value.trim(), yapeNombre:$("setYapeName").value.trim(),
         yapeQr: yapeQrNuevo!==undefined ? yapeQrNuevo : (S.config.yapeQr||""),
         pais, moneda,
@@ -1216,7 +1251,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         const fails = await runPool(conPrecio.map(p=>p.id), id=>{ const p = S.products.find(x=>x.id===id); const v = moneda==="PEN" ? Math.round(p.precio*tc) : Math.round(p.precio/tc*100)/100; return S.db.doc("productos/"+id).update({ precio: v }); });
         toast(fails ? `Datos guardados; ${fails} precios no se pudieron convertir` : `Datos guardados y ${conPrecio.length} precios convertidos a ${moneda==="PEN" ? "soles" : "dólares"}`);
       } else toast("Datos guardados");
-      yapeQrNuevo = undefined; if(!document.querySelector("main").classList.contains("con-tabs")) $("settings").hidden=true;
+      yapeQrNuevo = undefined; portadaNueva = undefined; if(!document.querySelector("main").classList.contains("con-tabs")) $("settings").hidden=true;
     }catch(e){ toast("No se pudo guardar. Intenta de nuevo."); }
   };
 

@@ -123,6 +123,15 @@ button{cursor:pointer}
 .oferta-tag{position:absolute;left:10px;top:10px;background:#d62f4b;color:#fff;font:700 12px/1 var(--mono);padding:5px 7px;border-radius:6px}
 .oferta-hasta{font-size:12.5px;font-weight:700;color:#c4223f}
 .oferta-fila{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font-size:13.5px;padding:8px 10px;border-radius:10px;background:var(--paper);border:1px solid #f1b7c1}
+.portada{position:relative;margin:0 0 16px;border-radius:22px;overflow:hidden;min-height:150px;display:flex;align-items:flex-end;background:linear-gradient(135deg,#1f4fd1,#14213d);background-size:cover;background-position:center;color:#fff}
+.portada.con-foto{min-height:clamp(200px,32vw,340px)}
+.portada.con-foto::before{content:"";position:absolute;inset:0;background:linear-gradient(to top,rgb(10 16 30 / .82),rgb(10 16 30 / .15) 65%)}
+.portada-txt{position:relative;padding:clamp(18px,3vw,32px);display:grid;gap:6px;max-width:760px}
+.portada h2{margin:0;font-family:var(--display);font-weight:800;font-size:clamp(26px,4.4vw,44px);line-height:1.05;letter-spacing:-.5px;text-wrap:balance}
+.portada p{margin:0;font-size:clamp(14.5px,1.6vw,17px);line-height:1.45;opacity:.95;white-space:pre-line}
+.portada-meta{font-size:13.5px;font-weight:700;opacity:.9}
+.portada-set{display:grid;gap:8px}
+.portada-prev{height:140px;border-radius:14px;border:1.5px dashed var(--line);background:var(--paper) center/cover no-repeat;display:grid;place-items:center;color:var(--muted);font-size:13px}
 .grupo-link{display:flex;align-items:center;justify-content:center;gap:8px;margin:0 0 14px;padding:11px 14px;border-radius:12px;background:#e7f8ee;color:#0b6b3a;border:1px solid #a6e2bf;font-weight:700;text-decoration:none}
 .grupo-link:hover{background:#d8f3e4}
 .price small{display:block;font-size:11px;font-weight:500;opacity:.8;line-height:1.1}
@@ -745,6 +754,17 @@ html,body{overflow-x:clip}
       <div class="f">Asistente para tus clientes<label class="chk" style="text-transform:none;letter-spacing:0;font-weight:500;color:var(--ink)"><input type="checkbox" id="setChatCli" checked> Activado</label><span class="note" style="margin:0;text-transform:none;letter-spacing:0;font-weight:400">Tus clientes le preguntan en tu tienda y les sugiere tus productos. Por ejemplo, si escriben "busco una cartera negra", les muestra tus carteras negras.</span></div>
       <label class="f">Días para separar tus productos (tiendas de confianza)<input id="setDias" inputmode="numeric" placeholder="7" title="Cuánto tiempo puede una tienda de confianza tener separado un producto tuyo antes de confirmar la venta"></label>
     </div>
+    <fieldset class="yape-set" id="paginaSet">
+      <legend>Tu página de venta</legend>
+      <div class="portada-set">
+        <div class="portada-prev" id="setPortadaPrev"><span id="setPortadaVacia">Sin foto de portada</span></div>
+        <span style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" type="button" id="setPortadaUp">Subir foto de portada</button><button class="btn danger" type="button" id="setPortadaDel" hidden>Quitar</button></span>
+        <span class="note" style="margin:0">Una foto horizontal de tu tienda, tu puesto o tus productos. Se ve arriba de tu tienda.</span>
+        <input type="file" id="setPortadaFile" accept="image/*" hidden>
+      </div>
+      <label class="f">Descripción de tu tienda<textarea id="setDescTienda" rows="3" maxlength="300" placeholder="Ej.: Ropa y carteras originales traídas de USA. Entregas en Lima y envíos a todo el Perú."></textarea></label>
+      <span class="note" style="margin:0" id="setDescCuenta">0 / 300</span>
+    </fieldset>
     <fieldset class="yape-set solo-pe">
       <legend>Cobrar con Yape</legend>
       <div class="row2">
@@ -818,6 +838,13 @@ html,body{overflow-x:clip}
 
   <section class="lote" id="lote" hidden aria-labelledby="loteTitulo"></section>
 
+  <section class="portada" id="portadaTienda" hidden>
+    <div class="portada-txt">
+      <h2 id="portadaNombre"></h2>
+      <p id="portadaDesc"></p>
+      <span class="portada-meta" id="portadaMeta"></span>
+    </div>
+  </section>
   <a class="grupo-link" id="grupoLink" hidden target="_blank" rel="noopener"></a>
   <div class="tools">
     <input class="search" id="q" type="search" placeholder="Buscar producto…" aria-label="Buscar producto">

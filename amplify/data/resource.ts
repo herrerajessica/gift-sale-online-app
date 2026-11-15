@@ -39,6 +39,9 @@ const schema = a.schema({
       grupoWhatsapp: a.string(),
       // Rubro de la tienda (moda, zapatos, carteras, belleza, joyeria, variado): trae sus tipos de producto. Vacío = moda.
       rubro: a.string(),
+      // Página de la tienda: foto de portada (ruta en S3) y una descripción corta
+      portada: a.string(),
+      descripcionTienda: a.string(),
       // Asistente para clientes en la tienda ("regalos para niño de 5 años"). Vacío = activado; false = apagado.
       chatClientes: a.boolean(),
       clienteDia: a.string().authorization(soloLecturaDueña),

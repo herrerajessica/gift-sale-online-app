@@ -230,6 +230,8 @@ function configRef() {
         ...(typeof d.grupoWhatsapp === 'string' ? { grupoWhatsapp: d.grupoWhatsapp } : {}),
         ...(typeof d.chatClientes === 'boolean' ? { chatClientes: d.chatClientes } : {}),
         ...(typeof d.rubro === 'string' && d.rubro ? { rubro: d.rubro } : {}),
+        ...(typeof d.portada === 'string' ? { portada: d.portada } : {}),
+        ...(typeof d.descripcionTienda === 'string' ? { descripcionTienda: d.descripcionTienda.slice(0, 300) } : {}),
         ...(d.pais === 'US' || d.pais === 'PE' ? { pais: d.pais } : {}),
         ...(d.moneda === 'USD' || d.moneda === 'PEN' ? { moneda: d.moneda } : {}),
       };
