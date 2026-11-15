@@ -100,6 +100,14 @@ button{cursor:pointer}
 .card .name{font-weight:600;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;min-height:2.6em}
 .card .meta{font-size:12px;color:var(--muted);display:flex;gap:6px;justify-content:space-between}
 .price{position:absolute;left:10px;bottom:10px;background:var(--tag);color:var(--tag-ink);font-family:var(--mono);font-weight:700;font-size:14px;padding:3px 9px 3px 14px;border-radius:3px 6px 6px 3px;clip-path:polygon(8px 0,100% 0,100% 100%,8px 100%,0 50%);font-variant-numeric:tabular-nums}
+.price.oferta{background:#d62f4b;color:#fff}
+.price s,.bigprice s{font-size:.78em;font-weight:500;opacity:.75;margin-left:6px}
+.bigprice.oferta{color:#c4223f}
+.oferta-tag{position:absolute;left:10px;top:10px;background:#d62f4b;color:#fff;font:700 12px/1 var(--mono);padding:5px 7px;border-radius:6px}
+.oferta-hasta{font-size:12.5px;font-weight:700;color:#c4223f}
+.oferta-fila{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font-size:13.5px;padding:8px 10px;border-radius:10px;background:var(--paper);border:1px solid #f1b7c1}
+.grupo-link{display:flex;align-items:center;justify-content:center;gap:8px;margin:0 0 14px;padding:11px 14px;border-radius:12px;background:#e7f8ee;color:#0b6b3a;border:1px solid #a6e2bf;font-weight:700;text-decoration:none}
+.grupo-link:hover{background:#d8f3e4}
 .price small{display:block;font-size:11px;font-weight:500;opacity:.8;line-height:1.1}
 .bigsol{display:block;font-size:.62em;font-weight:500;color:var(--muted)}
 .price.none{background:var(--surface);color:var(--muted);font-weight:500}
@@ -697,6 +705,7 @@ html,body{overflow-x:clip}
       <label class="f">País de tus clientes<select id="setPais"><option value="PE">Perú (soles, Yape, español)</option><option value="US">Estados Unidos (dólares, inglés)</option></select></label>
       <label class="f solo-pe">Tipo de cambio (S/ por 1 USD)<input id="setRate" inputmode="decimal" placeholder="3.46"></label>
       <label class="f solo-pe">Descuento por Yape o efectivo (%)<input id="setDesc" inputmode="decimal" placeholder="Ej. 7" title="Tus precios son con tarjeta; quien paga con Yape o efectivo paga este porcentaje menos"></label>
+      <label class="f">Grupo de WhatsApp de ventas (enlace)<input id="setGrupo" inputmode="url" placeholder="https://chat.whatsapp.com/…" title="En WhatsApp: tu grupo › Invitar al grupo › Copiar enlace. Tus clientes verán el botón Únete a mi grupo."></label>
       <label class="f">Días para separar tus productos (tiendas de confianza)<input id="setDias" inputmode="numeric" placeholder="7" title="Cuánto tiempo puede una tienda de confianza tener separado un producto tuyo antes de confirmar la venta"></label>
     </div>
     <fieldset class="yape-set solo-pe">
@@ -750,6 +759,7 @@ html,body{overflow-x:clip}
         <button class="btn primary" id="pickBtn">Elegir fotos</button>
         <button class="btn" id="dictBtn" title="Dicta tus productos mientras los miras y luego sube sus fotos">🎙️ Dictar productos</button>
         <button class="btn" id="selectBtn">Editar varios</button>
+        <button class="btn" id="grupoBtn" title="Arma un mensaje con tus ofertas o con los productos que marques">📣 Mensaje para mi grupo</button>
       </div>
       <input type="file" id="fileInput" accept="image/*" multiple hidden>
     </div>
@@ -764,6 +774,7 @@ html,body{overflow-x:clip}
 
   <section class="lote" id="lote" hidden aria-labelledby="loteTitulo"></section>
 
+  <a class="grupo-link" id="grupoLink" hidden target="_blank" rel="noopener"></a>
   <div class="tools">
     <input class="search" id="q" type="search" placeholder="Buscar producto…" aria-label="Buscar producto">
     <div class="cats" id="cats"></div>
@@ -780,11 +791,14 @@ html,body{overflow-x:clip}
     <input id="bulkMargen" inputmode="decimal" placeholder="Margen %" aria-label="Margen sobre el costo para seleccionados">
     <select id="bulkStatus" aria-label="Estado para seleccionados"><option value="">Estado…</option><option value="disponible">Disponible</option><option value="apartado">Apartado</option><option value="vendido">Vendido</option><option value="oculto">Ocultar de la tienda</option></select>
     <select id="bulkCond" aria-label="Condición para seleccionados"><option value="">Condición…</option><option value="nuevo_etiqueta">Nuevo con etiqueta</option><option value="nuevo">Nuevo sin etiqueta</option><option value="caja_abierta">Caja abierta</option><option value="como_nuevo">Usado como nuevo</option><option value="usado">Usado</option></select>
+    <input id="bulkOferta" inputmode="decimal" placeholder="Oferta %" aria-label="Porcentaje de oferta para seleccionados" title="Descuento por tiempo: el precio normal vuelve solo cuando vence">
+    <select id="bulkOfertaHasta" aria-label="Hasta cuándo dura la oferta"><option value="hoy">hasta hoy</option><option value="domingo">hasta el domingo</option><option value="7" selected>por 7 días</option><option value="30">por 30 días</option><option value="quitar">Quitar oferta</option></select>
     <select id="bulkPub" aria-label="Público para seleccionados"><option value="">Para…</option><option>Mujer</option><option>Hombre</option><option>Niños</option><option>Unisex</option></select>
     <button class="btn primary" id="bulkApply">Aplicar</button>
     <button class="btn" id="bulkAI" hidden>Clasificar con IA</button>
     <button class="btn" id="bulkTabla">Editar en tabla</button>
     <button class="btn" id="bulkDup">Buscar repetidos</button>
+    <button class="btn" id="bulkGrupo" title="Arma el mensaje con estos productos para tu grupo de WhatsApp">📣 Mensaje para mi grupo</button>
     <button class="btn" id="bulkShare" title="Tus tiendas de confianza podrán revenderlos">Compartir</button>
     <button class="btn" id="bulkUnshare">Dejar de compartir</button>
     <button class="btn danger" id="bulkDel">Borrar</button>

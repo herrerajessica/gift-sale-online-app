@@ -1,3 +1,4 @@
+import { ofertaActiva, zonaDe } from '../shared/oferta';
 import {
   BedrockRuntimeClient, ConverseCommand,
   type ContentBlock, type Message, type Tool,
@@ -55,6 +56,7 @@ const resumirProducto = (p: Record<string, any>) => ({
   id: p.id, codigo: p.codigo || '', nombre: p.nombre, marca: p.marca || '', precio: p.precio ?? null, costo: p.costo ?? null,
   stock: typeof p.stock === 'number' ? p.stock : null, talla: p.talla || '', condicion: p.condicion || '', categoria: p.categoria || '',
   publico: p.publico || '', estado: p.estado || 'disponible', descripcion: (p.descripcion || '').slice(0, 200),
+  ...(ofertaActiva(p) ? { oferta: { precio: p.precioOferta, hasta: new Date(p.ofertaHasta).toISOString().slice(0, 10) } } : {}),
 });
 
 export const handler = async (event: Evento) => {
@@ -135,7 +137,7 @@ export const handler = async (event: Evento) => {
         return { total: lista.length, pedidos: lista };
       }
       case 'proponer_cambios': {
-        propuesta = limpiarPropuesta(input, mapaProd, mapaPed);
+        propuesta = limpiarPropuesta(input, mapaProd, mapaPed, zonaDe(t.pais), t.pais !== 'US' && t.moneda === 'PEN' ? 'PEN' : 'USD');
         const n = propuesta.productos.length + propuesta.pedidos.length;
         return n
           ? { ok: true, cambios: n, nota: 'Propuesta enviada a la vendedora. Aún NO está aplicada: debe revisarla y tocar Aplicar.' }
@@ -158,7 +160,7 @@ export const handler = async (event: Evento) => {
   const textoSel = sel.length
     ? `\n\nProductos que la vendedora tiene marcados ahora en su lista (${sel.length}):\n${JSON.stringify(sel)}`
     : '\n\nLa vendedora no tiene productos marcados en su lista.';
-  const system = [{ text: instrucciones(t, new Date().toLocaleDateString('es-PE', { timeZone: 'America/Lima', dateStyle: 'full' })) + textoSel }];
+  const system = [{ text: instrucciones(t, new Date().toLocaleDateString('es-PE', { timeZone: zonaDe(t.pais), dateStyle: 'full' }) + ` (${new Date().toLocaleDateString('en-CA', { timeZone: zonaDe(t.pais) })})`) + textoSel }];
 
   let texto = '';
   let insistio = false;

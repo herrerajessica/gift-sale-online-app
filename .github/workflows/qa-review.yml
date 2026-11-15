@@ -8,6 +8,16 @@ name: QA Review
 on:
   pull_request:
     branches: [main]
+  # Después de cada cambio en pruebas (espera a que Amplify publique), todas las noches y a mano
+  push:
+    branches: [pruebas]
+  schedule:
+    - cron: '17 9 * * *'   # 4:17 a. m. hora de Perú
+  workflow_dispatch:
+
+concurrency:
+  group: qa-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   trazabilidad-y-pruebas:
@@ -21,6 +31,9 @@ jobs:
       - name: Verificar matriz de trazabilidad
         run: node scripts/check-traceability.js
       - run: npx playwright install --with-deps chromium
+      - name: Esperar a que Amplify publique pruebas
+        if: github.event_name == 'push'
+        run: sleep 480
       - name: Ejecutar Playwright
         run: npx playwright test
         env:
@@ -31,6 +44,9 @@ jobs:
           TEST_PENDING_STORE: ${{ vars.TEST_PENDING_STORE }}
           TEST_STORE_COBROS: ${{ vars.TEST_STORE_COBROS }}
           TEST_STORE_YAPE: ${{ vars.TEST_STORE_YAPE }}
+          TEST_USER_B: ${{ secrets.TEST_USER_B }}
+          TEST_PASSWORD_B: ${{ secrets.TEST_PASSWORD_B }}
+          TEST_STORE_B: ${{ vars.TEST_STORE_B }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:

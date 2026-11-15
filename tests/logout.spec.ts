@@ -13,6 +13,7 @@ test.describe('REQ-002 Cierre de sesión', () => {
     await login.login(USER, PASS);
     await expect(page.getByRole('heading', { name: 'Arrastra aquí todas las fotos' })).toBeVisible();
     await page.getByRole('button', { name: 'Cerrar sesión' }).click();
-    await expect(page.getByRole('heading', { name: 'Tu vitrina online en minutos' })).toBeVisible();
+    await expect(page.locator('#landing')).toBeVisible();
+    await expect(page.locator('#vtabs')).toBeHidden();
   });
 });

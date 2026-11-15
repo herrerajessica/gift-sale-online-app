@@ -129,6 +129,11 @@ const toProducto = (it) => ({
   // Tiendas de confianza
   compartido: !!it.compartido,
   precioReventa: typeof it.precioReventa === 'number' ? it.precioReventa : null,
+  // Oferta con fecha de fin. En la vendedora vienen precioOferta y ofertaHasta tal cual están guardados;
+  // en el catálogo público "precio" ya es el de oferta y "precioAntes" el normal.
+  precioOferta: typeof it.precioOferta === 'number' ? it.precioOferta : null,
+  ofertaHasta: typeof it.ofertaHasta === 'number' ? it.ofertaHasta : null,
+  precioAntes: typeof it.precioAntes === 'number' ? it.precioAntes : null,
   origenId: it.origenId || '',
   origenTienda: it.origenTienda || '',
   fotos: (it.fotosFull || []).map((full, i) => ({ full, thumb: (it.fotosThumb || [])[i] || full })),
@@ -214,6 +219,7 @@ function configRef() {
         yapeNumero: d.yapeNumero || '', yapeNombre: d.yapeNombre || '', yapeQr: d.yapeQr || '',
         descuentoContado: typeof d.descuentoContado === 'number' ? d.descuentoContado : 0,
         ...(Number.isInteger(d.diasSeparado) ? { diasSeparado: d.diasSeparado } : {}),
+        ...(typeof d.grupoWhatsapp === 'string' ? { grupoWhatsapp: d.grupoWhatsapp } : {}),
         ...(d.pais === 'US' || d.pais === 'PE' ? { pais: d.pais } : {}),
         ...(d.moneda === 'USD' || d.moneda === 'PEN' ? { moneda: d.moneda } : {}),
       };

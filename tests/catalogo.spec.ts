@@ -15,11 +15,11 @@ test.describe('REQ-003 Catálogo público por vendedora', () => {
     await expect(page.getByRole('heading', { name: 'Arrastra aquí todas las fotos' })).toBeHidden();
   });
 
-  test('CP-005 Precio en dólares y soles @REQ-003', async ({ page }) => {
+  test('CP-005 Precio en la moneda de la tienda @REQ-003', async ({ page }) => {
     await page.goto(`/?tienda=${TIENDA}`);
-    const etiqueta = page.locator('#grid .card .price').filter({ hasText: '$' }).first();
-    await expect(etiqueta).toContainText('$');
-    await expect(etiqueta).toContainText('S/');
+    // Tienda en soles: "S/ 120". Tienda en dólares de Perú: "$45" y debajo "S/ 156".
+    const etiqueta = page.locator('#grid .card .price:not(.none)').first();
+    await expect(etiqueta).toContainText(/S\/|\$/);
   });
 });
 

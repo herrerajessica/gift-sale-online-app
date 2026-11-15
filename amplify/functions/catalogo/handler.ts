@@ -1,3 +1,4 @@
+import { ofertaActiva } from '../shared/oferta';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import type { Schema } from '../../data/resource';
@@ -62,7 +63,9 @@ export const handler: Schema['catalogo']['functionHandler'] = async (event) => {
       p = { ...c, stock: o.stock, fotosFull: o.fotosFull, fotosThumb: o.fotosThumb };
     }
     productos.push({
-      id: p.id, codigo: c.codigo || '', nombre: p.nombre, marca: p.marca || '', precio: p.precio ?? null,
+      id: p.id, codigo: c.codigo || '', nombre: p.nombre, marca: p.marca || '',
+      // Con oferta vigente, "precio" ya es el de oferta (así el carrito, Yape y la tarjeta cobran lo mismo) y "precioAntes" el normal.
+      ...(ofertaActiva(p) ? { precio: p.precioOferta, precioAntes: p.precio, ofertaHasta: p.ofertaHasta } : { precio: p.precio ?? null }),
       stock: typeof p.stock === 'number' ? p.stock : null, talla: p.talla || '', condicion: p.condicion || '', categoria: p.categoria || '',
       // "costo", "precioReventa" y el origen nunca se devuelven: son datos privados de las vendedoras.
       publico: p.publico || '', descripcion: p.descripcion || '', estado: p.estado || 'disponible',
@@ -81,7 +84,7 @@ export const handler: Schema['catalogo']['functionHandler'] = async (event) => {
     vistaPrevia: estado !== 'aprobada',
     tienda: { id: t.id, nombre: t.nombre, pais: t.pais === 'US' ? 'US' : 'PE', moneda: t.pais !== 'US' && t.moneda === 'PEN' ? 'PEN' : 'USD', whatsapp: t.whatsapp || '', tipoCambio: t.tipoCambio ?? null, cobrosActivos: !!t.cobrosActivos,
       descuentoContado: typeof t.descuentoContado === 'number' ? t.descuentoContado : 0,
-      yapeNumero: t.yapeNumero || '', yapeNombre: t.yapeNombre || '', yapeQr: t.yapeQr || '' },
+      yapeNumero: t.yapeNumero || '', yapeNombre: t.yapeNombre || '', yapeQr: t.yapeQr || '', grupoWhatsapp: t.grupoWhatsapp || '' },
     productos: visibles,
     // Solo la dueña ve cuántos productos quedaron fuera por el límite del plan.
     ...(esDuena || esSuper ? { fueraDelPlan } : {}),
