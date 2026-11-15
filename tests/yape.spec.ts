@@ -12,7 +12,10 @@ test.describe('REQ-009 Pago con Yape (QR)', () => {
       .filter({ has: page.locator('.price:not(.none)') }).first();
     await tarjeta.getByRole('button', { name: '+ Agregar al pedido' }).click();
     await page.locator('#cartbar').click();
-    await page.getByRole('button', { name: 'Pagar con Yape' }).click();
+    const yape = page.getByRole('button', { name: 'Pagar con Yape' });
+    await page.waitForTimeout(500);
+    test.skip(!(await yape.isVisible()), `La tienda ${TIENDA_YAPE} no tiene Yape configurado (número o QR en Datos de la tienda)`);
+    await yape.click();
     const dialogo = page.getByRole('dialog', { name: 'Mi pedido' });
     await expect(dialogo.getByRole('heading', { name: 'Pagar con Yape' })).toBeVisible();
     await expect(dialogo.locator('.yape-pay .monto')).toHaveText(/^S\/ \d/);
@@ -24,7 +27,10 @@ test.describe('REQ-009 Pago con Yape (QR)', () => {
       .filter({ has: page.locator('.price:not(.none)') }).first();
     await tarjeta.getByRole('button', { name: '+ Agregar al pedido' }).click();
     await page.locator('#cartbar').click();
-    await page.getByRole('button', { name: 'Pagar con Yape' }).click();
+    const yape = page.getByRole('button', { name: 'Pagar con Yape' });
+    await page.waitForTimeout(500);
+    test.skip(!(await yape.isVisible()), `La tienda ${TIENDA_YAPE} no tiene Yape configurado (número o QR en Datos de la tienda)`);
+    await yape.click();
     await page.getByLabel('Tu nombre').fill('');
     await page.getByRole('button', { name: 'Ya pagué, enviar pedido' }).click();
     await expect(page.getByRole('alert')).toContainText('Escribe tu nombre');

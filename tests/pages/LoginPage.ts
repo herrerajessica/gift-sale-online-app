@@ -9,8 +9,9 @@ export class LoginPage {
 
   constructor(page: Page) {
     this.page = page;
-    this.correo = page.getByLabel('Correo');
-    this.contrasena = page.getByLabel('Contraseña', { exact: true });
+    // Por id: la etiqueta de la contraseña también lleva el botón del ojo ("Mostrar contraseña")
+    this.correo = page.locator('#loginEmail');
+    this.contrasena = page.locator('#loginPass');
     this.botonEntrar = page.getByRole('button', { name: 'Entrar', exact: true });
     this.mensajeError = page.locator('#loginErr');
   }

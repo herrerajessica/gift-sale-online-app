@@ -642,6 +642,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     if(S.loaded && !n){ empty.hidden=false; $("emptyTitle").textContent = S.canEdit ? "Tu vitrina está vacía" : tx("Pronto habrá productos aquí","Products coming soon"); $("emptyText").textContent = S.canEdit ? "Arrastra todas tus fotos al recuadro de arriba. Cada foto se convierte en un producto listo para vender, y después le pones nombre y precio." : tx("Esta tienda todavía no ha publicado productos. Vuelve en un rato.","This store hasn't published any products yet. Check back soon."); }
     else if(S.loaded && !list.length){ empty.hidden=false; $("emptyTitle").textContent=tx("Nada coincide con tu búsqueda","No matches"); $("emptyText").textContent=tx("Prueba con otra palabra o quita el filtro de categoría.","Try another word or clear the category filter."); }
     else empty.hidden = S.loaded;
+    // Cliente: si la tienda no existe o aún no abre, ese aviso manda (no "Pronto habrá productos aquí")
+    if(!S.canEdit && S.loaded && !n) mensajeEstadoPublico(true);
     renderBulk();
     renderCartBar();
   }
@@ -1361,11 +1363,11 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     }, ()=>{ clearTimeout(slow); S.loaded=true; $("emptyTitle").textContent="No se pudo cargar la vitrina"; $("emptyText").textContent="Recarga la página en unos minutos."; render(); });
     db.doc("config/tienda").onSnapshot(s=>{ S.config = s.exists ? s.data() : {}; renderConfig(); if(S.canEdit){ actualizarPlan(); pintarCobros(); } }, ()=>{});
   }
-  function mensajeEstadoPublico(){
+  function mensajeEstadoPublico(silencio){
     const c = estadoCatalogo(); if(!c) return;
     if(c.estado==="no_existe"){ $("emptyTitle").textContent="Esta vitrina no existe / Store not found"; $("emptyText").textContent="Revisa el enlace que te compartieron. / Check the link you received."; show("empty", true); }
     else if(!c.productos){ $("emptyTitle").textContent = c.estado==="suspendida" ? tx("Esta vitrina no está disponible","This store isn't available") : tx("Esta vitrina abrirá pronto","This store opens soon"); $("emptyText").textContent = c.estado==="suspendida" ? tx("La tienda está pausada por ahora.","The store is paused for now.") : tx("La tienda está terminando de prepararse. Vuelve en un rato.","The store is getting ready. Check back soon."); show("empty", true); }
-    else if(c.vistaPrevia) toast("Vista previa: los clientes aún no ven esta vitrina");
+    else if(c.vistaPrevia && !silencio) toast("Vista previa: los clientes aún no ven esta vitrina");
   }
   function bannerVendedora(t){
     const est = t.estado || "pendiente";
