@@ -9,7 +9,9 @@ export const storage = defineStorage({
   access: (allow) => ({
     'productos/{entity_id}/*': [
       allow.entity('identity').to(['read', 'write', 'delete']),
-      allow.groups(['SUPERADMIN']).to(['read', 'delete']),
+      // La dueña también vende en su propia tienda: al estar en el grupo SUPERADMIN, AWS le da
+      // el rol del grupo en vez del de vendedora, así que el grupo necesita poder subir fotos.
+      allow.groups(['SUPERADMIN']).to(['read', 'write', 'delete']),
     ],
   }),
 });

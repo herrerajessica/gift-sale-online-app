@@ -1,7 +1,7 @@
 import {
   FOTOS_BASE, db, assets, ai, sesion, usarModoPublico, usarModoVendedora, estadoCatalogo,
   miTienda, crearTienda, listarTiendas, cambiarEstadoTienda, limpiarSlug, SLUG_RE,
-  signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn,
+  signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn, resetPassword, confirmResetPassword, updatePassword,
   googleDisponible, entrarConGoogle, alVolverDeGoogle,
   PLANES, planVigente, tieneFondoIA, pagarPlan, quitarFondo, asistente, interpretarDictado, cancelarPlan, conectarCobros, estadoCobros, pagarPedido, pedidoYape,
   miTiendaActual, listarPedidos, cambiarEstadoPedido, cambiarPlanTienda, confianza, refrescarProductos,
@@ -142,7 +142,9 @@ import {
     fondo:    { nombre:"Fondo blanco (IA)", desc:"Mejoradas y con el fondo quitado por IA. Más lento; tiene un pequeño costo por foto." },
   };
   const MODO_KEY = "vitrina-modo-foto";
-  const fondoPermitido = ()=> !!S.quitarFondo && tieneFondoIA(S.config||{});
+  // Fondo blanco con IA (Nova Canvas): oculto hasta habilitar el modelo en Bedrock (no está disponible en el plan gratuito de AWS).
+  const FONDO_IA_LISTO = false;
+  const fondoPermitido = ()=> FONDO_IA_LISTO && !!S.quitarFondo && tieneFondoIA(S.config||{});
   const modoGuardado = ()=>{ try{ const m = localStorage.getItem(MODO_KEY); return MODOS_FOTO[m] ? m : ""; }catch(e){ return ""; } };
   function pintarModoFoto(){
     const m = modoGuardado(), box = $("modoFotoInfo"); if(!box) return;
@@ -163,7 +165,7 @@ import {
       const opciones = el("div",{class:"modos",role:"radiogroup","aria-label":"Cómo subir las fotos"});
       const pintar = ()=>[...opciones.children].forEach(b=>b.setAttribute("aria-checked", String(b.dataset.modo===elegido)));
       for(const [k,v] of Object.entries(MODOS_FOTO)){
-        if(k==="fondo" && !S.quitarFondo) continue;
+        if(k==="fondo" && (!S.quitarFondo || !FONDO_IA_LISTO)) continue;
         const bloqueado = k==="fondo" && !fondoPermitido();
         const b = el("button",{type:"button",class:"modo"+(bloqueado?" bloqueado":""),role:"radio","data-modo":k,"aria-disabled":bloqueado?"true":false,
           onclick:()=>{ if(bloqueado){ cerrar(null); abrirPlanes(); toast("El fondo blanco con IA está en el plan Plus"); return; } elegido=k; pintar(); }},
@@ -234,7 +236,7 @@ import {
     if(c==="too_large") return "la foto es demasiado grande";
     if(c==="quota_or_state") return "se llenó el espacio de tu tienda; borra productos que ya no vendes";
     if(c==="rate_limited" || /throttl|too many|rate/i.test(m)) return "hubo muchas subidas seguidas; reintenta en un minuto";
-    if(c==="not_granted"||c==="capability_disabled" || /unauthori|not authorized|expired|token/i.test(m)) return "tu sesión venció; sal y vuelve a entrar";
+    if(c==="not_granted"||c==="capability_disabled" || /unauthori|not authorized|expired|token/i.test(m)) return "no se pudo guardar con tu sesión actual; cierra sesión, vuelve a entrar e inténtalo otra vez";
     if(/network|fetch|timeout|timed out|conexi/i.test(m)) return "se cortó la conexión";
     if(/decode|image|imagen|format/i.test(m)) return "no se pudo leer la foto; prueba con otra (JPG o PNG)";
     return "no se pudo subir";
@@ -1042,6 +1044,21 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     render(); if(openId) drawSheet();
   }
   $("settingsBtn").onclick = ()=>{ $("settings").hidden = !$("settings").hidden; };
+  // Cambiar contraseña estando dentro (Datos de la tienda)
+  $("verSetPass").onclick = ()=>{ const ver = $("setPassNueva").type==="password"; ["setPassActual","setPassNueva"].forEach(id=>{ $(id).type = ver ? "text" : "password"; }); $("verSetPass").setAttribute("aria-pressed", String(ver)); $("verSetPass").textContent = ver ? "🙈" : "👁"; };
+  $("setPassNueva").addEventListener("input", ()=>{
+    const v = $("setPassNueva").value, falta = [["8 caracteres", v.length>=8],["mayúscula", /[A-Z]/.test(v)],["minúscula", /[a-z]/.test(v)],["número", /[0-9]/.test(v)],["símbolo", /[^A-Za-z0-9\s]/.test(v)]].filter(x=>!x[1]).map(x=>x[0]);
+    $("setPassNota").textContent = !v ? "8 caracteres o más, con mayúscula, minúscula, número y símbolo." : falta.length ? "Falta: " + falta.join(", ") : "✓ La contraseña nueva cumple todo";
+  });
+  $("cambiarPass").onclick = async ()=>{
+    const actual = $("setPassActual").value, nueva = $("setPassNueva").value, b = $("cambiarPass");
+    if(!actual || !nueva){ toast("Escribe tu contraseña actual y la nueva"); return; }
+    if(!passCumple(nueva)){ toast("La contraseña nueva no cumple todo lo que pide"); return; }
+    b.disabled = true;
+    try{ await updatePassword({ oldPassword: actual, newPassword: nueva }); $("setPassActual").value = $("setPassNueva").value = ""; $("setPassNota").textContent = "8 caracteres o más, con mayúscula, minúscula, número y símbolo."; toast("Contraseña cambiada"); }
+    catch(e){ console.warn("Detalle técnico:", e); toast(e && e.name==="NotAuthorizedException" ? "La contraseña actual no es correcta" : e && /LimitExceeded|TooManyRequests/.test(e.name) ? "Muchos intentos seguidos. Espera unos minutos." : "No se pudo cambiar la contraseña. Si entras con Google, cámbiala desde tu cuenta de Google."); }
+    finally{ b.disabled = false; }
+  };
   // QR de Yape: se sube al elegirlo y se guarda junto con los demás datos.
   function pintarQrConfig(path){
     const img=$("setYapeImg");
@@ -1108,17 +1125,39 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   const loginErr = m=>{ const e=$("loginErr"); e.textContent=m; e.hidden=!m; };
   function pasoAuth(p, hint){
     paso = p; loginErr("");
-    const t = { login:["Entrar","Entrar"], signup:["Crear cuenta","Crear cuenta"], confirm:["Verifica tu correo","Verificar"], newPassword:["Nueva contraseña","Guardar y entrar"] }[p];
+    const t = { login:["Entrar","Entrar"], signup:["Crear cuenta","Crear cuenta"], confirm:["Verifica tu correo","Verificar"], newPassword:["Nueva contraseña","Guardar y entrar"], olvido:["Recuperar contraseña","Enviarme un código"], reset:["Crea tu nueva contraseña","Guardar y entrar"] }[p];
     $("authTitle").textContent = t[0]; $("loginBtn").textContent = t[1];
-    show("emailRow", p==="login"||p==="signup"); show("passRow", p==="login"||p==="signup");
-    show("codeRow", p==="confirm"); show("resendCode", p==="confirm"); show("newPassRow", p==="newPassword");
-    show("authSwitch", p==="login"||p==="signup");
+    show("emailRow", p==="login"||p==="signup"||p==="olvido"); show("passRow", p==="login"||p==="signup");
+    show("codeRow", p==="confirm"||p==="reset"); show("resendCode", p==="confirm"||p==="reset"); show("newPassRow", p==="newPassword"||p==="reset");
+    show("authSwitch", p!=="confirm" && p!=="newPassword"); show("olvideBtn", p==="login");
     show("googleBox", googleDisponible && (p==="login"||p==="signup"));
-    $("authSwitch").textContent = p==="signup" ? "Ya tengo cuenta" : "Crear una cuenta";
+    $("authSwitch").textContent = p==="signup" ? "Ya tengo cuenta" : p==="login" ? "Crear una cuenta" : "Volver a entrar";
     $("loginPass").autocomplete = p==="signup" ? "new-password" : "current-password";
+    // Crear cuenta: lista de requisitos que se marca sola y "repite la contraseña".
+    show("reqPass", p==="signup" || p==="newPassword" || p==="reset"); show("pass2Row", p==="signup"); show("passIgual", false);
+    revisarPass();
     const h=$("authHint"); h.textContent = hint||""; h.hidden = !hint;
   }
-  function abrirAuth(p){ show("landing", false); show("login", true); pasoAuth(p, p==="signup" ? "Usa tu correo. La contraseña necesita 8 caracteres con mayúscula, minúscula, número y símbolo." : ""); $("login").scrollIntoView({block:"start"}); (p==="confirm"?$("loginCode"):$("loginEmail")).focus(); }
+  // Requisitos de contraseña de Cognito: 8 caracteres, mayúscula, minúscula, número y símbolo.
+  const REQS = { largo:v=>v.length>=8, may:v=>/[A-Z]/.test(v), min:v=>/[a-z]/.test(v), num:v=>/[0-9]/.test(v), sim:v=>/[^A-Za-z0-9\s]/.test(v) };
+  const passCumple = v => Object.values(REQS).every(f=>f(v));
+  function revisarPass(){
+    const v = (paso==="newPassword" || paso==="reset") ? $("newPass").value : $("loginPass").value;
+    document.querySelectorAll("#reqPass li").forEach(li=>li.classList.toggle("ok", REQS[li.dataset.r](v)));
+    const v2 = $("loginPass2").value, igual = $("passIgual");
+    if(paso==="signup" && v2){ igual.hidden = false; const ok = v2===$("loginPass").value; igual.className = "pass-igual " + (ok?"ok":"no"); igual.textContent = ok ? "✓ Las contraseñas coinciden" : "Las contraseñas todavía no coinciden"; }
+    else igual.hidden = true;
+    // En cuanto la contraseña cumple todo (y coincide), se borra el aviso anterior.
+    if(passCumple(v) && (paso!=="signup" || v2===v)) loginErr("");
+  }
+  ["loginPass","loginPass2","newPass"].forEach(id=>$(id).addEventListener("input", revisarPass));
+  $("verPass").onclick = ()=>{
+    const ver = $("loginPass").type==="password";
+    ["loginPass","loginPass2"].forEach(id=>{ $(id).type = ver ? "text" : "password"; });
+    $("verPass").setAttribute("aria-pressed", String(ver)); $("verPass").setAttribute("aria-label", ver ? "Ocultar contraseña" : "Mostrar contraseña");
+    $("verPass").textContent = ver ? "🙈" : "👁";
+  };
+  function abrirAuth(p){ show("landing", false); show("login", true); pasoAuth(p, p==="signup" ? "Crea tu cuenta con tu correo. Te enviaremos un código para confirmar que es tuyo." : ""); $("login").scrollIntoView({block:"start"}); (p==="confirm"?$("loginCode"):$("loginEmail")).focus(); }
   $("googleBtn").onclick = async ()=>{
     $("googleBtn").disabled = true; loginErr("");
     try{ await entrarConGoogle(); }   // la página se va a Google y vuelve sola
@@ -1146,10 +1185,12 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   document.querySelectorAll(".l-moneda .chip").forEach(b=>b.onclick = ()=>pintarPlanesLanding(b.dataset.moneda));
   pintarPlanesLanding(/^en-US/i.test(navigator.language||"") ? "USD" : "PEN");
   $("goLogin").onclick = ()=>abrirAuth("login");
-  $("authSwitch").onclick = ()=>pasoAuth(paso==="signup"?"login":"signup");
+  $("authSwitch").onclick = ()=>pasoAuth(paso==="login"?"signup":"login");
+  $("olvideBtn").onclick = ()=>{ pasoAuth("olvido","Escribe el correo de tu cuenta y te enviaremos un código para crear una contraseña nueva."); $("loginEmail").focus(); };
+  $("verNewPass").onclick = ()=>{ const ver = $("newPass").type==="password"; $("newPass").type = ver ? "text" : "password"; $("verNewPass").setAttribute("aria-pressed", String(ver)); $("verNewPass").setAttribute("aria-label", ver ? "Ocultar contraseña" : "Mostrar contraseña"); $("verNewPass").textContent = ver ? "🙈" : "👁"; };
   $("loginCancel").onclick = ()=>{ show("login", false); if(!slugPublico) show("landing", true); };
   $("logoutBtn").onclick = async ()=>{ try{ await signOut(); }finally{ location.href = location.pathname; } };
-  $("resendCode").onclick = async ()=>{ try{ await resendSignUpCode({ username: correoPendiente }); toast("Te enviamos un código nuevo"); }catch(e){ loginErr((e&&e.message)||"No se pudo reenviar el código"); } };
+  $("resendCode").onclick = async ()=>{ try{ if(paso==="reset") await resetPassword({ username: correoPendiente }); else await resendSignUpCode({ username: correoPendiente }); toast("Te enviamos un código nuevo"); }catch(e){ loginErr(errAuth(e)); } };
   const errAuth = err => { const n = err && err.name;
     return n==="NotAuthorizedException"||n==="UserNotFoundException" ? "Correo o contraseña incorrectos"
       : n==="UsernameExistsException" ? "Ya existe una cuenta con ese correo. Toca \"Ya tengo cuenta\"."
@@ -1157,6 +1198,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       : n==="CodeMismatchException" ? "El código no es correcto. Revísalo o pide uno nuevo."
       : n==="ExpiredCodeException" ? "El código venció. Toca \"Reenviar código\"."
       : n==="UserNotConfirmedException" ? "Falta verificar tu correo."
+      : n==="LimitExceededException"||n==="TooManyRequestsException" ? "Hiciste muchos intentos seguidos. Espera unos minutos y vuelve a intentar."
+      : n==="InvalidParameterException" && paso==="olvido" ? "Esa cuenta todavía no verificó su correo o entra con Google: no se puede recuperar la contraseña así."
       : ((err && err.message) || "No se pudo completar. Intenta de nuevo."); };
   async function trasLogin(r){
     if(r.isSignedIn){ location.href = location.pathname; return; }
@@ -1174,6 +1217,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         await trasLogin(await signIn({ username: email, password: pass }));
       } else if(paso==="signup"){
         if(!email||!pass) return loginErr("Escribe tu correo y una contraseña");
+        if(!passCumple(pass)) return loginErr("A tu contraseña le falta algo de la lista: complétala hasta que todo tenga ✓");
+        if($("loginPass2").value!==pass) return loginErr("Las dos contraseñas no coinciden. Usa 👁 para revisarlas.");
         const r = await signUp({ username: email, password: pass, options:{ userAttributes:{ email } } });
         correoPendiente = email;
         if(r.nextStep && r.nextStep.signUpStep==="CONFIRM_SIGN_UP") pasoAuth("confirm", `Te enviamos un código a ${email}. Escríbelo aquí.`);
@@ -1183,8 +1228,21 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         await confirmSignUp({ username: correoPendiente, confirmationCode: code });
         if(pass) await trasLogin(await signIn({ username: correoPendiente, password: pass }));
         else { pasoAuth("login","Correo verificado. Ahora entra con tu contraseña."); $("loginEmail").value=correoPendiente; }
+      } else if(paso==="olvido"){
+        if(!email) return loginErr("Escribe el correo de tu cuenta");
+        try{ await resetPassword({ username: email }); }
+        catch(e){ if(e && e.name==="UserNotFoundException") return loginErr("No encontramos una cuenta con ese correo. Revisa que esté bien escrito."); throw e; }
+        correoPendiente = email;
+        pasoAuth("reset", `Te enviamos un código a ${email}. Escríbelo aquí y crea tu contraseña nueva.`); $("loginCode").focus();
+      } else if(paso==="reset"){
+        const code=$("loginCode").value.trim(), nueva=$("newPass").value;
+        if(!code) return loginErr("Escribe el código que te llegó por correo");
+        if(!passCumple(nueva)) return loginErr("A tu contraseña le falta algo de la lista: complétala hasta que todo tenga ✓");
+        await confirmResetPassword({ username: correoPendiente, confirmationCode: code, newPassword: nueva });
+        toast("Contraseña cambiada");
+        await trasLogin(await signIn({ username: correoPendiente, password: nueva }));
       } else if(paso==="newPassword"){
-        if($("newPass").value.length<8) return loginErr("La nueva contraseña debe tener al menos 8 caracteres");
+        if(!passCumple($("newPass").value)) return loginErr("A tu contraseña le falta algo de la lista: complétala hasta que todo tenga ✓");
         await trasLogin(await confirmSignIn({ challengeResponse: $("newPass").value }));
       }
     }catch(err){
@@ -1241,7 +1299,10 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   // ----- Panel de la dueña -----
   let panelFiltro = "pendiente", tiendasCache = [];
   async function abrirPanel(){
-    show("vitrina", false); show("storeBanner", false); show("onboard", false); show("confBox", false); show("panel", true);
+    // El panel de la dueña muestra solo la administración: se ocultan los recuadros de su propia tienda.
+    show("vitrina", false); show("storeBanner", false); show("onboard", false); show("confBox", false);
+    show("planBox", false); show("cobrosBox", false); show("pedidosBox", false); show("settings", false); show("asisBtn", false);
+    show("panel", true);
     $("panelRows").textContent = ""; $("panelCount").textContent = "Cargando vitrinas…";
     try{ tiendasCache = await listarTiendas(); }catch(e){ $("panelCount").textContent = "No se pudieron cargar las vitrinas: " + ((e&&e.message)||""); return; }
     pintarPanel(); cargarPanelConf();
@@ -1282,7 +1343,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     return { plan, usados, libres: plan.limite==null ? Infinity : Math.max(0, plan.limite - usados) };
   }
   function actualizarPlan(){
-    const box=$("planBox"); if(!S.canEdit){ box.hidden=true; return; }
+    const box=$("planBox"); if(!S.canEdit || !$("panel").hidden){ box.hidden=true; return; }
     const u = usoPlan(), ilimitado = u.plan.limite==null;
     const pct = ilimitado ? 0 : Math.min(100, Math.round(u.usados / u.plan.limite * 100));
     const lleno = !ilimitado && u.usados >= u.plan.limite, cerca = !lleno && pct >= 80;
@@ -1347,7 +1408,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
 
   // ----- Cobros con tarjeta de la vendedora (Stripe Connect) -----
   function pintarCobros(){
-    if(!S.canEdit){ show("cobrosBox", false); return; }
+    if(!S.canEdit || !$("panel").hidden){ show("cobrosBox", false); return; }
     const activos = !!(S.config && S.config.cobrosActivos), empezado = !!(S.config && S.config.stripeAccountId);
     show("cobrosBox", true);
     const pill=$("cobrosPill"); pill.className="pill "+(activos?"activos":"inactivos"); pill.textContent = activos ? "Pagos con tarjeta activos" : "Pagos con tarjeta";
@@ -1655,7 +1716,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     finally{ if(btn) btn.disabled = false; }
   }
   function pintarConfBox(){
-    if(!S.canEdit){ show("confBox", false); return; }
+    if(!S.canEdit || !$("panel").hidden){ show("confBox", false); return; }
     show("confBox", true);
     const c = S.conf; let txt = "Comparte productos con vendedoras de confianza y revende los suyos como tuyos.";
     let urgente = false;
@@ -1936,7 +1997,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   async function cargarPedidos(){
     let lista = [];
     try{ lista = await listarPedidos(); }catch(e){ return; }
-    show("pedidosBox", lista.length > 0);
+    show("pedidosBox", lista.length > 0 && $("panel").hidden);
     const pagados = lista.filter(p=>p.estado==="pagado").length, porConfirmar = lista.filter(p=>p.estado==="por_confirmar").length;
     $("pedidosCount").textContent = [porConfirmar ? `${porConfirmar} por confirmar` : "", pagados ? `${pagados} por entregar` : ""].filter(Boolean).join(" · ") || `${lista.length}`;
     if(porConfirmar) $("pedidosBox").open = true;
@@ -2069,7 +2130,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const log = $("asisLog"); log.textContent = "";
     if(!asisLog.length) log.append(el("div",{class:"burbuja assistant"}, `Hola${S.config && S.config.nombre ? ", " + S.config.nombre : ""}. Puedo revisar tu tienda, escribir descripciones, poner precios con margen o ayudarte con tus pedidos. ¿Qué necesitas?`));
     for(const m of asisLog){
-      if(m.text) log.append(el("div",{class:"burbuja " + m.role}, m.text));
+      if(m.text){ const b = el("div",{class:"burbuja " + m.role}); if(m.role === "assistant") b.append(...textoAsis(m.text)); else b.textContent = m.text; log.append(b); }
       if(m.propuesta && (m.propuesta.productos.length || m.propuesta.pedidos.length)) log.append(tarjetaPropuesta(m));
     }
     if(asisOcupado) log.append(el("div",{class:"pensando"},"Revisando tu tienda…"));
@@ -2080,7 +2141,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   async function enviarAsis(texto){
     texto = String(texto||"").trim(); if(!texto || asisOcupado) return;
     asisLog.push({ role:"user", text:texto }); asisOcupado = true; guardarAsis(); pintarAsis();
-    $("asisInput").value = ""; $("asisEnviar").disabled = true;
+    limpiarAsisInput(texto); $("asisEnviar").disabled = true;
     try{
       const conversacion = asisLog.filter(m=>m.role==="user"||m.role==="assistant").map(m=>({ role:m.role, text:m.text }));
       const r = await S.asistente(conversacion, [...S.sel]);
@@ -2090,6 +2151,40 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     }finally{
       asisOcupado = false; $("asisEnviar").disabled = false; guardarAsis(); pintarAsis(); $("asisInput").focus();
     }
+  }
+  // Vacía la caja al enviar. Antes se apaga el micrófono (si no, sigue escribiendo lo que escuchó) y se
+  // suelta el foco: el dictado del teclado del celular vuelve a pegar el texto si la caja sigue activa.
+  function limpiarAsisInput(enviado){
+    if(asisRec){ const r = asisRec; asisRec = null; r.onresult = null; r.onend = null; try{ r.stop(); }catch(e){} $("asisMic").classList.remove("on"); $("asisMic").setAttribute("aria-label","Hablar con el asistente"); }
+    const inp = $("asisInput"); inp.blur(); inp.value = ""; inp.dispatchEvent(new Event("input"));
+    setTimeout(()=>{ if(inp.value.trim() === enviado){ inp.value = ""; inp.dispatchEvent(new Event("input")); } }, 150);
+  }
+  // Negritas (**texto**) y saltos de línea en las respuestas del asistente, sin usar innerHTML.
+  // Las tablas Markdown (| a | b |) se muestran como tabla, igual que la tarjeta de cambios.
+  function negritas(t){
+    const out = [];
+    String(t).split(/\*\*(.+?)\*\*/s).forEach((parte, i)=>{ if(parte) out.push(i % 2 ? el("strong",{}, parte) : document.createTextNode(parte)); });
+    return out;
+  }
+  function textoAsis(t){
+    const out = [], lineas = String(t).split("\n"), celdas = l => l.trim().replace(/^\||\|$/g,"").split("|").map(c=>c.trim());
+    const esFila = l => /^\s*\|.*\|\s*$/.test(l), esSep = l => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(l);
+    let texto = [];
+    const soltar = ()=>{ const s = texto.join("\n").replace(/^\n+|\n+$/g,""); if(s) out.push(...negritas(s)); texto = []; };
+    for(let i = 0; i < lineas.length; i++){
+      if(esFila(lineas[i]) && i + 1 < lineas.length && esSep(lineas[i+1])){
+        soltar();
+        const cab = celdas(lineas[i]), filas = []; i += 2;
+        while(i < lineas.length && esFila(lineas[i])) filas.push(celdas(lineas[i++]));
+        i--;
+        const num = c => /^(S\/|\$|US\$)?\s?-?[\d.,]+\s?%?$/.test(c);
+        out.push(el("div",{class:"tablewrap asis-tabla"}, el("table",null,
+          el("thead",null, el("tr",null, ...cab.map(c=>el("th",null, ...negritas(c))))),
+          el("tbody",null, ...filas.map(f=>el("tr",null, ...cab.map((_,j)=>el("td", num(f[j]||"") ? {class:"num"} : null, ...negritas(f[j]||"")))))))));
+      } else texto.push(lineas[i]);
+    }
+    soltar();
+    return out;
   }
   function abrirAsis(){ cargarAsis(); $("asis").hidden = false; $("asisBtn").hidden = true; pintarAsis(); $("asisInput").focus(); }
   function cerrarAsis(){ $("asis").hidden = true; $("asisBtn").hidden = !S.canEdit; }

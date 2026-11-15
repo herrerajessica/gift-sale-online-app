@@ -205,6 +205,18 @@ img{max-width:100%}
 .login{max-width:380px;margin:24px auto;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px;display:grid;gap:12px}
 .login h2{margin:0;font-family:var(--display);font-weight:800;font-size:22px}
 .login .err{margin:0;color:var(--sold);font-size:14px;font-weight:600}
+.pass-wrap{position:relative;display:block}
+.pass-wrap input{width:100%;box-sizing:border-box;padding-right:48px}
+.ver-pass{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;background:none;font-size:18px;padding:6px 8px;border-radius:8px;cursor:pointer;opacity:.7}
+.ver-pass[aria-pressed="true"]{opacity:1;background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.ver-pass:focus-visible{outline:2px solid var(--accent)}
+.reqs{list-style:none;margin:0;padding:10px 12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:4px 12px;font-size:13px;border:1px solid var(--line);border-radius:10px;background:var(--paper)}
+.reqs li{color:var(--muted)}
+.reqs li::before{content:"○ ";font-weight:700}
+.reqs li.ok{color:var(--ok);font-weight:600}
+.reqs li.ok::before{content:"✓ "}
+.pass-igual{font-size:13px;font-weight:600;margin-top:-6px}
+.pass-igual.ok{color:var(--ok)}.pass-igual.no{color:var(--hold)}
 .hero{margin-block:40px 24px;display:grid;gap:14px;max-width:62ch}
 .logo-row{display:flex;align-items:center;gap:12px}
 .logo-txt{font-family:var(--display);font-weight:800;font-size:30px;letter-spacing:-.03em;color:var(--ink,#16203A)}
@@ -304,11 +316,12 @@ td small{color:var(--muted);font-family:var(--mono)}
 .asis{position:fixed;z-index:25;top:0;right:0;bottom:0;width:min(440px,100%);background:var(--surface);border-left:1px solid var(--line);box-shadow:-10px 0 40px rgb(20 33 61 / .18);display:grid;grid-template-rows:auto 1fr auto auto;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 .asis-head{display:flex;gap:8px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line)}
 .asis-head>div{flex:1;min-width:0}
-.asis-log{overflow:auto;padding:14px;display:grid;gap:10px;align-content:start}
+.asis-log{overflow:auto;padding:14px;display:grid;grid-template-columns:minmax(0,1fr);gap:10px;align-content:start}
 .burbuja{max-width:88%;padding:9px 12px;border-radius:14px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.45;font-size:14.5px}
 .burbuja.user{justify-self:end;background:var(--accent);color:#fff;border-bottom-right-radius:4px}
 .burbuja.assistant{justify-self:start;background:var(--paper);border:1px solid var(--line);border-bottom-left-radius:4px}
 .burbuja.nota{justify-self:center;background:transparent;color:var(--muted);font-size:12.5px;padding:2px}
+.burbuja{min-width:0}.burbuja:has(.asis-tabla){width:100%;max-width:100%;box-sizing:border-box}.burbuja .asis-tabla{margin:6px 0;white-space:normal;background:var(--paper);max-width:100%}.burbuja .asis-tabla table{font-size:13px;width:100%;min-width:0}.burbuja .asis-tabla th,.burbuja .asis-tabla td{padding:7px 8px;white-space:normal}.burbuja .asis-tabla th{white-space:nowrap;font-size:11px}.burbuja .asis-tabla td.num{text-align:right;white-space:nowrap}
 .burbuja.error{justify-self:start;background:transparent;border:1.5px solid var(--sold);color:var(--sold)}
 .pensando{justify-self:start;color:var(--muted);font-size:13px}
 .propuesta{justify-self:stretch;border:1.5px solid var(--accent);border-radius:12px;padding:10px 12px;display:grid;gap:8px;background:var(--surface)}
@@ -585,12 +598,18 @@ html,body{overflow-x:clip}
     </div>
     <p class="note" id="authHint" style="margin:0" hidden></p>
     <label class="f" id="emailRow">Correo<input id="loginEmail" type="email" autocomplete="username" required></label>
-    <label class="f" id="passRow">Contraseña<input id="loginPass" type="password" autocomplete="current-password" required></label>
+    <label class="f" id="passRow">Contraseña<span class="pass-wrap"><input id="loginPass" type="password" autocomplete="current-password" required><button class="ver-pass" type="button" id="verPass" aria-label="Mostrar contraseña" aria-pressed="false">👁</button></span></label>
     <label class="f" id="codeRow" hidden>Código de verificación<input id="loginCode" inputmode="numeric" autocomplete="one-time-code" maxlength="8"></label>
-    <label class="f" id="newPassRow" hidden>Nueva contraseña<input id="newPass" type="password" autocomplete="new-password" minlength="8"></label>
+    <label class="f" id="newPassRow" hidden>Nueva contraseña<span class="pass-wrap"><input id="newPass" type="password" autocomplete="new-password" minlength="8"><button class="ver-pass" type="button" id="verNewPass" aria-label="Mostrar contraseña" aria-pressed="false">👁</button></span></label>
+    <ul class="reqs" id="reqPass" hidden aria-live="polite">
+      <li data-r="largo">8 caracteres o más</li><li data-r="may">Una mayúscula (A-Z)</li><li data-r="min">Una minúscula (a-z)</li><li data-r="num">Un número (0-9)</li><li data-r="sim">Un símbolo (! @ # $ % * …)</li>
+    </ul>
+    <label class="f" id="pass2Row" hidden>Repite la contraseña<span class="pass-wrap"><input id="loginPass2" type="password" autocomplete="new-password"></span></label>
+    <span class="pass-igual" id="passIgual" hidden></span>
     <p class="err" id="loginErr" role="alert" hidden></p>
     <div class="actions"><button class="linkish" type="button" id="authSwitch">Crear una cuenta</button><span style="display:flex;gap:8px"><button class="btn" type="button" id="loginCancel">Cancelar</button><button class="btn primary" type="submit" id="loginBtn">Entrar</button></span></div>
     <button class="linkish" type="button" id="resendCode" hidden style="justify-self:start">Reenviar código</button>
+    <button class="linkish" type="button" id="olvideBtn" style="justify-self:start">¿Olvidaste tu contraseña?</button>
   </form>
 
   <form class="login" id="onboard" hidden novalidate>
@@ -665,6 +684,15 @@ html,body{overflow-x:clip}
           <input type="file" id="setYapeFile" accept="image/*" hidden>
         </div>
       </div>
+    </fieldset>
+    <fieldset class="yape-set" id="passSet">
+      <legend>Cambiar contraseña</legend>
+      <div class="row2">
+        <label class="f">Contraseña actual<span class="pass-wrap"><input id="setPassActual" type="password" autocomplete="current-password"></span></label>
+        <label class="f">Nueva contraseña<span class="pass-wrap"><input id="setPassNueva" type="password" autocomplete="new-password"><button class="ver-pass" type="button" id="verSetPass" aria-label="Mostrar contraseñas" aria-pressed="false">👁</button></span></label>
+      </div>
+      <span class="note" id="setPassNota" style="margin:0">8 caracteres o más, con mayúscula, minúscula, número y símbolo.</span>
+      <span style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" type="button" id="cambiarPass">Cambiar contraseña</button></span>
     </fieldset>
     <div class="actions"><span class="note solo-pe" id="monedaNota" style="margin:0">Pones los precios en dólares y el catálogo muestra también el precio en soles con este tipo de cambio, redondeado al sol.</span><button class="btn primary" id="saveSettings">Guardar</button></div>
   </section>
