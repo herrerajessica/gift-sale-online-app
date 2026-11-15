@@ -10,6 +10,6 @@ export const confianza = defineFunction({
   environment: {
     // Aviso por correo a la dueña cuando una revendedora vende su producto.
     RESEND_API_KEY: secret('RESEND_API_KEY'),
-    CORREO_REMITENTE: 'Showroomcito <onboarding@resend.dev>',
+    CORREO_REMITENTE: 'Showroomcito <pedidos@showroomcito.com>',
   },
 });

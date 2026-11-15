@@ -19,7 +19,7 @@ export async function enviarCorreo(c: { para: string; asunto: string; html: stri
       method: 'POST',
       headers: { Authorization: `Bearer ${clave}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: process.env.CORREO_REMITENTE || 'Showroomcito <onboarding@resend.dev>',
+        from: process.env.CORREO_REMITENTE || 'Showroomcito <pedidos@showroomcito.com>',
         to: [c.para], subject: c.asunto, html: c.html,
         ...(emailValido(c.responderA) ? { reply_to: c.responderA } : {}),
       }),

@@ -106,8 +106,8 @@ Tarjeta de prueba: `4242 4242 4242 4242`, cualquier fecha futura y cualquier CVC
 1. Crea una cuenta gratis en [resend.com](https://resend.com) (unos 3,000 correos al mes).
 2. En **API Keys**, crea una clave (`re_...`).
 3. En Amplify › Hosting › **Secrets**, crea `RESEND_API_KEY` con esa clave y vuelve a desplegar. Si no quieres correos, guárdalo con el valor `no`.
-4. Para la demo, el remitente es `onboarding@resend.dev`: con él, Resend **solo entrega a tu propio correo** (el de tu cuenta de Resend). Úsalo como correo del cliente y de la tienda en las pruebas.
-5. Para enviar a cualquier persona, verifica tu dominio en Resend (› *Domains*) y cambia `CORREO_REMITENTE` en `amplify/functions/pagos/resource.ts` y `amplify/functions/stripe-webhook/resource.ts`, por ejemplo `Showroomcito <pedidos@showroomcito.com>`.
+4. El dominio **showroomcito.com** está verificado en Resend (región us-east-1, configurado con *Auto configure* de Cloudflare): DKIM en `resend._domainkey`, envío en `send` y `rsend`, y DMARC en `_dmarc`. No chocan con el correo de Zoho (MX y SPF en la raíz del dominio).
+5. Remitente: `CORREO_REMITENTE = Showroomcito <pedidos@showroomcito.com>` en las funciones `pagos`, `stripe-webhook` y `confianza`. La clave de Resend debe tener permiso **Sending access** solo para showroomcito.com.
 
 El correo confirma el pedido, pero no reemplaza la boleta o factura electrónica de SUNAT.
 
