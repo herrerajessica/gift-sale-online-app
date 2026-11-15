@@ -106,6 +106,21 @@ export function interpretarComando(texto, ctx) {
     codigos.push(`${m[1].toUpperCase()}-${String(num).padStart(3, '0')}`);
     usado.push([m.index, m.index + m[0].length]);
   }
+  // Por voz el celular a veces escribe el código distinto ("real 3", "carro 2", "rob 1", "código sap 4"):
+  // al inicio de la frase (o después de "código") se acepta una palabra parecida a un prefijo de la tienda.
+  if (!codigos.length) {
+    const ALIAS = { carro: 'car', carta: 'car', real: 'rel', rey: 'rel', rob: 'rop', ropa: 'rop', sap: 'zap', zapa: 'zap', sab: 'zap', pera: 'per', pero: 'per', jugo: 'jug', ace: 'acc', aks: 'acc', ele: 'ele', ogar: 'hog', otro: 'otr', otra: 'otr' };
+    const re = /(?:^|\bcodigo\s+(?:el\s+|del\s+)?|\bel\s+)([a-z]{2,5})\s*-?\s*(\d{1,4}|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\b/g;
+    const cerca = (a, b) => { if (a === b) return true; if (Math.abs(a.length - b.length) > 1) return false;
+      let i = 0, j = 0, d = 0; while (i < a.length && j < b.length) { if (a[i] === b[j]) { i++; j++; continue; } if (++d > 1) return false;
+        if (a.length > b.length) i++; else if (b.length > a.length) j++; else { i++; j++; } } return d + (a.length - i) + (b.length - j) <= 1; };
+    for (let m; (m = re.exec(n));) {
+      const w = m[1], pre = prefijos.has(w) ? w : ALIAS[w] && prefijos.has(ALIAS[w]) ? ALIAS[w] : [...prefijos].find((x) => w.length >= 3 && w[0] === x[0] && cerca(w, x));
+      if (!pre) continue;
+      codigos.push(`${pre.toUpperCase()}-${String(numero(m[2])).padStart(3, '0')}`);
+      usado.push([m.index, m.index + m[0].length]);
+    }
+  }
   if (codigos.length) {
     const lista = [...new Set(codigos)];
     const faltan = lista.filter((c) => !productos.some((p) => cod(p) === c));
