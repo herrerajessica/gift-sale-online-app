@@ -205,6 +205,18 @@ img{max-width:100%}
 .login{max-width:380px;margin:24px auto;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px;display:grid;gap:12px}
 .login h2{margin:0;font-family:var(--display);font-weight:800;font-size:22px}
 .login .err{margin:0;color:var(--sold);font-size:14px;font-weight:600}
+.pass-wrap{position:relative;display:block}
+.pass-wrap input{width:100%;box-sizing:border-box;padding-right:48px}
+.ver-pass{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;background:none;font-size:18px;padding:6px 8px;border-radius:8px;cursor:pointer;opacity:.7}
+.ver-pass[aria-pressed="true"]{opacity:1;background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.ver-pass:focus-visible{outline:2px solid var(--accent)}
+.reqs{list-style:none;margin:0;padding:10px 12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:4px 12px;font-size:13px;border:1px solid var(--line);border-radius:10px;background:var(--paper)}
+.reqs li{color:var(--muted)}
+.reqs li::before{content:"○ ";font-weight:700}
+.reqs li.ok{color:var(--ok);font-weight:600}
+.reqs li.ok::before{content:"✓ "}
+.pass-igual{font-size:13px;font-weight:600;margin-top:-6px}
+.pass-igual.ok{color:var(--ok)}.pass-igual.no{color:var(--hold)}
 .hero{margin-block:40px 24px;display:grid;gap:14px;max-width:62ch}
 .logo-row{display:flex;align-items:center;gap:12px}
 .logo-txt{font-family:var(--display);font-weight:800;font-size:30px;letter-spacing:-.03em;color:var(--ink,#16203A)}
@@ -585,7 +597,12 @@ html,body{overflow-x:clip}
     </div>
     <p class="note" id="authHint" style="margin:0" hidden></p>
     <label class="f" id="emailRow">Correo<input id="loginEmail" type="email" autocomplete="username" required></label>
-    <label class="f" id="passRow">Contraseña<input id="loginPass" type="password" autocomplete="current-password" required></label>
+    <label class="f" id="passRow">Contraseña<span class="pass-wrap"><input id="loginPass" type="password" autocomplete="current-password" required><button class="ver-pass" type="button" id="verPass" aria-label="Mostrar contraseña" aria-pressed="false">👁</button></span></label>
+    <ul class="reqs" id="reqPass" hidden aria-live="polite">
+      <li data-r="largo">8 caracteres o más</li><li data-r="may">Una mayúscula (A-Z)</li><li data-r="min">Una minúscula (a-z)</li><li data-r="num">Un número (0-9)</li><li data-r="sim">Un símbolo (! @ # $ % * …)</li>
+    </ul>
+    <label class="f" id="pass2Row" hidden>Repite la contraseña<span class="pass-wrap"><input id="loginPass2" type="password" autocomplete="new-password"></span></label>
+    <span class="pass-igual" id="passIgual" hidden></span>
     <label class="f" id="codeRow" hidden>Código de verificación<input id="loginCode" inputmode="numeric" autocomplete="one-time-code" maxlength="8"></label>
     <label class="f" id="newPassRow" hidden>Nueva contraseña<input id="newPass" type="password" autocomplete="new-password" minlength="8"></label>
     <p class="err" id="loginErr" role="alert" hidden></p>

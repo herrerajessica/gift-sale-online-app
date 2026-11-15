@@ -1116,9 +1116,31 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     show("googleBox", googleDisponible && (p==="login"||p==="signup"));
     $("authSwitch").textContent = p==="signup" ? "Ya tengo cuenta" : "Crear una cuenta";
     $("loginPass").autocomplete = p==="signup" ? "new-password" : "current-password";
+    // Crear cuenta: lista de requisitos que se marca sola y "repite la contraseña".
+    show("reqPass", p==="signup" || p==="newPassword"); show("pass2Row", p==="signup"); show("passIgual", false);
+    revisarPass();
     const h=$("authHint"); h.textContent = hint||""; h.hidden = !hint;
   }
-  function abrirAuth(p){ show("landing", false); show("login", true); pasoAuth(p, p==="signup" ? "Usa tu correo. La contraseña necesita 8 caracteres con mayúscula, minúscula, número y símbolo." : ""); $("login").scrollIntoView({block:"start"}); (p==="confirm"?$("loginCode"):$("loginEmail")).focus(); }
+  // Requisitos de contraseña de Cognito: 8 caracteres, mayúscula, minúscula, número y símbolo.
+  const REQS = { largo:v=>v.length>=8, may:v=>/[A-Z]/.test(v), min:v=>/[a-z]/.test(v), num:v=>/[0-9]/.test(v), sim:v=>/[^A-Za-z0-9\s]/.test(v) };
+  const passCumple = v => Object.values(REQS).every(f=>f(v));
+  function revisarPass(){
+    const v = paso==="newPassword" ? $("newPass").value : $("loginPass").value;
+    document.querySelectorAll("#reqPass li").forEach(li=>li.classList.toggle("ok", REQS[li.dataset.r](v)));
+    const v2 = $("loginPass2").value, igual = $("passIgual");
+    if(paso==="signup" && v2){ igual.hidden = false; const ok = v2===$("loginPass").value; igual.className = "pass-igual " + (ok?"ok":"no"); igual.textContent = ok ? "✓ Las contraseñas coinciden" : "Las contraseñas todavía no coinciden"; }
+    else igual.hidden = true;
+    // En cuanto la contraseña cumple todo (y coincide), se borra el aviso anterior.
+    if(passCumple(v) && (paso!=="signup" || v2===v)) loginErr("");
+  }
+  ["loginPass","loginPass2","newPass"].forEach(id=>$(id).addEventListener("input", revisarPass));
+  $("verPass").onclick = ()=>{
+    const ver = $("loginPass").type==="password";
+    ["loginPass","loginPass2"].forEach(id=>{ $(id).type = ver ? "text" : "password"; });
+    $("verPass").setAttribute("aria-pressed", String(ver)); $("verPass").setAttribute("aria-label", ver ? "Ocultar contraseña" : "Mostrar contraseña");
+    $("verPass").textContent = ver ? "🙈" : "👁";
+  };
+  function abrirAuth(p){ show("landing", false); show("login", true); pasoAuth(p, p==="signup" ? "Crea tu cuenta con tu correo. Te enviaremos un código para confirmar que es tuyo." : ""); $("login").scrollIntoView({block:"start"}); (p==="confirm"?$("loginCode"):$("loginEmail")).focus(); }
   $("googleBtn").onclick = async ()=>{
     $("googleBtn").disabled = true; loginErr("");
     try{ await entrarConGoogle(); }   // la página se va a Google y vuelve sola
@@ -1174,6 +1196,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         await trasLogin(await signIn({ username: email, password: pass }));
       } else if(paso==="signup"){
         if(!email||!pass) return loginErr("Escribe tu correo y una contraseña");
+        if(!passCumple(pass)) return loginErr("A tu contraseña le falta algo de la lista: complétala hasta que todo tenga ✓");
+        if($("loginPass2").value!==pass) return loginErr("Las dos contraseñas no coinciden. Usa 👁 para revisarlas.");
         const r = await signUp({ username: email, password: pass, options:{ userAttributes:{ email } } });
         correoPendiente = email;
         if(r.nextStep && r.nextStep.signUpStep==="CONFIRM_SIGN_UP") pasoAuth("confirm", `Te enviamos un código a ${email}. Escríbelo aquí.`);
@@ -1184,7 +1208,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         if(pass) await trasLogin(await signIn({ username: correoPendiente, password: pass }));
         else { pasoAuth("login","Correo verificado. Ahora entra con tu contraseña."); $("loginEmail").value=correoPendiente; }
       } else if(paso==="newPassword"){
-        if($("newPass").value.length<8) return loginErr("La nueva contraseña debe tener al menos 8 caracteres");
+        if(!passCumple($("newPass").value)) return loginErr("A tu contraseña le falta algo de la lista: complétala hasta que todo tenga ✓");
         await trasLogin(await confirmSignIn({ challengeResponse: $("newPass").value }));
       }
     }catch(err){
