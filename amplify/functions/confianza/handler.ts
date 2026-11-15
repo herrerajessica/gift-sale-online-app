@@ -71,7 +71,7 @@ async function listar(t: Item) {
     for (const p of await productosDe(r.otra)) {
       if (!p.compartido || p.origenId || p.estado === 'vendido' || p.estado === 'oculto') continue;
       compartidos.push({
-        id: p.id, tienda: r.otra, tiendaNombre: nombres.get(r.otra), ...datosProducto(p),
+        id: p.id, codigo: p.codigo || '', tienda: r.otra, tiendaNombre: nombres.get(r.otra), ...datosProducto(p),
         precio: p.precio ?? null, precioReventa: p.precioReventa ?? p.precio ?? null,
         stock: typeof p.stock === 'number' ? p.stock : null, estado: p.estado || 'disponible',
         yaAgregado: copiaDe.get(String(p.id)) || null, creado: p.creado || 0,

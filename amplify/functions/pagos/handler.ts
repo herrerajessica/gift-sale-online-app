@@ -143,7 +143,7 @@ async function armarPedido(t: Record<string, any>, itemsJson: unknown, soloSoles
     const monto = enSoles && !soloSoles ? Math.round(prod!.precio * p.q * factor * 100)
       : rate ? Math.round(prod!.precio * p.q * rate * factor) * 100
       : Math.round(prod!.precio * p.q * factor * 100);
-    lineas.push({ id: p.id, nombre: prod!.nombre, q: p.q, precioUsd: prod!.precio, monto });
+    lineas.push({ id: p.id, nombre: prod!.codigo ? `${prod!.codigo} · ${prod!.nombre}` : prod!.nombre, q: p.q, precioUsd: prod!.precio, monto });
   }
   const total = lineas.reduce((s, l) => s + l.monto, 0);
   return { lineas, total, moneda };

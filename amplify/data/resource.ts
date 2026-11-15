@@ -67,6 +67,9 @@ const schema = a.schema({
       talla: a.string(),
       // Condición: nuevo_etiqueta | nuevo | caja_abierta | como_nuevo | usado (vacío = sin indicar)
       condicion: a.string(),
+      // Código corto para identificar el producto (ej. CAR-001): letras de la categoría + número.
+      // Lo pone la app de la vendedora; no cambia aunque cambie la categoría.
+      codigo: a.string(),
       huella: a.string(),        // huella visual de la foto principal, para detectar fotos repetidas
       categoria: a.string(),
       publico: a.string(),

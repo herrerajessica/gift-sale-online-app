@@ -452,6 +452,28 @@ import {
 
   // ---------- Clasificación con IA ----------
   const CATS = ["Ropa","Zapatos","Carteras y bolsos","Accesorios","Relojes y joyería","Perfumes y belleza","Electrónica","Hogar","Juguetes","Otros"];
+  // ---------- Código de cada producto (ej. CAR-001) ----------
+  // Letras de la categoría + número. Se pone solo y no cambia aunque después cambie la categoría.
+  const PREFIJOS = { "Ropa":"ROP", "Zapatos":"ZAP", "Carteras y bolsos":"CAR", "Accesorios":"ACC", "Relojes y joyería":"REL", "Perfumes y belleza":"PER", "Electrónica":"ELE", "Hogar":"HOG", "Juguetes":"JUG", "Otros":"OTR" };
+  const prefijoDe = cat => { if(PREFIJOS[cat]) return PREFIJOS[cat]; const l = String(cat||"").normalize("NFD").replace(/[^A-Za-z]/g,"").toUpperCase(); return l.length >= 3 ? l.slice(0,3) : "OTR"; };
+  const codigosEnCurso = new Set();
+  async function asignarCodigos(){
+    if(!S.canEdit || !S.loaded) return;
+    const ahora = Date.now();
+    // Espera a que la IA ponga la categoría (o 3 minutos) para elegir bien las letras.
+    const faltan = S.products.filter(p=>!p.codigo && !codigosEnCurso.has(p.id) && (p.categoria || ahora - (p.creado||0) > 180000))
+      .sort((a,b)=>(a.creado||0)-(b.creado||0));
+    if(!faltan.length) return;
+    const ultimo = {};
+    for(const p of S.products){ const m = /^([A-Z]{3})-(\d+)$/.exec(p.codigo||""); if(m) ultimo[m[1]] = Math.max(ultimo[m[1]]||0, +m[2]); }
+    for(const p of faltan.slice(0, 200)){
+      const pre = prefijoDe(p.categoria), n = (ultimo[pre]||0) + 1; ultimo[pre] = n;
+      const codigo = pre + "-" + String(n).padStart(3,"0");
+      codigosEnCurso.add(p.id);
+      S.db.doc("productos/"+p.id).update({ codigo }).catch(()=>{}).finally(()=>setTimeout(()=>codigosEnCurso.delete(p.id), 5000));
+    }
+  }
+  const codTag = p => p.codigo ? el("span",{class:"cod-tag"}, p.codigo) : null;
   const PUBLICOS = ["Mujer","Hombre","Niños","Unisex"];
   async function classify(items){
     if(!S.ai || !items.length) return;
@@ -523,7 +545,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   // ---------- Render ----------
   function filtered(){
     const q = S.q.toLowerCase();
-    return S.products.filter(p => (!S.cat || p.categoria===S.cat) && (!S.pub || p.publico===S.pub || (S.pub!=="Niños" && p.publico==="Unisex")) && (!q || (p.nombre+" "+(p.marca||"")+" "+(p.talla?"talla size "+p.talla:"")+" "+(p.categoria||"")+" "+catTxt(p.categoria||"")+" "+(p.publico||"")+" "+pubTxt(p.publico||"")+" "+condTxt(p.condicion)+" "+(p.descripcion||"")).toLowerCase().includes(q)));
+    return S.products.filter(p => (!S.cat || p.categoria===S.cat) && (!S.pub || p.publico===S.pub || (S.pub!=="Niños" && p.publico==="Unisex")) && (!q || ((p.codigo||"")+" "+(p.codigo||"").replace("-","")+" "+p.nombre+" "+(p.marca||"")+" "+(p.talla?"talla size "+p.talla:"")+" "+(p.categoria||"")+" "+catTxt(p.categoria||"")+" "+(p.publico||"")+" "+pubTxt(p.publico||"")+" "+condTxt(p.condicion)+" "+(p.descripcion||"")).toLowerCase().includes(q)));
   }
   function renderCats(){
     const counts = {}; S.products.forEach(p=>{ if(p.categoria) counts[p.categoria]=(counts[p.categoria]||0)+1; });
@@ -568,7 +590,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       // Producto de una tienda de confianza: la cantidad es la del original.
       const ic = S.canEdit && esCopia(p) ? infoCopia(p) : null;
       const ps = ic ? { ...p, stock: ic.stock } : p;
-      open.append(ph, el("div",{class:"info",style:"padding-bottom:0"}, contado!=null ? el("span",{class:"contado"}, `S/ ${contado.toLocaleString("es-PE")} con Yape o efectivo`) : null, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, el("span",{class:"name"},p.nombre||tx("Sin nombre","Untitled")), p.condicion ? el("span",{class:"cond-tag cond-"+p.condicion}, condTxt(p.condicion)) : null, S.canEdit ? etiquetaConf(p) : null, el("span",{class:"meta"}, el("span",null,[catTxt(p.categoria), p.talla ? tx("Talla ","Size ")+p.talla : ""].filter(Boolean).join(" · ")), el("span",null,pubTxt(p.publico||""))), S.canEdit && p.costo!=null && !esCopia(p) ? el("span",{class:"costo"}, `Costo ${usd(p.costo)}`+(p.precio!=null && costoMon(p.costo) ? ` · margen ${Math.round((p.precio/costoMon(p.costo)-1)*100)} %` : "")) : null, ic && ic.precioReventa!=null ? el("span",{class:"costo"}, `Te cuesta ${money(ic.precioReventa)}` + (p.precio!=null ? ` · ganas ${money(p.precio - ic.precioReventa)}` : "")) : null, stockTxt(ps) ? el("span",{class:"stockpill"+(S.canEdit && ps.stock>3?" ok":"")}, stockTxt(ps)) : null));
+      open.append(ph, el("div",{class:"info",style:"padding-bottom:0"}, contado!=null ? el("span",{class:"contado"}, `S/ ${contado.toLocaleString("es-PE")} con Yape o efectivo`) : null, (p.marca || p.codigo) ? el("span",{class:"tags-row"}, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, codTag(p)) : null, el("span",{class:"name"},p.nombre||tx("Sin nombre","Untitled")), p.condicion ? el("span",{class:"cond-tag cond-"+p.condicion}, condTxt(p.condicion)) : null, S.canEdit ? etiquetaConf(p) : null, el("span",{class:"meta"}, el("span",null,[catTxt(p.categoria), p.talla ? tx("Talla ","Size ")+p.talla : ""].filter(Boolean).join(" · ")), el("span",null,pubTxt(p.publico||""))), S.canEdit && p.costo!=null && !esCopia(p) ? el("span",{class:"costo"}, `Costo ${usd(p.costo)}`+(p.precio!=null && costoMon(p.costo) ? ` · margen ${Math.round((p.precio/costoMon(p.costo)-1)*100)} %` : "")) : null, ic && ic.precioReventa!=null ? el("span",{class:"costo"}, `Te cuesta ${money(ic.precioReventa)}` + (p.precio!=null ? ` · ganas ${money(p.precio - ic.precioReventa)}` : "")) : null, stockTxt(ps) ? el("span",{class:"stockpill"+(S.canEdit && ps.stock>3?" ok":"")}, stockTxt(ps)) : null));
       card.append(open);
       if(!S.selecting) card.append(el("div",{class:"info",style:"padding-top:0"}, addButton(p)));
       grid.append(card);
@@ -664,7 +686,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       const p = S.products.find(x=>x.id===id);
       const cover = p.fotos && p.fotos[0];
       const tr = el("tr",{"data-id":id});
-      tr.append(el("td",{class:"c-foto"}, cover ? el("img",{src:src(cover.thumb||cover.full),alt:""}) : el("span",null,"")));
+      tr.append(el("td",{class:"c-foto"}, cover ? el("img",{src:src(cover.thumb||cover.full),alt:""}) : el("span",null,""), codTag(p)));
       COLS_LOTE.forEach((c, col)=>{
         const attrs = { "data-fila":String(fila), "data-col":String(col), "aria-label":`${c.label} de ${p.nombre||"producto"}`, value: valorLote(p,c) };
         let inp;
@@ -789,6 +811,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     else if(S.canEdit){
       const v = (id,def)=> keep[id]!==undefined ? keep[id] : def;
       side.append(
+        p.codigo ? el("span",{class:"cod-tag"}, "Código " + p.codigo) : null,
         el("label",{class:"f"},"Nombre", el("input",{id:"eName",value:v("eName",p.nombre||""),maxlength:"120"})),
         el("div",{class:"row2"},
           el("label",{class:"f"},"Marca", el("input",{id:"eMarca",list:"marcaList",maxlength:"40",value:v("eMarca",p.marca||""),placeholder:"Ej. Michael Kors"})),
@@ -819,7 +842,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       ), conf);
     } else {
       const st=p.estado||"disponible";
-      side.append(p.marca ? el("span",{class:"marca-tag"},p.marca) : null, el("h2",null,p.nombre||tx("Producto","Product")),
+      side.append((p.marca || p.codigo) ? el("span",{class:"tags-row"}, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, p.codigo ? el("span",{class:"cod-tag"}, tx("Código ","Code ")+p.codigo) : null) : null, el("h2",null,p.nombre||tx("Producto","Product")),
         el("div",{class:"bigprice"}, p.precio==null?tx("Precio a consultar","Price on request"):money(p.precio), p.precio!=null && soles(p.precio) ? el("span",{class:"bigsol"}, soles(p.precio) + " con tarjeta") : null),
         p.precio!=null && solesContado(p.precio)!=null ? el("span",{class:"contado",style:"font-size:15px"}, `S/ ${solesContado(p.precio).toLocaleString("es-PE")} pagando con Yape o efectivo (${descuento()} % menos)`) : null,
         st!=="disponible" ? el("span",{class:"status "+st,style:"position:static;justify-self:start"}, st==="vendido"?tx("Vendido","Sold"):tx("Apartado","On hold")) : p.stock===0 ? el("span",{class:"status agotado",style:"position:static;justify-self:start"},tx("Agotado","Sold out")) : null,
@@ -868,7 +891,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     let m = tx(`Hola${S.config.nombre?" "+S.config.nombre:""}, quiero hacer este pedido:\n\n`, `Hi${S.config.nombre?" "+S.config.nombre:""}, I'd like to order:\n\n`);
     lines.forEach((l,i)=>{
       const pr = l.p.precio==null ? tx("precio a consultar","price on request") : (l.q>1 ? `${l.q} × ${money(l.p.precio)} = ${dual(l.p.precio*l.q)}` : dual(l.p.precio));
-      m += `${i+1}. ${l.p.nombre}${l.p.condicion ? " ("+condTxt(l.p.condicion).toLowerCase()+")" : ""}${l.q>1&&l.p.precio==null?tx(` (${l.q} unidades)`,` (${l.q} units)`):""} — ${pr}\n`;
+      m += `${i+1}. ${l.p.codigo ? l.p.codigo+" · " : ""}${l.p.nombre}${l.p.condicion ? " ("+condTxt(l.p.condicion).toLowerCase()+")" : ""}${l.q>1&&l.p.precio==null?tx(` (${l.q} unidades)`,` (${l.q} units)`):""} — ${pr}\n`;
     });
     m += `\nTotal: ${dual(total)||money(0)}${consultar?tx(` + ${consultar} producto(s) a consultar`,` + ${consultar} item(s) to confirm price`):""}`;
     { const tc = totalContado(lines); if(tc!=null) m += `\nTotal pagando con Yape o efectivo: S/ ${tc.toLocaleString("es-PE")}`; }
@@ -1274,7 +1297,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       // Vista previa del dictado: se actualiza con lo que completa la IA (sin interrumpir si está escribiendo)
       if(typeof dictAbierto==="function" && dictAbierto() && D.paso==="previa" && !(document.activeElement && $("planOverlay").contains(document.activeElement) && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName))) pintarDict();
       if(cartOpen && !$("overlay").contains(document.activeElement)) drawCart();
-      if(!S.canEdit) mensajeEstadoPublico(); else actualizarPlan();
+      if(!S.canEdit) mensajeEstadoPublico(); else { actualizarPlan(); if(!snap.metadata.fromCache){ asignarCodigos(); if(!S.timerCodigos) S.timerCodigos = setInterval(asignarCodigos, 60000); } }
     }, ()=>{ clearTimeout(slow); S.loaded=true; $("emptyTitle").textContent="No se pudo cargar la vitrina"; $("emptyText").textContent="Recarga la página en unos minutos."; render(); });
     db.doc("config/tienda").onSnapshot(s=>{ S.config = s.exists ? s.data() : {}; renderConfig(); if(S.canEdit){ actualizarPlan(); pintarCobros(); } }, ()=>{});
   }

@@ -62,7 +62,7 @@ export const handler: Schema['catalogo']['functionHandler'] = async (event) => {
       p = { ...c, stock: o.stock, fotosFull: o.fotosFull, fotosThumb: o.fotosThumb };
     }
     productos.push({
-      id: p.id, nombre: p.nombre, marca: p.marca || '', precio: p.precio ?? null,
+      id: p.id, codigo: c.codigo || '', nombre: p.nombre, marca: p.marca || '', precio: p.precio ?? null,
       stock: typeof p.stock === 'number' ? p.stock : null, talla: p.talla || '', condicion: p.condicion || '', categoria: p.categoria || '',
       // "costo", "precioReventa" y el origen nunca se devuelven: son datos privados de las vendedoras.
       publico: p.publico || '', descripcion: p.descripcion || '', estado: p.estado || 'disponible',

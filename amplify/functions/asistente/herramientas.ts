@@ -14,6 +14,7 @@ Cómo trabajas:
 - Usa las herramientas para saber cualquier dato de la tienda; nunca inventes productos, precios ni pedidos.
 ${us ? '- Es una tienda de EE. UU.: los precios están en dólares (USD) y se cobran en dólares. No uses soles, Yape ni tipo de cambio.\n- Sus clientes son de EE. UU. y ven la tienda en inglés: escribe los NOMBRES y DESCRIPCIONES de productos en inglés. A la vendedora le hablas en español.' : (pen ? `- Los precios de esta tienda están en SOLES (S/). El costo de la etiqueta está en dólares: para comparar, conviértelo con el tipo de cambio ${t.tipoCambio || 'de la tienda'}.` : `- Los precios se guardan en dólares (USD). Para mostrar soles usa el tipo de cambio ${t.tipoCambio || 'de la tienda'} y redondea al sol.`)}
 - Tú no ves las fotos: los nombres los puso la IA y pueden ser distintos a como la vendedora los llama. Si encuentras menos productos de los que ella menciona, NO digas que no existen: busca otra vez con otras palabras (singular, sinónimos, la categoría) o sin filtros y revisa los nombres. Si aún faltan, dile cuáles encontraste y pídele que toque el botón "Editar varios", toque cada producto en su lista y te vuelva a escribir.
+- Cada producto tiene un código corto (ej. CAR-001, ZAP-012). Si la vendedora o un cliente menciona un código, búscalo con buscar_productos (texto = el código). Pon el código en la primera columna cuando muestres productos en una tabla.
 - Si la vendedora tiene productos marcados en su lista, te los paso abajo. Cuando diga "estos", "los marcados", "los seleccionados" o un número que coincida, usa esos.
 ${us ? '' : `- Precio con Yape o efectivo: ${t.descuentoContado ? `la tienda da ${t.descuentoContado} % de descuento si pagan con Yape o efectivo (soles × (1 − ${t.descuentoContado}/100), redondeado al sol); con tarjeta se cobra el precio normal` : 'esta tienda no tiene descuento por Yape o efectivo'}. Ese porcentaje solo lo cambia la vendedora en Datos de la tienda; tú no puedes cambiarlo, solo explicárselo.\n`}- El "costo" es lo que pagó la vendedora; es privado y sirve para calcular márgenes.
 - Para CUALQUIER cambio (precios, descripciones, marca, cantidad, estado, condición (nuevo, usado, caja abierta…), categoría, talla, nombre, o el estado de un pedido) usa la herramienta proponer_cambios. Tú no cambias nada directamente: la vendedora revisa la propuesta y toca "Aplicar". Después de proponer, escribe UNA sola frase corta (ej.: "Te dejé los cambios abajo, revísalos y toca Aplicar"); NO repitas la lista de cambios, porque la tarjeta ya los muestra en una tabla. Nunca digas que ya está cambiado. Si proponer_cambios responde ok: false, no digas que propusiste nada: explícale que esos productos ya tienen ese valor o qué faltó.
@@ -32,11 +33,11 @@ export const HERRAMIENTAS: { name: string; description: string; schema: Esquema 
   },
   {
     name: 'buscar_productos',
-    description: 'Busca productos de la tienda. Devuelve hasta 60 con id, nombre, marca, precio (en la moneda de la tienda), costo (USD), stock, talla, categoría, público, estado y descripción. El texto busca por palabras (sin importar tildes ni plural). Sin filtros devuelve los más recientes.',
+    description: 'Busca productos de la tienda. Devuelve hasta 60 con id, código, nombre, marca, precio (en la moneda de la tienda), costo (USD), stock, talla, categoría, público, estado y descripción. El texto busca por palabras (sin importar tildes ni plural). Sin filtros devuelve los más recientes.',
     schema: {
       type: 'object',
       properties: {
-        texto: { type: 'string', description: 'Palabras en nombre, marca, categoría o descripción' },
+        texto: { type: 'string', description: 'Código (ej. CAR-001) o palabras en nombre, marca, categoría o descripción' },
         categoria: { type: 'string' },
         marca: { type: 'string' },
         estado: { type: 'string', enum: ['disponible', 'apartado', 'vendido', 'oculto'] },
@@ -134,7 +135,7 @@ const raizTxt = (w: string) => (w.length > 4 && w.endsWith('es') ? w.slice(0, -2
 export function buscarTexto<T extends Record<string, any>>(lista: T[], texto: unknown): T[] {
   const ps = normTxt(texto).split(/[^a-z0-9ñ]+/).filter((w) => w.length > 1).map(raizTxt);
   if (!ps.length) return lista;
-  const pajar = (p: T) => normTxt([p.nombre, p.marca, p.categoria, p.descripcion, p.talla, p.publico].join(' '));
+  const pajar = (p: T) => normTxt([p.codigo, String(p.codigo || '').replace(/-/g, ''), p.nombre, p.marca, p.categoria, p.descripcion, p.talla, p.publico].join(' '));
   const todas = lista.filter((p) => { const h = pajar(p); return ps.every((w) => h.includes(w)); });
   return todas.length ? todas : lista.filter((p) => { const h = pajar(p); return ps.some((w) => h.includes(w)); });
 }
