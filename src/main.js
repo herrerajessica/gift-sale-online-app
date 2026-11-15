@@ -1,7 +1,7 @@
 import {
   FOTOS_BASE, db, assets, ai, sesion, usarModoPublico, usarModoVendedora, estadoCatalogo,
   miTienda, crearTienda, listarTiendas, cambiarEstadoTienda, limpiarSlug, SLUG_RE,
-  signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn,
+  signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn, resetPassword, confirmResetPassword, updatePassword,
   googleDisponible, entrarConGoogle, alVolverDeGoogle,
   PLANES, planVigente, tieneFondoIA, pagarPlan, quitarFondo, asistente, interpretarDictado, cancelarPlan, conectarCobros, estadoCobros, pagarPedido, pedidoYape,
   miTiendaActual, listarPedidos, cambiarEstadoPedido, cambiarPlanTienda, confianza, refrescarProductos,
@@ -1042,6 +1042,21 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     render(); if(openId) drawSheet();
   }
   $("settingsBtn").onclick = ()=>{ $("settings").hidden = !$("settings").hidden; };
+  // Cambiar contraseña estando dentro (Datos de la tienda)
+  $("verSetPass").onclick = ()=>{ const ver = $("setPassNueva").type==="password"; ["setPassActual","setPassNueva"].forEach(id=>{ $(id).type = ver ? "text" : "password"; }); $("verSetPass").setAttribute("aria-pressed", String(ver)); $("verSetPass").textContent = ver ? "🙈" : "👁"; };
+  $("setPassNueva").addEventListener("input", ()=>{
+    const v = $("setPassNueva").value, falta = [["8 caracteres", v.length>=8],["mayúscula", /[A-Z]/.test(v)],["minúscula", /[a-z]/.test(v)],["número", /[0-9]/.test(v)],["símbolo", /[^A-Za-z0-9\s]/.test(v)]].filter(x=>!x[1]).map(x=>x[0]);
+    $("setPassNota").textContent = !v ? "8 caracteres o más, con mayúscula, minúscula, número y símbolo." : falta.length ? "Falta: " + falta.join(", ") : "✓ La contraseña nueva cumple todo";
+  });
+  $("cambiarPass").onclick = async ()=>{
+    const actual = $("setPassActual").value, nueva = $("setPassNueva").value, b = $("cambiarPass");
+    if(!actual || !nueva){ toast("Escribe tu contraseña actual y la nueva"); return; }
+    if(!passCumple(nueva)){ toast("La contraseña nueva no cumple todo lo que pide"); return; }
+    b.disabled = true;
+    try{ await updatePassword({ oldPassword: actual, newPassword: nueva }); $("setPassActual").value = $("setPassNueva").value = ""; $("setPassNota").textContent = "8 caracteres o más, con mayúscula, minúscula, número y símbolo."; toast("Contraseña cambiada"); }
+    catch(e){ console.warn("Detalle técnico:", e); toast(e && e.name==="NotAuthorizedException" ? "La contraseña actual no es correcta" : e && /LimitExceeded|TooManyRequests/.test(e.name) ? "Muchos intentos seguidos. Espera unos minutos." : "No se pudo cambiar la contraseña. Si entras con Google, cámbiala desde tu cuenta de Google."); }
+    finally{ b.disabled = false; }
+  };
   // QR de Yape: se sube al elegirlo y se guarda junto con los demás datos.
   function pintarQrConfig(path){
     const img=$("setYapeImg");
@@ -1108,16 +1123,16 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   const loginErr = m=>{ const e=$("loginErr"); e.textContent=m; e.hidden=!m; };
   function pasoAuth(p, hint){
     paso = p; loginErr("");
-    const t = { login:["Entrar","Entrar"], signup:["Crear cuenta","Crear cuenta"], confirm:["Verifica tu correo","Verificar"], newPassword:["Nueva contraseña","Guardar y entrar"] }[p];
+    const t = { login:["Entrar","Entrar"], signup:["Crear cuenta","Crear cuenta"], confirm:["Verifica tu correo","Verificar"], newPassword:["Nueva contraseña","Guardar y entrar"], olvido:["Recuperar contraseña","Enviarme un código"], reset:["Crea tu nueva contraseña","Guardar y entrar"] }[p];
     $("authTitle").textContent = t[0]; $("loginBtn").textContent = t[1];
-    show("emailRow", p==="login"||p==="signup"); show("passRow", p==="login"||p==="signup");
-    show("codeRow", p==="confirm"); show("resendCode", p==="confirm"); show("newPassRow", p==="newPassword");
-    show("authSwitch", p==="login"||p==="signup");
+    show("emailRow", p==="login"||p==="signup"||p==="olvido"); show("passRow", p==="login"||p==="signup");
+    show("codeRow", p==="confirm"||p==="reset"); show("resendCode", p==="confirm"||p==="reset"); show("newPassRow", p==="newPassword"||p==="reset");
+    show("authSwitch", p!=="confirm" && p!=="newPassword"); show("olvideBtn", p==="login");
     show("googleBox", googleDisponible && (p==="login"||p==="signup"));
-    $("authSwitch").textContent = p==="signup" ? "Ya tengo cuenta" : "Crear una cuenta";
+    $("authSwitch").textContent = p==="signup" ? "Ya tengo cuenta" : p==="login" ? "Crear una cuenta" : "Volver a entrar";
     $("loginPass").autocomplete = p==="signup" ? "new-password" : "current-password";
     // Crear cuenta: lista de requisitos que se marca sola y "repite la contraseña".
-    show("reqPass", p==="signup" || p==="newPassword"); show("pass2Row", p==="signup"); show("passIgual", false);
+    show("reqPass", p==="signup" || p==="newPassword" || p==="reset"); show("pass2Row", p==="signup"); show("passIgual", false);
     revisarPass();
     const h=$("authHint"); h.textContent = hint||""; h.hidden = !hint;
   }
@@ -1125,7 +1140,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   const REQS = { largo:v=>v.length>=8, may:v=>/[A-Z]/.test(v), min:v=>/[a-z]/.test(v), num:v=>/[0-9]/.test(v), sim:v=>/[^A-Za-z0-9\s]/.test(v) };
   const passCumple = v => Object.values(REQS).every(f=>f(v));
   function revisarPass(){
-    const v = paso==="newPassword" ? $("newPass").value : $("loginPass").value;
+    const v = (paso==="newPassword" || paso==="reset") ? $("newPass").value : $("loginPass").value;
     document.querySelectorAll("#reqPass li").forEach(li=>li.classList.toggle("ok", REQS[li.dataset.r](v)));
     const v2 = $("loginPass2").value, igual = $("passIgual");
     if(paso==="signup" && v2){ igual.hidden = false; const ok = v2===$("loginPass").value; igual.className = "pass-igual " + (ok?"ok":"no"); igual.textContent = ok ? "✓ Las contraseñas coinciden" : "Las contraseñas todavía no coinciden"; }
@@ -1168,10 +1183,12 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   document.querySelectorAll(".l-moneda .chip").forEach(b=>b.onclick = ()=>pintarPlanesLanding(b.dataset.moneda));
   pintarPlanesLanding(/^en-US/i.test(navigator.language||"") ? "USD" : "PEN");
   $("goLogin").onclick = ()=>abrirAuth("login");
-  $("authSwitch").onclick = ()=>pasoAuth(paso==="signup"?"login":"signup");
+  $("authSwitch").onclick = ()=>pasoAuth(paso==="login"?"signup":"login");
+  $("olvideBtn").onclick = ()=>{ pasoAuth("olvido","Escribe el correo de tu cuenta y te enviaremos un código para crear una contraseña nueva."); $("loginEmail").focus(); };
+  $("verNewPass").onclick = ()=>{ const ver = $("newPass").type==="password"; $("newPass").type = ver ? "text" : "password"; $("verNewPass").setAttribute("aria-pressed", String(ver)); $("verNewPass").setAttribute("aria-label", ver ? "Ocultar contraseña" : "Mostrar contraseña"); $("verNewPass").textContent = ver ? "🙈" : "👁"; };
   $("loginCancel").onclick = ()=>{ show("login", false); if(!slugPublico) show("landing", true); };
   $("logoutBtn").onclick = async ()=>{ try{ await signOut(); }finally{ location.href = location.pathname; } };
-  $("resendCode").onclick = async ()=>{ try{ await resendSignUpCode({ username: correoPendiente }); toast("Te enviamos un código nuevo"); }catch(e){ loginErr((e&&e.message)||"No se pudo reenviar el código"); } };
+  $("resendCode").onclick = async ()=>{ try{ if(paso==="reset") await resetPassword({ username: correoPendiente }); else await resendSignUpCode({ username: correoPendiente }); toast("Te enviamos un código nuevo"); }catch(e){ loginErr(errAuth(e)); } };
   const errAuth = err => { const n = err && err.name;
     return n==="NotAuthorizedException"||n==="UserNotFoundException" ? "Correo o contraseña incorrectos"
       : n==="UsernameExistsException" ? "Ya existe una cuenta con ese correo. Toca \"Ya tengo cuenta\"."
@@ -1179,6 +1196,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       : n==="CodeMismatchException" ? "El código no es correcto. Revísalo o pide uno nuevo."
       : n==="ExpiredCodeException" ? "El código venció. Toca \"Reenviar código\"."
       : n==="UserNotConfirmedException" ? "Falta verificar tu correo."
+      : n==="LimitExceededException"||n==="TooManyRequestsException" ? "Hiciste muchos intentos seguidos. Espera unos minutos y vuelve a intentar."
+      : n==="InvalidParameterException" && paso==="olvido" ? "Esa cuenta todavía no verificó su correo o entra con Google: no se puede recuperar la contraseña así."
       : ((err && err.message) || "No se pudo completar. Intenta de nuevo."); };
   async function trasLogin(r){
     if(r.isSignedIn){ location.href = location.pathname; return; }
@@ -1207,6 +1226,19 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         await confirmSignUp({ username: correoPendiente, confirmationCode: code });
         if(pass) await trasLogin(await signIn({ username: correoPendiente, password: pass }));
         else { pasoAuth("login","Correo verificado. Ahora entra con tu contraseña."); $("loginEmail").value=correoPendiente; }
+      } else if(paso==="olvido"){
+        if(!email) return loginErr("Escribe el correo de tu cuenta");
+        try{ await resetPassword({ username: email }); }
+        catch(e){ if(e && e.name==="UserNotFoundException") return loginErr("No encontramos una cuenta con ese correo. Revisa que esté bien escrito."); throw e; }
+        correoPendiente = email;
+        pasoAuth("reset", `Te enviamos un código a ${email}. Escríbelo aquí y crea tu contraseña nueva.`); $("loginCode").focus();
+      } else if(paso==="reset"){
+        const code=$("loginCode").value.trim(), nueva=$("newPass").value;
+        if(!code) return loginErr("Escribe el código que te llegó por correo");
+        if(!passCumple(nueva)) return loginErr("A tu contraseña le falta algo de la lista: complétala hasta que todo tenga ✓");
+        await confirmResetPassword({ username: correoPendiente, confirmationCode: code, newPassword: nueva });
+        toast("Contraseña cambiada");
+        await trasLogin(await signIn({ username: correoPendiente, password: nueva }));
       } else if(paso==="newPassword"){
         if(!passCumple($("newPass").value)) return loginErr("A tu contraseña le falta algo de la lista: complétala hasta que todo tenga ✓");
         await trasLogin(await confirmSignIn({ challengeResponse: $("newPass").value }));

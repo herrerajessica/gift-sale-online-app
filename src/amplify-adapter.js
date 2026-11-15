@@ -7,6 +7,7 @@ import { generateClient } from 'aws-amplify/data';
 import { uploadData, remove } from 'aws-amplify/storage';
 import {
   signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn, fetchAuthSession, signInWithRedirect,
+  resetPassword, confirmResetPassword, updatePassword,
 } from 'aws-amplify/auth';
 import { Hub } from 'aws-amplify/utils';
 import 'aws-amplify/auth/enable-oauth-listener';
@@ -28,7 +29,7 @@ export function alVolverDeGoogle(ok, error) {
     if (payload.event === 'signInWithRedirect_failure') error(payload.data && payload.data.error);
   });
 }
-export { signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn };
+export { signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn, resetPassword, confirmResetPassword, updatePassword };
 
 // ---------- Sesión ----------
 let AUTH = 'identityPool';
