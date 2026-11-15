@@ -8,7 +8,8 @@ import { PLANES, planVigente } from '../shared/planes';
 import { HERRAMIENTAS, LIMITE_DIARIO, buscarTexto, instrucciones, limpiarPropuesta } from './herramientas';
 
 const bedrock = new BedrockRuntimeClient({});
-const MAX_RONDAS = 6;
+const MAX_RONDAS = 7;
+const DICE_QUE_PROPUSO = /te dej[eé] (los|el) cambios?|aqu[ií] (est[aá]|tienes) la propuesta|propuse|toca (el bot[oó]n )?"?aplicar|rev[ií]salos/i;
 
 type Evento = { arguments: { tiendaId?: string; mensajes?: string; seleccion?: string | null }; identity?: { sub?: string } | null };
 
@@ -51,7 +52,7 @@ async function contarUso(t: Record<string, any>) {
 }
 
 const resumirProducto = (p: Record<string, any>) => ({
-  id: p.id, nombre: p.nombre, marca: p.marca || '', precio: p.precio ?? null, costo: p.costo ?? null,
+  id: p.id, codigo: p.codigo || '', nombre: p.nombre, marca: p.marca || '', precio: p.precio ?? null, costo: p.costo ?? null,
   stock: typeof p.stock === 'number' ? p.stock : null, talla: p.talla || '', condicion: p.condicion || '', categoria: p.categoria || '',
   publico: p.publico || '', estado: p.estado || 'disponible', descripcion: (p.descripcion || '').slice(0, 200),
 });
@@ -82,6 +83,7 @@ export const handler = async (event: Evento) => {
   const mapaProd = new Map(productos.map((p) => [p.id, p]));
   const mapaPed = new Map(pedidos.map((p) => [p.id, p]));
   let propuesta: ReturnType<typeof limpiarPropuesta> | null = null;
+  const hayPropuesta = (): boolean => { const p = propuesta as ReturnType<typeof limpiarPropuesta> | null; return !!p && p.productos.length + p.pedidos.length > 0; };
 
   const ejecutar = (nombre: string, input: Record<string, any>): unknown => {
     switch (nombre) {
@@ -159,6 +161,7 @@ export const handler = async (event: Evento) => {
   const system = [{ text: instrucciones(t, new Date().toLocaleDateString('es-PE', { timeZone: 'America/Lima', dateStyle: 'full' })) + textoSel }];
 
   let texto = '';
+  let insistio = false;
   for (let ronda = 0; ronda < MAX_RONDAS; ronda++) {
     const res = await bedrock.send(new ConverseCommand({
       modelId: process.env.MODEL_ID, system, messages,
@@ -170,7 +173,16 @@ export const handler = async (event: Evento) => {
     const contenido = msg.content || [];
     texto = contenido.map((c) => c.text || '').filter(Boolean).join('\n').trim() || texto;
     const usos = contenido.filter((c) => c.toolUse);
-    if (res.stopReason !== 'tool_use' || !usos.length) break;
+    if (res.stopReason !== 'tool_use' || !usos.length) {
+      // A veces el modelo escribe "te dejé los cambios" sin llamar a proponer_cambios y no sale ninguna tarjeta.
+      // Se le pide una vez que la llame de verdad.
+      if (!hayPropuesta() && !insistio && DICE_QUE_PROPUSO.test(texto) && ronda < MAX_RONDAS - 1) {
+        insistio = true;
+        messages.push({ role: 'user', content: [{ text: 'Aviso del sistema: no llamaste a la herramienta proponer_cambios, así que la vendedora no ve ninguna tarjeta para aplicar. Llámala ahora con esos cambios (usa buscar_productos si te falta el id) y después responde una sola frase.' }] });
+        continue;
+      }
+      break;
+    }
     const resultados: ContentBlock[] = usos.map((c) => {
       let salida: unknown;
       try { salida = ejecutar(c.toolUse!.name!, (c.toolUse!.input || {}) as Record<string, any>); }
@@ -180,5 +192,8 @@ export const handler = async (event: Evento) => {
     messages.push({ role: 'user', content: resultados });
   }
 
+  if (!hayPropuesta() && DICE_QUE_PROPUSO.test(texto)) {
+    texto = 'No pude preparar la tarjeta con los cambios. Escríbemelo otra vez con el código y el cambio, por ejemplo: "En el CAR-002 pon de nombre Cartera Guess y 1 en stock".';
+  }
   return JSON.stringify({ texto: texto || 'Listo.', propuesta });
 };

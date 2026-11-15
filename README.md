@@ -45,6 +45,15 @@ La idea central es **subir muchas fotos de una vez**. Al arrastrar el lote se pu
 - **Cantidad (stock):** opcional; vacío significa "sin control". El cliente ve "Quedan N" o "¡Última unidad!" cuando quedan 3 o menos, y "Agotado" en 0. No puede pedir más unidades de las disponibles: lo valida la pantalla y también el servidor.
 - **Descuento automático:** al pagar con tarjeta, el webhook descuenta las unidades una sola vez (aunque Stripe reenvíe el aviso). Al confirmar un Yape, se descuentan cuando la vendedora toca *Confirmar pago*. Los pedidos por WhatsApp se ajustan a mano.
 
+## Código de cada producto
+
+Cada producto recibe un código corto con las letras de su categoría y un número: `CAR-001` (carteras y bolsos), `ZAP-001` (zapatos), `ROP-` ropa, `ACC-` accesorios, `REL-` relojes y joyería, `PER-` perfumes y belleza, `ELE-` electrónica, `HOG-` hogar, `JUG-` juguetes, `OTR-` otros.
+
+- Lo pone la app de la vendedora cuando el producto ya tiene categoría (o a los 3 minutos, con `OTR-`). Los productos antiguos reciben código en el orden en que se subieron.
+- No cambia aunque después cambie la categoría, y no se repite dentro de la tienda.
+- Se ve en la vitrina, en la ficha, en el mensaje de WhatsApp del pedido, en los pedidos con tarjeta o Yape y en la tabla "Editar varios". El buscador y el asistente lo encuentran (`car001` también sirve).
+- En una tienda de confianza, la copia recibe su propio código de la revendedora; el cliente no ve el código de la dueña.
+
 ## Cargar productos por voz
 
 Pensado para quien tiene muchos productos y los va mirando uno por uno:
