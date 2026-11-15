@@ -1,3 +1,4 @@
+import { finDelDia } from '../shared/oferta';
 // Instrucciones y herramientas del asistente de la vendedora.
 // La vista previa usa una copia de este texto: si cambias algo aquí, cámbialo también allá.
 
@@ -19,6 +20,7 @@ ${us ? '- Es una tienda de EE. UU.: los precios están en dólares (USD) y se co
 - Si la vendedora tiene productos marcados en su lista, te los paso abajo. Cuando diga "estos", "los marcados", "los seleccionados" o un número que coincida, usa esos.
 ${us ? '' : `- Precio con Yape o efectivo: ${t.descuentoContado ? `la tienda da ${t.descuentoContado} % de descuento si pagan con Yape o efectivo (soles × (1 − ${t.descuentoContado}/100), redondeado al sol); con tarjeta se cobra el precio normal` : 'esta tienda no tiene descuento por Yape o efectivo'}. Ese porcentaje solo lo cambia la vendedora en Datos de la tienda; tú no puedes cambiarlo, solo explicárselo.\n`}- El "costo" es lo que pagó la vendedora; es privado y sirve para calcular márgenes.
 - Para CUALQUIER cambio (precios, descripciones, marca, cantidad, estado, condición (nuevo, usado, caja abierta…), categoría, talla, nombre, o el estado de un pedido) usa la herramienta proponer_cambios. Tú no cambias nada directamente: la vendedora revisa la propuesta y toca "Aplicar". Después de proponer, escribe UNA sola frase corta y nada más (ej.: "Te dejé los cambios abajo, revísalos y toca Aplicar"); NO repitas los cambios ni en lista ni en tabla, ni expliques cómo quedará: la tarjeta ya los muestra. Nunca digas que ya está cambiado. Si proponer_cambios responde ok: false, no digas que propusiste nada: explícale que esos productos ya tienen ese valor o qué faltó.
+- Ofertas: si piden un descuento por un tiempo ("hoy", "este fin de semana", "hasta el domingo", "por 3 días"), usa oferta_porcentaje (u oferta_precio) con oferta_hasta = el último día (AAAA-MM-DD). NO cambies el precio normal: la oferta vence sola. Si no dicen hasta cuándo, pregunta. Para terminar una oferta usa quitar_oferta. Solo cambia "precio" si piden cambiar el precio para siempre.
 - Precios con margen: ${pen ? `precio en soles = costo (USD) × ${t.tipoCambio || 'tipo de cambio'} × (1 + margen), redondeado hacia arriba al sol` : 'precio = costo × (1 + margen), redondeado hacia arriba al dólar'}.
 - Descripciones: 1 o 2 frases útiles para vender, solo con datos que tengas (nombre, marca, talla, categoría, condición, descripción actual). No inventes materiales, medidas ni que es original si no lo sabes.
 - Si piden algo que afecta muchos productos, primero búscalos y luego propone todo en una sola propuesta.
@@ -78,6 +80,10 @@ export const HERRAMIENTAS: { name: string; description: string; schema: Esquema 
               talla: { type: 'string' }, categoria: { type: 'string' },
               estado: { type: 'string', enum: ['disponible', 'apartado', 'vendido', 'oculto'] },
               condicion: { type: 'string', enum: ['nuevo_etiqueta', 'nuevo', 'caja_abierta', 'como_nuevo', 'usado'], description: 'Nuevo con etiqueta, nuevo sin etiqueta, caja abierta, usado como nuevo o usado' },
+              oferta_porcentaje: { type: 'number', description: 'Oferta temporal: % de descuento sobre el precio normal (el precio normal no se toca y vuelve solo al vencer)' },
+              oferta_precio: { type: 'number', description: 'Oferta temporal con un precio fijo (en vez de porcentaje)' },
+              oferta_hasta: { type: 'string', description: 'Último día de la oferta, AAAA-MM-DD (hasta las 23:59). Hoy = la fecha de hoy.' },
+              quitar_oferta: { type: 'boolean', description: 'true para terminar la oferta ya' },
             },
             required: ['id'],
           },
@@ -105,6 +111,8 @@ export function limpiarPropuesta(
   p: Record<string, any>,
   productos: Map<string, Record<string, any>>,
   pedidos: Map<string, Record<string, any>>,
+  zona = 'America/Lima',
+  moneda: 'PEN' | 'USD' = 'USD',
 ) {
   const prods = (Array.isArray(p.productos) ? p.productos : []).slice(0, 100).flatMap((c: Record<string, any>) => {
     const actual = productos.get(String(c.id)); if (!actual) return [];
@@ -117,6 +125,18 @@ export function limpiarPropuesta(
       else v = String(v).trim().slice(0, k === 'descripcion' ? 600 : 120);
       if (k === 'condicion' && !CONDICIONES.includes(v as string)) continue;
       if (actual[k] !== v) campos[k] = v;
+    }
+    // Oferta temporal: precio de oferta + hasta cuándo. El precio normal no cambia.
+    if (c.quitar_oferta === true && (actual.precioOferta != null || actual.ofertaHasta != null)) { campos.precioOferta = null; campos.ofertaHasta = null; }
+    else if (c.oferta_porcentaje != null || c.oferta_precio != null) {
+      const base = typeof campos.precio === 'number' ? campos.precio as number : actual.precio;
+      const pct = Number(c.oferta_porcentaje);
+      let po = c.oferta_precio != null ? Number(c.oferta_precio) : base * (1 - pct / 100);
+      po = moneda === 'PEN' ? Math.round(po) : Math.round(po * 100) / 100;
+      const hasta = finDelDia(String(c.oferta_hasta || ''), zona);
+      if (typeof base === 'number' && po >= 0 && po < base && hasta && hasta > Date.now() && (c.oferta_precio != null || (pct > 0 && pct < 100))) {
+        campos.precioOferta = po; campos.ofertaHasta = hasta;
+      }
     }
     if (!Object.keys(campos).length) return [];
     const antes = Object.fromEntries(Object.keys(campos).map((k) => [k, actual[k] ?? null]));

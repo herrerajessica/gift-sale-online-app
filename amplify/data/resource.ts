@@ -35,6 +35,8 @@ const schema = a.schema({
       descuentoContado: a.float(),
       // Tiendas de confianza: cuántos días puede durar un separado de los productos de esta tienda (por defecto 7)
       diasSeparado: a.integer(),
+      // Enlace del grupo de WhatsApp de ventas (https://chat.whatsapp.com/...): la tienda muestra "Únete a mi grupo"
+      grupoWhatsapp: a.string(),
       // País de la tienda: PE (soles, Yape, tienda en español) o US (solo dólares, tienda del cliente en inglés)
       pais: a.enum(['PE', 'US']),
       // Moneda de los precios: PEN (soles, tiendas de Perú) o USD. Sin valor = USD (tiendas antiguas).
@@ -82,6 +84,9 @@ const schema = a.schema({
       // y fija cuánto le paga la revendedora por cada unidad (en la moneda de su tienda).
       compartido: a.boolean(),
       precioReventa: a.float(),
+      // Oferta con fecha de fin: mientras ofertaHasta (fecha en ms) no pase, se cobra precioOferta; después, el precio normal.
+      precioOferta: a.float(),
+      ofertaHasta: a.float(),
       // Copia en la tienda de una revendedora: apunta al producto original y a su tienda.
       // Lo llena la función "confianza"; el catálogo y los pagos lo verifican en el servidor
       // y nunca lo muestran al cliente (para el cliente, el producto es de la revendedora).

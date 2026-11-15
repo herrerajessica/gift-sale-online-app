@@ -1,3 +1,4 @@
+import { precioVigente } from '../shared/oferta';
 import Stripe from 'stripe';
 import { randomUUID } from 'node:crypto';
 import { BatchGetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
@@ -131,6 +132,7 @@ async function armarPedido(t: Record<string, any>, itemsJson: unknown, soloSoles
     if (!prod || prod.tiendaId !== t.id) fallo('Un producto del pedido ya no existe');
     if (prod!.estado === 'vendido' || prod!.estado === 'oculto') fallo(`"${prod!.nombre}" ya no está disponible`);
     if (typeof prod!.precio !== 'number') fallo(`"${prod!.nombre}" no tiene precio; consúltalo por WhatsApp`);
+    const precio = precioVigente(prod!) as number;   // con oferta vigente se cobra el precio de oferta
     const orig = prod!.origenId ? copias.get(String(prod!.id)) : undefined;
     if (prod!.origenId && !orig) fallo(`"${prod!.nombre}" ya no está disponible`);
     const stock = orig ? orig.stock : prod!.stock;
@@ -140,10 +142,10 @@ async function armarPedido(t: Record<string, any>, itemsJson: unknown, soloSoles
     // Monto en la unidad mínima: soles redondeados como en la tienda, o centavos de dólar.
     const factor = 1 - Math.min(30, Math.max(0, descuento)) / 100;
     // Precios en soles: con tarjeta se cobra exacto (céntimos); con Yape se redondea al sol, igual que en la tienda.
-    const monto = enSoles && !soloSoles ? Math.round(prod!.precio * p.q * factor * 100)
-      : rate ? Math.round(prod!.precio * p.q * rate * factor) * 100
-      : Math.round(prod!.precio * p.q * factor * 100);
-    lineas.push({ id: p.id, nombre: prod!.codigo ? `${prod!.codigo} · ${prod!.nombre}` : prod!.nombre, q: p.q, precioUsd: prod!.precio, monto });
+    const monto = enSoles && !soloSoles ? Math.round(precio * p.q * factor * 100)
+      : rate ? Math.round(precio * p.q * rate * factor) * 100
+      : Math.round(precio * p.q * factor * 100);
+    lineas.push({ id: p.id, nombre: prod!.codigo ? `${prod!.codigo} · ${prod!.nombre}` : prod!.nombre, q: p.q, precioUsd: precio, monto });
   }
   const total = lineas.reduce((s, l) => s + l.monto, 0);
   return { lineas, total, moneda };

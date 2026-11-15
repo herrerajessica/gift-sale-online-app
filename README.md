@@ -45,6 +45,24 @@ La idea central es **subir muchas fotos de una vez**. Al arrastrar el lote se pu
 - **Cantidad (stock):** opcional; vacío significa "sin control". El cliente ve "Quedan N" o "¡Última unidad!" cuando quedan 3 o menos, y "Agotado" en 0. No puede pedir más unidades de las disponibles: lo valida la pantalla y también el servidor.
 - **Descuento automático:** al pagar con tarjeta, el webhook descuenta las unidades una sola vez (aunque Stripe reenvíe el aviso). Al confirmar un Yape, se descuentan cuando la vendedora toca *Confirmar pago*. Los pedidos por WhatsApp se ajustan a mano.
 
+## Órdenes rápidas (voz o texto, como con Alexa)
+
+En el asistente, frases cortas con palabras clave se entienden **al instante y sin IA** (no gastan usos del plan). Siempre se muestra la tarjeta con los cambios y la vendedora toca **Aplicar**. El código está en `src/comandos.js` (se puede probar solo, sin la página).
+
+- **A qué productos:** un código (`CAR-002`, `car 2`, `car dos`), `categoría zapatos` / `todos los zapatos` / `las carteras`, `marca Guess`, `los marcados`, `toda la tienda`.
+- **Qué cambiar:** `precio 120`, `stock 3` / `cantidad 3` / `hay 3`, `nombre …`, `quita la palabra …`, `no poner bolso sino cartera`, `descripción …`, `marca …`, `talla …`, `condición usado como nuevo`, `categoría accesorios`, `para mujer`, `costo 35`, `vendido`, `ocultar`, `publicar`, `agotado`, `sube/baja el precio 10 %` o `10 soles`.
+- **Ofertas:** `15 % de descuento hoy`, `oferta 20 % hasta el domingo`, `por 3 días`, `este fin de semana`, `oferta a 100`, `quitar oferta`. Si no dice hasta cuándo, dura 7 días (y se avisa).
+- Se pueden juntar: `CAR-002 precio 120 y stock 1`. Si la frase no es una orden clara (preguntas, "escribe una descripción…"), responde la IA como antes.
+- "Órdenes rápidas" en el chat muestra la lista de ejemplos.
+
+## Ofertas con fecha de fin
+
+`Producto.precioOferta` y `Producto.ofertaHasta`: el precio normal no se toca. Mientras la oferta está vigente, el catálogo devuelve el precio de oferta en `precio` (y el normal en `precioAntes`), y `pagos` cobra ese precio con Yape y con tarjeta (`shared/oferta.ts`). Al vencer vuelve solo al precio normal. Se crea con órdenes rápidas, con el asistente o en Editar varios (Oferta % + hasta hoy / domingo / 7 / 30 días, o Quitar oferta). El cliente ve el precio tachado, "-15 %" y "Oferta hasta …"; el mensaje de WhatsApp dice "(oferta)".
+
+## Grupo de WhatsApp de ventas
+
+`Tienda.grupoWhatsapp` (solo enlaces `https://chat.whatsapp.com/…`). Si está puesto, el cliente ve **Únete a mi grupo de WhatsApp**. **📣 Mensaje para mi grupo** (en Productos o en Editar varios) arma el texto con los productos marcados, o con las ofertas vigentes si no hay marcados: Ofertas, Preventa, Novedades o Últimas unidades, con código, precio (tachado si hay oferta), talla y el enlace de la tienda. **Enviar por WhatsApp** abre WhatsApp para elegir el grupo (WhatsApp no deja publicar directo en un grupo); en el celular, **Compartir con fotos** manda también las fotos.
+
 ## Panel de la vendedora por pestañas
 
 Al entrar, la vendedora ve su tienda separada en pestañas (se recuerda la última que abrió en ese equipo):

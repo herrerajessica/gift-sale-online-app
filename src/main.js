@@ -6,6 +6,7 @@ import {
   PLANES, planVigente, tieneFondoIA, pagarPlan, quitarFondo, asistente, interpretarDictado, cancelarPlan, conectarCobros, estadoCobros, pagarPedido, pedidoYape,
   miTiendaActual, listarPedidos, cambiarEstadoPedido, cambiarPlanTienda, confianza, refrescarProductos,
 } from './amplify-adapter.js';
+import { interpretarComando } from './comandos.js';
 
 // Lógica de Showroomcito (misma que la versión de Claude).
 
@@ -484,6 +485,32 @@ import {
   // "car 002", "CAR-2", "car002" → "CAR-002" ('' si no es un código)
   const normCodigo = s => { const m = /^\s*([a-zA-Z]{3})[\s\-_.#]*0*(\d{1,5})\s*$/.exec(String(s||"")); return m ? m[1].toUpperCase() + "-" + m[2].padStart(3,"0") : ""; };
   const codTag = p => codigoDe(p) ? el("span",{class:"cod-tag"}, codigoDe(p)) : null;
+  // Enlace de invitación a un grupo de WhatsApp (solo se acepta chat.whatsapp.com)
+  const grupoValido = v => { const m = /^\s*(?:https?:\/\/)?chat\.whatsapp\.com\/(?:invite\/)?([A-Za-z0-9]{10,40})\s*$/.exec(String(v||"")); return m ? "https://chat.whatsapp.com/" + m[1] : ""; };
+  // ---------- Ofertas con fecha de fin ----------
+  // Vendedora: el producto trae precio normal + precioOferta + ofertaHasta. Cliente: el catálogo ya manda el precio
+  // de oferta en "precio" y el normal en "precioAntes".
+  function oferta(p){
+    if(!p) return null;
+    if(p.precioAntes!=null && p.precio!=null) return { precio:p.precio, antes:p.precioAntes, hasta:p.ofertaHasta, pct: Math.round((1 - p.precio/p.precioAntes)*100) };
+    if(p.precio!=null && p.precioOferta!=null && p.precioOferta < p.precio && p.ofertaHasta > Date.now())
+      return { precio:p.precioOferta, antes:p.precio, hasta:p.ofertaHasta, pct: Math.round((1 - p.precioOferta/p.precio)*100) };
+    return null;
+  }
+  const precioHoy = p => { const o = oferta(p); return o ? o.precio : p.precio; };
+  const fechaOferta = ms => { const d = new Date(ms), hoy = new Date(), man = new Date(Date.now()+864e5);
+    if(d.toDateString()===hoy.toDateString()) return tx("hoy","today");
+    if(d.toDateString()===man.toDateString()) return tx("mañana","tomorrow");
+    return d.toLocaleDateString(EN() ? "en-US" : "es-PE", { weekday:"short", day:"numeric", month:"short" }); };
+  // Fin de la oferta (23:59:59 en la hora del equipo de la vendedora)
+  const finDia = d => { const x = new Date(d); x.setHours(23,59,59,0); return x.getTime(); };
+  const hastaOferta = v => { const hoy = new Date();
+    if(v==="hoy") return finDia(hoy);
+    if(v==="domingo"){ const d = new Date(hoy); d.setDate(d.getDate() + ((7 - d.getDay()) % 7)); return finDia(d); }
+    const n = Number(v); if(n > 0){ const d = new Date(hoy); d.setDate(d.getDate() + n - 1); return finDia(d); }
+    return null; };
+  const precioConDescuento = (precio, pct) => enSoles() ? Math.round(precio * (1 - pct/100)) : Math.round(precio * (1 - pct/100) * 100) / 100;
+  const textoOferta = o => tx(`Oferta hasta ${fechaOferta(o.hasta)}`, `Sale ends ${fechaOferta(o.hasta)}`);
   const PUBLICOS = ["Mujer","Hombre","Niños","Unisex"];
   async function classify(items){
     if(!S.ai || !items.length) return;
@@ -592,16 +619,18 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       const open = el("button",{class:"open",type:"button","aria-label":(S.selecting?"Seleccionar ":tx("Ver ","View "))+(p.nombre||tx("producto","product")),onclick:()=>{ if(S.selecting){ toggleSel(p.id); } else openProduct(p.id); }});
       const ph = el("div",{class:"ph"});
       if(cover) ph.append(el("img",{src:src(cover.thumb||cover.full),alt:"",loading:"lazy",decoding:"async",onerror:function(){this.remove();}}));
-      ph.append(el("span",{class:"price"+(p.precio==null?" none":"")}, p.precio==null ? tx("Consultar","Ask price") : money(p.precio), p.precio!=null && soles(p.precio) ? el("small",null, soles(p.precio)) : null));
+      const of = oferta(p), pv = precioHoy(p);
+      ph.append(el("span",{class:"price"+(pv==null?" none":"")+(of?" oferta":"")}, pv==null ? tx("Consultar","Ask price") : money(pv), of ? el("s",null, money(of.antes)) : null, pv!=null && soles(pv) ? el("small",null, soles(pv)) : null));
+      if(of) ph.append(el("span",{class:"oferta-tag"}, `-${of.pct} %`));
       if(st!=="disponible") ph.append(el("span",{class:"status "+st}, {vendido:tx("Vendido","Sold"),apartado:tx("Apartado","On hold"),oculto:"Oculto"}[st]||st));
       else if(p.stock===0) ph.append(el("span",{class:"status agotado"},tx("Agotado","Sold out")));
       if(S.selecting) ph.append(el("span",{class:"check","aria-hidden":"true"}, S.sel.has(p.id)?"✓":""));
       else if(p.fotos && p.fotos.length>1) ph.append(el("span",{class:"multi"}, p.fotos.length+tx(" fotos"," photos")));
-      const contado = p.precio!=null && !agotado(p) ? solesContado(p.precio) : null;
+      const contado = pv!=null && !agotado(p) ? solesContado(pv) : null;
       // Producto de una tienda de confianza: la cantidad es la del original.
       const ic = S.canEdit && esCopia(p) ? infoCopia(p) : null;
       const ps = ic ? { ...p, stock: ic.stock } : p;
-      open.append(ph, el("div",{class:"info",style:"padding-bottom:0"}, contado!=null ? el("span",{class:"contado"}, `S/ ${contado.toLocaleString("es-PE")} con Yape o efectivo`) : null, (p.marca || p.codigo) ? el("span",{class:"tags-row"}, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, codTag(p)) : null, el("span",{class:"name"},p.nombre||tx("Sin nombre","Untitled")), p.condicion ? el("span",{class:"cond-tag cond-"+p.condicion}, condTxt(p.condicion)) : null, S.canEdit ? etiquetaConf(p) : null, el("span",{class:"meta"}, el("span",null,[catTxt(p.categoria), p.talla ? tx("Talla ","Size ")+p.talla : ""].filter(Boolean).join(" · ")), el("span",null,pubTxt(p.publico||""))), S.canEdit && p.costo!=null && !esCopia(p) ? el("span",{class:"costo"}, `Costo ${usd(p.costo)}`+(p.precio!=null && costoMon(p.costo) ? ` · margen ${Math.round((p.precio/costoMon(p.costo)-1)*100)} %` : "")) : null, ic && ic.precioReventa!=null ? el("span",{class:"costo"}, `Te cuesta ${money(ic.precioReventa)}` + (p.precio!=null ? ` · ganas ${money(p.precio - ic.precioReventa)}` : "")) : null, stockTxt(ps) ? el("span",{class:"stockpill"+(S.canEdit && ps.stock>3?" ok":"")}, stockTxt(ps)) : null));
+      open.append(ph, el("div",{class:"info",style:"padding-bottom:0"}, contado!=null ? el("span",{class:"contado"}, `S/ ${contado.toLocaleString("es-PE")} con Yape o efectivo`) : null, (p.marca || p.codigo) ? el("span",{class:"tags-row"}, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, codTag(p)) : null, el("span",{class:"name"},p.nombre||tx("Sin nombre","Untitled")), of ? el("span",{class:"oferta-hasta"}, textoOferta(of)) : null, p.condicion ? el("span",{class:"cond-tag cond-"+p.condicion}, condTxt(p.condicion)) : null, S.canEdit ? etiquetaConf(p) : null, el("span",{class:"meta"}, el("span",null,[catTxt(p.categoria), p.talla ? tx("Talla ","Size ")+p.talla : ""].filter(Boolean).join(" · ")), el("span",null,pubTxt(p.publico||""))), S.canEdit && p.costo!=null && !esCopia(p) ? el("span",{class:"costo"}, `Costo ${usd(p.costo)}`+(p.precio!=null && costoMon(p.costo) ? ` · margen ${Math.round((p.precio/costoMon(p.costo)-1)*100)} %` : "")) : null, ic && ic.precioReventa!=null ? el("span",{class:"costo"}, `Te cuesta ${money(ic.precioReventa)}` + (p.precio!=null ? ` · ganas ${money(p.precio - ic.precioReventa)}` : "")) : null, stockTxt(ps) ? el("span",{class:"stockpill"+(S.canEdit && ps.stock>3?" ok":"")}, stockTxt(ps)) : null));
       card.append(open);
       if(!S.selecting) card.append(el("div",{class:"info",style:"padding-top:0"}, addButton(p)));
       grid.append(card);
@@ -632,24 +661,33 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   $("bulkApply").onclick = async ()=>{
     const patch={}; const pv=$("bulkPrice").value.trim(), cv=$("bulkCat").value.trim(), sv=$("bulkStatus").value, pb=$("bulkPub").value, mv=$("bulkMarca").value.trim(), qv=$("bulkStock").value.trim(), cdv=$("bulkCond").value, mg=parseMargen($("bulkMargen").value);
     if(pv) patch.precio=parsePrice(pv); if(cv) patch.categoria=cv; if(sv) patch.estado=sv; if(pb) patch.publico=pb; if(mv) patch.marca=mv; if(qv) patch.stock=parseStock(qv); if(cdv) patch.condicion=cdv;
-    if(!Object.keys(patch).length && mg==null){ toast("Escribe un precio, margen, marca, cantidad o categoría, o elige un estado o una condición"); return; }
+    // Oferta por tiempo: % sobre el precio normal de cada producto, o quitarla
+    const ofv = $("bulkOfertaHasta").value, ofPct = parseMargen($("bulkOferta").value), quitarOf = ofv==="quitar";
+    if(ofPct!=null && !(ofPct > 0 && ofPct < 100)){ toast("La oferta debe ser un porcentaje entre 1 y 99"); return; }
+    const hayOferta = quitarOf || ofPct!=null, hastaOf = hayOferta && !quitarOf ? hastaOferta(ofv) : null;
+    if(!Object.keys(patch).length && mg==null && !hayOferta){ toast("Escribe un precio, margen, oferta, marca, cantidad o categoría, o elige un estado o una condición"); return; }
     if(pv && mg!=null){ toast("Usa precio fijo o margen, no los dos"); return; }
     const ids=[...S.sel]; $("bulkApply").disabled=true;
-    let sinCosto = 0;
+    let sinCosto = 0, sinPrecio = 0;
     const fails = await runPool(ids, id=>{
       const p = S.products.find(x=>x.id===id); const cambio = { ...patch };
       // De una tienda de confianza: la cantidad y las ventas las maneja la dueña (se registran con "Registrar venta").
       if(esCopia(p)){ delete cambio.stock; if(cambio.estado && cambio.estado!=="oculto" && cambio.estado!=="disponible") delete cambio.estado; }
       if(mg!=null && !esCopia(p)){ const pm = p ? precioConMargen(p.costo, mg) : null; if(pm!=null) cambio.precio = pm; else sinCosto++; }
+      if(quitarOf){ cambio.precioOferta = null; cambio.ofertaHasta = null; }
+      else if(ofPct!=null){ const base = cambio.precio ?? (p && p.precio); if(base!=null){ cambio.precioOferta = precioConDescuento(base, ofPct); cambio.ofertaHasta = hastaOf; } else sinPrecio++; }
       return Object.keys(cambio).length ? S.db.doc("productos/"+id).update(cambio) : Promise.resolve();
     });
     if(sinCosto) toast(`${sinCosto} producto(s) sin costo: el margen no se aplicó a esos`);
-    $("bulkPrice").value=$("bulkCat").value=$("bulkMarca").value=$("bulkStock").value=$("bulkMargen").value=""; $("bulkStatus").value=""; $("bulkPub").value=""; $("bulkCond").value="";
+    if(sinPrecio) toast(`${sinPrecio} producto(s) sin precio: la oferta no se aplicó a esos`);
+    $("bulkPrice").value=$("bulkCat").value=$("bulkMarca").value=$("bulkStock").value=$("bulkMargen").value=$("bulkOferta").value=""; $("bulkOfertaHasta").value="7"; $("bulkStatus").value=""; $("bulkPub").value=""; $("bulkCond").value="";
     toast(fails ? `Actualizados ${ids.length-fails}; ${fails} fallaron` : `${ids.length} productos actualizados`); renderBulk();
   };
   $("dictBtn").onclick = ()=>{ if(!S.canEdit) return; abrirDictado(); };
   $("bulkAI").onclick = ()=>classifySelected();
   $("bulkShare").onclick = ()=>abrirCompartir([...S.sel]);
+  $("bulkGrupo").onclick = ()=>abrirMensajeGrupo([...S.sel]);
+  $("grupoBtn").onclick = ()=>abrirMensajeGrupo(S.selecting ? [...S.sel] : []);
   $("bulkUnshare").onclick = async ()=>{
     const ids = [...S.sel].filter(id=>{ const p=S.products.find(x=>x.id===id); return p && p.compartido && !esCopia(p); });
     if(!ids.length){ toast("Ninguno de los seleccionados está compartido"); return; }
@@ -824,6 +862,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       const v = (id,def)=> keep[id]!==undefined ? keep[id] : def;
       side.append(
         p.codigo ? el("span",{class:"cod-tag"}, "Código " + p.codigo) : null,
+        oferta(p) ? el("div",{class:"oferta-fila"}, el("span",null, `En oferta: ${money(oferta(p).precio)} (-${oferta(p).pct} %) · ${textoOferta(oferta(p))}. El precio normal se queda en ${money(p.precio)}.`),
+          el("button",{class:"linkish",type:"button",onclick:async()=>{ try{ await S.db.doc("productos/"+p.id).update({ precioOferta:null, ofertaHasta:null }); toast("Oferta terminada"); }catch(e){ toast("No se pudo quitar la oferta"); } }},"Quitar oferta")) : null,
         el("label",{class:"f"},"Nombre", el("input",{id:"eName",value:v("eName",p.nombre||""),maxlength:"120"})),
         el("div",{class:"row2"},
           el("label",{class:"f"},"Marca", el("input",{id:"eMarca",list:"marcaList",maxlength:"40",value:v("eMarca",p.marca||""),placeholder:"Ej. Michael Kors"})),
@@ -855,8 +895,9 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     } else {
       const st=p.estado||"disponible";
       side.append((p.marca || p.codigo) ? el("span",{class:"tags-row"}, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, p.codigo ? el("span",{class:"cod-tag"}, tx("Código ","Code ")+p.codigo) : null) : null, el("h2",null,p.nombre||tx("Producto","Product")),
-        el("div",{class:"bigprice"}, p.precio==null?tx("Precio a consultar","Price on request"):money(p.precio), p.precio!=null && soles(p.precio) ? el("span",{class:"bigsol"}, soles(p.precio) + " con tarjeta") : null),
-        p.precio!=null && solesContado(p.precio)!=null ? el("span",{class:"contado",style:"font-size:15px"}, `S/ ${solesContado(p.precio).toLocaleString("es-PE")} pagando con Yape o efectivo (${descuento()} % menos)`) : null,
+        el("div",{class:"bigprice"+(oferta(p)?" oferta":"")}, precioHoy(p)==null?tx("Precio a consultar","Price on request"):money(precioHoy(p)), oferta(p) ? el("s",null, money(oferta(p).antes)) : null, precioHoy(p)!=null && soles(precioHoy(p)) ? el("span",{class:"bigsol"}, soles(precioHoy(p)) + " con tarjeta") : null),
+        oferta(p) ? el("span",{class:"oferta-hasta",style:"font-size:14px"}, `-${oferta(p).pct} % · ` + textoOferta(oferta(p))) : null,
+        precioHoy(p)!=null && solesContado(precioHoy(p))!=null ? el("span",{class:"contado",style:"font-size:15px"}, `S/ ${solesContado(precioHoy(p)).toLocaleString("es-PE")} pagando con Yape o efectivo (${descuento()} % menos)`) : null,
         st!=="disponible" ? el("span",{class:"status "+st,style:"position:static;justify-self:start"}, st==="vendido"?tx("Vendido","Sold"):tx("Apartado","On hold")) : p.stock===0 ? el("span",{class:"status agotado",style:"position:static;justify-self:start"},tx("Agotado","Sold out")) : null,
         p.condicion ? el("span",{class:"cond-tag cond-"+p.condicion,style:"justify-self:start"}, condTxt(p.condicion)) : null,
         p.talla ? el("span",null, el("strong",null,tx("Talla: ","Size: ")), p.talla) : null,
@@ -903,7 +944,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     let m = tx(`Hola${S.config.nombre?" "+S.config.nombre:""}, quiero hacer este pedido:\n\n`, `Hi${S.config.nombre?" "+S.config.nombre:""}, I'd like to order:\n\n`);
     lines.forEach((l,i)=>{
       const pr = l.p.precio==null ? tx("precio a consultar","price on request") : (l.q>1 ? `${l.q} × ${money(l.p.precio)} = ${dual(l.p.precio*l.q)}` : dual(l.p.precio));
-      m += `${i+1}. ${l.p.codigo ? l.p.codigo+" · " : ""}${l.p.nombre}${l.p.condicion ? " ("+condTxt(l.p.condicion).toLowerCase()+")" : ""}${l.q>1&&l.p.precio==null?tx(` (${l.q} unidades)`,` (${l.q} units)`):""} — ${pr}\n`;
+      m += `${i+1}. ${l.p.codigo ? l.p.codigo+" · " : ""}${l.p.nombre}${oferta(l.p) ? tx(" (oferta)"," (sale)") : ""}${l.p.condicion ? " ("+condTxt(l.p.condicion).toLowerCase()+")" : ""}${l.q>1&&l.p.precio==null?tx(` (${l.q} unidades)`,` (${l.q} units)`):""} — ${pr}\n`;
     });
     m += `\nTotal: ${dual(total)||money(0)}${consultar?tx(` + ${consultar} producto(s) a consultar`,` + ${consultar} item(s) to confirm price`):""}`;
     { const tc = totalContado(lines); if(tc!=null) m += `\nTotal pagando con Yape o efectivo: S/ ${tc.toLocaleString("es-PE")}`; }
@@ -1073,6 +1114,11 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     if(document.activeElement!==$("setRate")) $("setRate").value = S.config.tipoCambio!=null ? String(S.config.tipoCambio) : "";
     if(document.activeElement!==$("setDesc")) $("setDesc").value = S.config.descuentoContado ? String(S.config.descuentoContado) : "";
     if(document.activeElement!==$("setDias")) $("setDias").value = S.config.diasSeparado ? String(S.config.diasSeparado) : "";
+    if(document.activeElement!==$("setGrupo")) $("setGrupo").value = S.config.grupoWhatsapp || "";
+    // Botón "Únete a mi grupo" para los clientes
+    const gl = $("grupoLink"), grupo = grupoValido(S.config.grupoWhatsapp);
+    gl.hidden = !grupo || S.canEdit;
+    if(grupo){ gl.href = grupo; gl.textContent = tx("💬 Únete a mi grupo de WhatsApp: ofertas y novedades primero", "💬 Join my WhatsApp group for deals and new arrivals"); }
     if(document.activeElement!==$("setYapeNum")) $("setYapeNum").value = S.config.yapeNumero||"";
     if(document.activeElement!==$("setYapeName")) $("setYapeName").value = S.config.yapeNombre||"";
     if(yapeQrNuevo===undefined) pintarQrConfig(S.config.yapeQr||"");
@@ -1116,11 +1162,13 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const tc = parsePrice($("setRate").value);
     const conPrecio = S.products.filter(p=>typeof p.precio==="number");
     if(moneda!==antes && conPrecio.length && !(tc>0)){ toast("Escribe el tipo de cambio para convertir tus precios"); $("setRate").focus(); return; }
+    if($("setGrupo").value.trim() && !grupoValido($("setGrupo").value)){ toast("El enlace del grupo debe ser de chat.whatsapp.com (en WhatsApp: tu grupo › Invitar al grupo › Copiar enlace)"); $("setGrupo").focus(); return; }
     try{
       await S.db.doc("config/tienda").set({
         nombre:$("setName").value.trim(), whatsapp:$("setWa").value.trim(), tipoCambio: parsePrice($("setRate").value),
         descuentoContado: Math.min(30, Math.max(0, parseMargen($("setDesc").value) || 0)),
         diasSeparado: Math.min(60, Math.max(1, parseStock($("setDias").value) || 7)),
+        grupoWhatsapp: grupoValido($("setGrupo").value) || "",
         yapeNumero:$("setYapeNum").value.trim(), yapeNombre:$("setYapeName").value.trim(),
         yapeQr: yapeQrNuevo!==undefined ? yapeQrNuevo : (S.config.yapeQr||""),
         pais, moneda,
@@ -1329,6 +1377,64 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     $("bannerLink").textContent = enlaceDe(t.id);
     $("viewStore").href = enlaceDe(t.id);
     $("copyLink").onclick = async ()=>{ try{ await navigator.clipboard.writeText(enlaceDe(t.id)); toast("Enlace copiado"); }catch(e){ const r=document.createRange(); r.selectNodeContents($("bannerLink")); const sl=getSelection(); sl.removeAllRanges(); sl.addRange(r); toast("Selecciona y copia el enlace"); } };
+  }
+
+  // ---------- Mensaje para el grupo de WhatsApp de ventas ----------
+  // WhatsApp no deja publicar solo en un grupo: armamos el mensaje y la vendedora lo comparte y elige su grupo.
+  const TIPOS_GRUPO = [
+    ["ofertas","🔥 Ofertas","🔥 *OFERTAS*","Pídelo escribiéndome el código 👉"],
+    ["preventa","🛍️ Preventa","🛍️ *PREVENTA*","Separa el tuyo escribiéndome el código 📩"],
+    ["novedades","✨ Novedades","✨ *NUEVOS INGRESOS*","Pídelo escribiéndome el código 👉"],
+    ["remate","⚡ Últimas unidades","⚡ *ÚLTIMAS UNIDADES*","¡Corre que se acaban! Escríbeme el código 👉"],
+  ];
+  function textoGrupo(tipo, lista){
+    const t = TIPOS_GRUPO.find(x=>x[0]===tipo) || TIPOS_GRUPO[0];
+    const lineas = lista.map(p=>{
+      const of = oferta(p), cod = codigoDe(p);
+      const precio = of ? `~${money(of.antes)}~ *${money(of.precio)}* (-${of.pct} %) · hasta ${fechaOferta(of.hasta)}` : p.precio!=null ? `*${money(p.precio)}*` : "Precio a consultar";
+      return `▪️ ${cod ? "*"+cod+"* " : ""}${p.nombre || "Producto"}${p.talla ? " · Talla "+p.talla : ""}\n     ${precio}`;
+    });
+    return `${t[2]} · ${S.config.nombre || "mi tienda"}\n\n${lineas.join("\n")}\n\n${t[3]}\n${enlaceDe(S.config.id || "")}`;
+  }
+  function abrirMensajeGrupo(ids){
+    let lista = ids.map(id=>S.products.find(p=>p.id===id)).filter(Boolean);
+    let origen = "marcados";
+    if(!lista.length){ lista = S.products.filter(p=>oferta(p)); origen = "ofertas"; }
+    lista = lista.filter(p=>p.estado!=="vendido" && p.estado!=="oculto");
+    if(!lista.length){ toast("Marca productos con Editar varios, o pon productos en oferta, para armar el mensaje"); return; }
+    let tipo = origen==="ofertas" || lista.some(p=>oferta(p)) ? "ofertas" : "novedades";
+    const ov=$("planOverlay"); ov.textContent=""; ov.hidden=false; delete ov.dataset.conf; delete ov.dataset.dict;
+    const cerrar = ()=>{ ov.hidden=true; ov.textContent=""; };
+    ov.onclick = e=>{ if(e.target===ov) cerrar(); };
+    const area = el("textarea",{rows:"12",style:"width:100%;font:inherit;font-size:14px",id:"grupoTexto","aria-label":"Mensaje para el grupo"});
+    const chips = el("div",{class:"cats",role:"group","aria-label":"Tipo de mensaje"});
+    const pintar = ()=>{ area.value = textoGrupo(tipo, lista); enlazar(); chips.querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed", String(b.dataset.tipo===tipo))); };
+    TIPOS_GRUPO.forEach(([k,l])=>chips.append(el("button",{class:"chip",type:"button","data-tipo":k,onclick:()=>{ tipo=k; pintar(); }}, l)));
+    const grupo = grupoValido(S.config.grupoWhatsapp);
+    const copiar = el("button",{class:"btn",type:"button",onclick:async()=>{ try{ await navigator.clipboard.writeText(area.value); toast("Mensaje copiado: pégalo en tu grupo"); }catch(e){ area.select(); toast("Selecciona el texto y cópialo"); } }},"Copiar");
+    const compartir = el("a",{class:"btn primary",href:"https://wa.me/",target:"_blank",rel:"noopener",style:"text-decoration:none"},"Enviar por WhatsApp");
+    const enlazar = ()=>{ compartir.href = "https://wa.me/?text=" + encodeURIComponent(area.value); };
+    area.addEventListener("input", enlazar);
+    // Con fotos: el celular abre "Compartir" con las fotos y el texto (WhatsApp › elige tu grupo)
+    const conFotos = el("button",{class:"btn",type:"button",hidden:true,onclick:async()=>{
+      conFotos.disabled = true; conFotos.textContent = "Preparando fotos…";
+      try{
+        const files = [];
+        for(const p of lista.slice(0,10)){ const f = p.fotos && p.fotos[0]; if(!f) continue; try{ const b = await (await fetch(src(f.full||f.thumb))).blob(); files.push(new File([b], (codigoDe(p)||p.id) + ".jpg", { type: b.type || "image/jpeg" })); }catch(e){} }
+        if(files.length && navigator.canShare && navigator.canShare({ files })) await navigator.share({ files, text: area.value });
+        else await navigator.share({ text: area.value });
+      }catch(e){ if(!(e && e.name==="AbortError")) toast("Tu celular no dejó compartir las fotos; usa Enviar por WhatsApp"); }
+      finally{ conFotos.disabled = false; conFotos.textContent = "Compartir con fotos"; }
+    }},"Compartir con fotos");
+    try{ conFotos.hidden = !(navigator.canShare && navigator.canShare({ files:[new File([""],"x.jpg",{type:"image/jpeg"})] })); }catch(e){}
+    const card = el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":"Mensaje para tu grupo",style:"width:min(620px,100%)"},
+      el("div",{class:"cart-head"}, el("h2",null,"Mensaje para tu grupo"), el("button",{class:"btn",type:"button",onclick:cerrar},"Cerrar")),
+      el("p",{class:"note",style:"margin:0"}, `${lista.length} producto${lista.length===1?"":"s"} ${origen==="ofertas" ? "en oferta" : "marcado" + (lista.length===1?"":"s")}. Elige el tipo de mensaje; puedes editar el texto antes de enviarlo.`),
+      chips, area,
+      el("div",{class:"acciones",style:"display:flex;flex-wrap:wrap;gap:8px"}, compartir, conFotos, copiar,
+        grupo ? el("a",{class:"btn",href:grupo,target:"_blank",rel:"noopener",style:"text-decoration:none"},"Abrir mi grupo") : null),
+      el("p",{class:"note",style:"margin:0"}, grupo ? "Al tocar Enviar por WhatsApp, elige tu grupo de ventas en la lista." : "Tip: agrega el enlace de tu grupo en Datos de la tienda para que tus clientes vean el botón Únete a mi grupo."));
+    ov.append(card); pintar(); area.focus();
   }
 
   // ---------- Pestañas de la vendedora ----------
@@ -2134,18 +2240,39 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   // Los cambios llegan como propuesta: solo se aplican si la vendedora toca "Aplicar".
   const ASIS_KEY = () => "vitrina-asistente-" + (S.config && S.config.id || "");
   let asisLog = [], asisOcupado = false;
+  const AYUDA_ORDENES = `**Órdenes rápidas** (dilas o escríbelas así; se entienden al instante):
+
+| Dices | Qué hace |
+|---|---|
+| CAR-002 precio 120 | Cambia el precio |
+| car 2 stock 3 | Cambia la cantidad |
+| CAR-002 nombre Cartera Guess | Cambia el nombre |
+| CAR-002 quita la palabra con cadena | Quita palabras del nombre |
+| CAR-002 no poner bolso sino cartera | Cambia una palabra del nombre |
+| CAR-002 descripción cuero, correa larga | Cambia la descripción |
+| CAR-002 marca Guess talla M | Marca y talla |
+| CAR-002 condición usado como nuevo | Condición |
+| CAR-002 categoría accesorios para mujer | Categoría y para quién |
+| ZAP-003 vendido · ocultar · publicar · agotado | Estado |
+| todos los zapatos 15 % de descuento hoy | Oferta que vence sola |
+| las carteras oferta 20 % hasta el domingo | Oferta con fecha |
+| marca Guess baja el precio 10 % | Baja o sube el precio |
+| los marcados quitar oferta | Termina la oferta |
+
+Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cambios y tú tocas **Aplicar**.`;
   const SUGERENCIAS = [
+    "Órdenes rápidas",
     "¿Qué me falta completar en mi tienda?",
     "Escribe descripciones para los productos sin descripción",
     "Pon precio con 60 % de margen a los que tienen costo y no tienen precio",
     "¿Qué pedidos tengo por confirmar?",
     "¿Cuánto vendí esta semana?",
   ];
-  const ETIQUETA_CAMPO = { precio:"Precio", costo:"Costo", stock:"Cantidad", descripcion:"Descripción", marca:"Marca", nombre:"Nombre", talla:"Talla", categoria:"Categoría", estado:"Estado" };
+  const ETIQUETA_CAMPO = { publico:"Para", precio:"Precio", costo:"Costo", stock:"Cantidad", descripcion:"Descripción", marca:"Marca", nombre:"Nombre", talla:"Talla", categoria:"Categoría", estado:"Estado", condicion:"Condición", precioOferta:"Precio de oferta", ofertaHasta:"Oferta hasta" };
   const ESTADO_PED = { por_confirmar:"Por confirmar", pagado:"Pagado", entregado:"Entregado", cancelado:"Cancelado", pendiente:"Pago pendiente" };
   function guardarAsis(){ try{ localStorage.setItem(ASIS_KEY(), JSON.stringify(asisLog.slice(-40))); }catch(e){} }
   function cargarAsis(){ try{ asisLog = JSON.parse(localStorage.getItem(ASIS_KEY()) || "[]"); }catch(e){ asisLog = []; } }
-  const valorCampo = (k, v) => v==null || v==="" ? "—" : k==="precio" ? money(Number(v)) : k==="costo" ? usd(Number(v)) : String(v);
+  const valorCampo = (k, v) => v==null || v==="" ? "—" : (k==="precio" || k==="precioOferta") ? money(Number(v)) : k==="costo" ? usd(Number(v)) : k==="ofertaHasta" ? new Date(Number(v)).toLocaleString("es-PE",{ weekday:"short", day:"numeric", month:"short", hour:"2-digit", minute:"2-digit" }) : k==="condicion" ? condTxt(v) : String(v);
 
   function tarjetaPropuesta(m){
     const p = m.propuesta, total = p.productos.length + p.pedidos.length;
@@ -2213,6 +2340,16 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   }
   async function enviarAsis(texto){
     texto = String(texto||"").trim(); if(!texto || asisOcupado) return;
+    // Órdenes rápidas (palabras clave): se entienden sin IA, al instante y siempre igual.
+    if(/^(ordenes rapidas|ordenes|comandos|ayuda)\.?$/i.test(texto.normalize("NFD").replace(/[\u0300-\u036f]/g,""))){
+      asisLog.push({ role:"user", text:texto }, { role:"assistant", text: AYUDA_ORDENES }); limpiarAsisInput(texto); guardarAsis(); pintarAsis(); return;
+    }
+    let orden = null;
+    try{ orden = interpretarComando(texto, { productos:S.products, seleccion:[...S.sel], codigoDe, enSoles:enSoles(), esCopia, money }); }catch(e){ console.warn("Orden rápida:", e); }
+    if(orden){
+      asisLog.push({ role:"user", text:texto }, orden.error ? { role:"assistant", text:orden.error } : { role:"assistant", text:orden.texto, propuesta:orden.propuesta });
+      limpiarAsisInput(texto); guardarAsis(); pintarAsis(); return;
+    }
     asisLog.push({ role:"user", text:texto }); asisOcupado = true; guardarAsis(); pintarAsis();
     limpiarAsisInput(texto); $("asisEnviar").disabled = true;
     try{
