@@ -11,7 +11,7 @@ test.describe('REQ-002 Cierre de sesión', () => {
     const login = new LoginPage(page);
     await login.abrir();
     await login.login(USER, PASS);
-    await expect(page.getByRole('heading', { name: 'Arrastra aquí todas las fotos' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Cómo quieres subir tus productos/ })).toBeVisible();
     await page.getByRole('button', { name: 'Cerrar sesión' }).click();
     await expect(page.locator('#landing')).toBeVisible();
     await expect(page.locator('#vtabs')).toBeHidden();

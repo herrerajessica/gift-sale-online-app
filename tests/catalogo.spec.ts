@@ -12,7 +12,7 @@ test.describe('REQ-003 Catálogo público por vendedora', () => {
     await page.goto(`/?tienda=${TIENDA}`);
     await expect(page.getByRole('searchbox', { name: 'Buscar producto' })).toBeVisible();
     await expect(page.locator('#grid .card').first()).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Arrastra aquí todas las fotos' })).toBeHidden();
+    await expect(page.getByRole('heading', { name: /Cómo quieres subir tus productos/ })).toBeHidden();
   });
 
   test('CP-005 Precio en la moneda de la tienda @REQ-003', async ({ page }) => {
