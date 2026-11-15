@@ -268,8 +268,12 @@ import {
     const [ha, ca] = a.slice(3).split("-"), [hb, cb] = b.slice(3).split("-");
     let v = BigInt("0x"+ha) ^ BigInt("0x"+hb), dist = 0;
     while(v){ dist += Number(v & 1n); v >>= 1n; }
-    const col = [0,2,4].reduce((t,k)=>t + Math.abs(parseInt(ca.substr(k,2),16) - parseInt(cb.substr(k,2),16)), 0);
-    return dist <= 5 && col <= 24;
+    // Color: se compara el TONO (proporción de rojo, verde y azul), no el brillo. Así la misma foto
+    // subida "tal cual" y "mejorada" (más clara y contrastada) se reconoce como repetida.
+    const prop = c => { const v = [0,2,4].map(k=>parseInt(c.substr(k,2),16)), t = (v[0]+v[1]+v[2]) || 1; return v.map(x=>x/t); };
+    const pa = prop(ca), pb = prop(cb);
+    const tono = Math.abs(pa[0]-pb[0]) + Math.abs(pa[1]-pb[1]) + Math.abs(pa[2]-pb[2]);
+    return dist <= 5 && tono <= 0.06;
   }
   async function huellaDeArchivo(f){ try{ return huellaDeImagen(await decode(f)); }catch(e){ return null; } }
   function huellaDeUrl(url){
