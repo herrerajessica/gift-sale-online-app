@@ -267,6 +267,8 @@ import { interpretarComando } from './comandos.js';
     return "h2:" + BigInt("0b"+bits).toString(16).padStart(16,"0") + "-" + hx(r) + hx(g) + hx(b);
   }
   function parecidas(a, b){
+    // La huella puede llevar al final "|<id de la foto>" (de qué foto se calculó): no cuenta para comparar.
+    a = String(a||"").split("|")[0]; b = String(b||"").split("|")[0];
     if(!a || !b || !a.startsWith("h2:") || !b.startsWith("h2:")) return false;
     const [ha, ca] = a.slice(3).split("-"), [hb, cb] = b.slice(3).split("-");
     let v = BigInt("0x"+ha) ^ BigInt("0x"+hb), dist = 0;
@@ -279,23 +281,35 @@ import { interpretarComando } from './comandos.js';
     return dist <= 5 && tono <= 0.06;
   }
   async function huellaDeArchivo(f){ try{ return huellaDeImagen(await decode(f)); }catch(e){ return null; } }
-  function huellaDeUrl(url){
+  async function huellaDeUrl(url){
+    // Primero con fetch sin caché (evita una copia guardada sin permiso CORS); si falla, con <img>.
+    try{
+      const b = await (await fetch(url, { mode:"cors", cache:"no-store" })).blob();
+      const bmp = await createImageBitmap(b);
+      try{ return huellaDeImagen(bmp); } finally { if(bmp.close) bmp.close(); }
+    }catch(e){}
     return new Promise(res=>{
       const i = new Image(); i.crossOrigin = "anonymous"; i.decoding = "async";
       i.onload = ()=>{ try{ res(huellaDeImagen(i)); }catch(e){ res(null); } };
-      i.onerror = ()=>res(null); i.src = url;
+      i.onerror = ()=>res(null); i.src = url + (url.includes("?") ? "&" : "?") + "h=1";
     });
   }
-  /** Calcula (y guarda) la huella de los productos que todavía no la tienen. */
+  // La huella es de la foto principal: si se cambió la foto (o el producto vino del dictado), se calcula de nuevo.
+  const fotoPrincipal = p => p.fotos && p.fotos[0] ? (p.fotos[0].thumb || p.fotos[0].full) : "";
+  // Al día = calculada de la foto principal actual (las huellas antiguas sin "|foto" se recalculan una vez)
+  const huellaAlDia = p => { const [h, foto] = String(p.huella||"").split("|"); return h.startsWith("h2:") && foto === fotoPrincipal(p); };
+  /** Calcula (y guarda) la huella de los productos que no la tienen o cuya foto principal cambió. */
   async function asegurarHuellas(onAvance){
-    const faltan = S.products.filter(p=>!(p.huella||"").startsWith("h2:") && p.fotos && p.fotos[0]);
-    let hechas = 0;
+    const faltan = S.products.filter(p=>fotoPrincipal(p) && !huellaAlDia(p));
+    let hechas = 0, fallidas = 0;
     await runPool(faltan.map(p=>p.id), async id=>{
       const p = S.products.find(x=>x.id===id); if(!p) return;
-      const h = await huellaDeUrl(src(p.fotos[0].thumb || p.fotos[0].full));
-      if(h){ p.huella = h; try{ await S.db.doc("productos/"+id).update({ huella:h }); }catch(e){} }
+      const foto = fotoPrincipal(p), h = await huellaDeUrl(src(foto));
+      if(h){ p.huella = h + "|" + foto; try{ await S.db.doc("productos/"+id).update({ huella:p.huella }); }catch(e){} }
+      else fallidas++;
       hechas++; if(onAvance) onAvance(hechas, faltan.length);
     });
+    return { revisadas: faltan.length, fallidas };
   }
   /** Agrupa productos con la misma foto (unión de parecidos). */
   function gruposRepetidos(lista){
@@ -311,9 +325,11 @@ import { interpretarComando } from './comandos.js';
   const datosLlenos = p => ["precio","marca","descripcion","talla","costo","stock"].filter(k=>p[k]!=null && p[k]!=="").length;
   async function buscarRepetidos(){
     toast("Buscando fotos repetidas…");
-    await asegurarHuellas();
+    const r = await asegurarHuellas();
     const grupos = gruposRepetidos(S.products.filter(p=>p.huella));
-    if(!grupos.length){ toast("No encontré fotos repetidas"); return; }
+    const aviso = r.fallidas ? ` (no pude revisar ${r.fallidas} foto${r.fallidas===1?"":"s"}; revisa tu conexión y vuelve a intentar)` : "";
+    if(!grupos.length){ toast("No encontré fotos repetidas" + aviso); return; }
+    if(aviso) toast("Encontré repetidas" + aviso);
     const ov = $("planOverlay"); ov.textContent = ""; ov.hidden = false;
     const cerrar = ()=>{ ov.hidden = true; ov.textContent = ""; ov.onclick = null; };
     ov.onclick = e=>{ if(e.target===ov) cerrar(); };
@@ -420,7 +436,7 @@ import { interpretarComando } from './comandos.js';
           if(group){ groupPhotos[idx]={ph,blob}; }
           else {
             const nombre = nameFromFile(f), ref = col.doc();
-            await ref.set({ nombre, marca, precio:price, stock, categoria:cat, publico:"", descripcion:"", condicion, estado:"disponible", fotos:[ph], huella: huellas[idx] || "", creado: base + (total-idx) });
+            await ref.set({ nombre, marca, precio:price, stock, categoria:cat, publico:"", descripcion:"", condicion, estado:"disponible", fotos:[ph], huella: huellas[idx] ? huellas[idx] + "|" + (ph.thumb || ph.full) : "", creado: base + (total-idx) });
             creados.push({ id:ref.id, orden:idx });
             if(useAI) toClassify.push({ id:ref.id, blob, name:nombre==="Producto nuevo", cat:!cat, marca:!marca, cond:!condicion, desc:true, margen: price==null ? margen : null });
           }
