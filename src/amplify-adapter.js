@@ -283,7 +283,7 @@ export const PLANES = [
   { id: 'free', nombre: 'Free', limite: 10, precio: 0, precioUsd: 0 },
   { id: 'basico', nombre: 'Básico', limite: 30, precio: 19, precioUsd: 9 },
   { id: 'pro', nombre: 'Pro', limite: 150, precio: 49, precioUsd: 19 },
-  { id: 'plus', nombre: 'Plus', limite: null, precio: 99, precioUsd: 39, extra: 'Fotos con fondo blanco (IA)' },
+  { id: 'plus', nombre: 'Plus', limite: null, precio: 99, precioUsd: 39, extra: 'Próximamente: fotos con fondo blanco (IA)' },
 ];
 // Funciones con costo por uso: solo en el plan Plus.
 export const tieneFondoIA = (t) => planVigente(t).id === 'plus';

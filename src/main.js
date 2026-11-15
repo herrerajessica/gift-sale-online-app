@@ -142,7 +142,9 @@ import {
     fondo:    { nombre:"Fondo blanco (IA)", desc:"Mejoradas y con el fondo quitado por IA. Más lento; tiene un pequeño costo por foto." },
   };
   const MODO_KEY = "vitrina-modo-foto";
-  const fondoPermitido = ()=> !!S.quitarFondo && tieneFondoIA(S.config||{});
+  // Fondo blanco con IA (Nova Canvas): oculto hasta habilitar el modelo en Bedrock (no está disponible en el plan gratuito de AWS).
+  const FONDO_IA_LISTO = false;
+  const fondoPermitido = ()=> FONDO_IA_LISTO && !!S.quitarFondo && tieneFondoIA(S.config||{});
   const modoGuardado = ()=>{ try{ const m = localStorage.getItem(MODO_KEY); return MODOS_FOTO[m] ? m : ""; }catch(e){ return ""; } };
   function pintarModoFoto(){
     const m = modoGuardado(), box = $("modoFotoInfo"); if(!box) return;
@@ -163,7 +165,7 @@ import {
       const opciones = el("div",{class:"modos",role:"radiogroup","aria-label":"Cómo subir las fotos"});
       const pintar = ()=>[...opciones.children].forEach(b=>b.setAttribute("aria-checked", String(b.dataset.modo===elegido)));
       for(const [k,v] of Object.entries(MODOS_FOTO)){
-        if(k==="fondo" && !S.quitarFondo) continue;
+        if(k==="fondo" && (!S.quitarFondo || !FONDO_IA_LISTO)) continue;
         const bloqueado = k==="fondo" && !fondoPermitido();
         const b = el("button",{type:"button",class:"modo"+(bloqueado?" bloqueado":""),role:"radio","data-modo":k,"aria-disabled":bloqueado?"true":false,
           onclick:()=>{ if(bloqueado){ cerrar(null); abrirPlanes(); toast("El fondo blanco con IA está en el plan Plus"); return; } elegido=k; pintar(); }},
@@ -234,7 +236,7 @@ import {
     if(c==="too_large") return "la foto es demasiado grande";
     if(c==="quota_or_state") return "se llenó el espacio de tu tienda; borra productos que ya no vendes";
     if(c==="rate_limited" || /throttl|too many|rate/i.test(m)) return "hubo muchas subidas seguidas; reintenta en un minuto";
-    if(c==="not_granted"||c==="capability_disabled" || /unauthori|not authorized|expired|token/i.test(m)) return "tu sesión venció; sal y vuelve a entrar";
+    if(c==="not_granted"||c==="capability_disabled" || /unauthori|not authorized|expired|token/i.test(m)) return "no se pudo guardar con tu sesión actual; cierra sesión, vuelve a entrar e inténtalo otra vez";
     if(/network|fetch|timeout|timed out|conexi/i.test(m)) return "se cortó la conexión";
     if(/decode|image|imagen|format/i.test(m)) return "no se pudo leer la foto; prueba con otra (JPG o PNG)";
     return "no se pudo subir";
