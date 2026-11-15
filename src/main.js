@@ -481,6 +481,8 @@ import {
       S.db.doc("productos/"+p.id).update({ codigo }).catch(()=>{ if(codigosLocales.get(p.id) === l) codigosLocales.delete(p.id); });
     }
   }
+  // "car 002", "CAR-2", "car002" → "CAR-002" ('' si no es un código)
+  const normCodigo = s => { const m = /^\s*([a-zA-Z]{3})[\s\-_.#]*0*(\d{1,5})\s*$/.exec(String(s||"")); return m ? m[1].toUpperCase() + "-" + m[2].padStart(3,"0") : ""; };
   const codTag = p => codigoDe(p) ? el("span",{class:"cod-tag"}, codigoDe(p)) : null;
   const PUBLICOS = ["Mujer","Hombre","Niños","Unisex"];
   async function classify(items){
@@ -552,7 +554,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
 
   // ---------- Render ----------
   function filtered(){
-    const q = S.q.toLowerCase();
+    const q = S.q.toLowerCase(), cod = normCodigo(S.q);
+    if(cod) return S.products.filter(p => normCodigo(codigoDe(p)) === cod);
     return S.products.filter(p => (!S.cat || p.categoria===S.cat) && (!S.pub || p.publico===S.pub || (S.pub!=="Niños" && p.publico==="Unisex")) && (!q || ((p.codigo||"")+" "+(p.codigo||"").replace("-","")+" "+p.nombre+" "+(p.marca||"")+" "+(p.talla?"talla size "+p.talla:"")+" "+(p.categoria||"")+" "+catTxt(p.categoria||"")+" "+(p.publico||"")+" "+pubTxt(p.publico||"")+" "+condTxt(p.condicion)+" "+(p.descripcion||"")).toLowerCase().includes(q)));
   }
   function renderCats(){
@@ -2194,7 +2197,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   // Las tablas Markdown (| a | b |) se muestran como tabla, igual que la tarjeta de cambios.
   function negritas(t){
     const out = [];
-    String(t).split(/\*\*(.+?)\*\*/s).forEach((parte, i)=>{ if(parte) out.push(i % 2 ? el("strong",{}, parte) : document.createTextNode(parte)); });
+    String(t).replace(/<br\s*\/?>/gi, "\n").split(/\*\*(.+?)\*\*/s).forEach((parte, i)=>{ if(parte) out.push(i % 2 ? el("strong",{}, parte) : document.createTextNode(parte)); });
     return out;
   }
   function textoAsis(t){

@@ -14,10 +14,11 @@ Cómo trabajas:
 - Usa las herramientas para saber cualquier dato de la tienda; nunca inventes productos, precios ni pedidos.
 ${us ? '- Es una tienda de EE. UU.: los precios están en dólares (USD) y se cobran en dólares. No uses soles, Yape ni tipo de cambio.\n- Sus clientes son de EE. UU. y ven la tienda en inglés: escribe los NOMBRES y DESCRIPCIONES de productos en inglés. A la vendedora le hablas en español.' : (pen ? `- Los precios de esta tienda están en SOLES (S/). El costo de la etiqueta está en dólares: para comparar, conviértelo con el tipo de cambio ${t.tipoCambio || 'de la tienda'}.` : `- Los precios se guardan en dólares (USD). Para mostrar soles usa el tipo de cambio ${t.tipoCambio || 'de la tienda'} y redondea al sol.`)}
 - Tú no ves las fotos: los nombres los puso la IA y pueden ser distintos a como la vendedora los llama. Si encuentras menos productos de los que ella menciona, NO digas que no existen: busca otra vez con otras palabras (singular, sinónimos, la categoría) o sin filtros y revisa los nombres. Si aún faltan, dile cuáles encontraste y pídele que toque el botón "Editar varios", toque cada producto en su lista y te vuelva a escribir.
-- Cada producto tiene un código corto (ej. CAR-001, ZAP-012). Si la vendedora o un cliente menciona un código, búscalo con buscar_productos (texto = el código). Pon el código en la primera columna cuando muestres productos en una tabla.
+- Cada producto tiene un código corto (ej. CAR-001, ZAP-012). Si la vendedora menciona un código (aunque lo diga "car 002" o "car dos"), búscalo con buscar_productos con texto = solo el código (ej. "CAR-002") y cambia SOLO ese producto. Si no aparece, dile que no encontraste ese código; no cambies otro producto.
+- Al cambiar un nombre, cambia solo las palabras que ella pidió y deja el resto del nombre igual (no agregues ni quites marcas ni otras palabras). En las tablas no uses <br> ni HTML. Pon el código en la primera columna cuando muestres productos en una tabla.
 - Si la vendedora tiene productos marcados en su lista, te los paso abajo. Cuando diga "estos", "los marcados", "los seleccionados" o un número que coincida, usa esos.
 ${us ? '' : `- Precio con Yape o efectivo: ${t.descuentoContado ? `la tienda da ${t.descuentoContado} % de descuento si pagan con Yape o efectivo (soles × (1 − ${t.descuentoContado}/100), redondeado al sol); con tarjeta se cobra el precio normal` : 'esta tienda no tiene descuento por Yape o efectivo'}. Ese porcentaje solo lo cambia la vendedora en Datos de la tienda; tú no puedes cambiarlo, solo explicárselo.\n`}- El "costo" es lo que pagó la vendedora; es privado y sirve para calcular márgenes.
-- Para CUALQUIER cambio (precios, descripciones, marca, cantidad, estado, condición (nuevo, usado, caja abierta…), categoría, talla, nombre, o el estado de un pedido) usa la herramienta proponer_cambios. Tú no cambias nada directamente: la vendedora revisa la propuesta y toca "Aplicar". Después de proponer, escribe UNA sola frase corta (ej.: "Te dejé los cambios abajo, revísalos y toca Aplicar"); NO repitas la lista de cambios, porque la tarjeta ya los muestra en una tabla. Nunca digas que ya está cambiado. Si proponer_cambios responde ok: false, no digas que propusiste nada: explícale que esos productos ya tienen ese valor o qué faltó.
+- Para CUALQUIER cambio (precios, descripciones, marca, cantidad, estado, condición (nuevo, usado, caja abierta…), categoría, talla, nombre, o el estado de un pedido) usa la herramienta proponer_cambios. Tú no cambias nada directamente: la vendedora revisa la propuesta y toca "Aplicar". Después de proponer, escribe UNA sola frase corta y nada más (ej.: "Te dejé los cambios abajo, revísalos y toca Aplicar"); NO repitas los cambios ni en lista ni en tabla, ni expliques cómo quedará: la tarjeta ya los muestra. Nunca digas que ya está cambiado. Si proponer_cambios responde ok: false, no digas que propusiste nada: explícale que esos productos ya tienen ese valor o qué faltó.
 - Precios con margen: ${pen ? `precio en soles = costo (USD) × ${t.tipoCambio || 'tipo de cambio'} × (1 + margen), redondeado hacia arriba al sol` : 'precio = costo × (1 + margen), redondeado hacia arriba al dólar'}.
 - Descripciones: 1 o 2 frases útiles para vender, solo con datos que tengas (nombre, marca, talla, categoría, condición, descripción actual). No inventes materiales, medidas ni que es original si no lo sabes.
 - Si piden algo que afecta muchos productos, primero búscalos y luego propone todo en una sola propuesta.
@@ -132,7 +133,15 @@ export function limpiarPropuesta(
 const normTxt = (s: unknown) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 const raizTxt = (w: string) => (w.length > 4 && w.endsWith('es') ? w.slice(0, -2) : w.length > 3 && w.endsWith('s') ? w.slice(0, -1) : w);
 /** Busca por palabras: sin tildes, singular o plural; primero todas las palabras y, si no hay nada, cualquiera. */
+/** "car 002", "CAR-2", "car002" → "CAR-002". Devuelve '' si el texto no es un código. */
+export function normCodigo(s: unknown): string {
+  const m = /^\s*([a-zA-Z]{3})[\s\-_.#]*0*(\d{1,5})\s*$/.exec(String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+  return m ? `${m[1].toUpperCase()}-${m[2].padStart(3, '0')}` : '';
+}
 export function buscarTexto<T extends Record<string, any>>(lista: T[], texto: unknown): T[] {
+  // Si escribió un código, solo ese producto (o ninguno): "car" no debe traer todas las carteras.
+  const cod = normCodigo(texto);
+  if (cod) return lista.filter((p) => normCodigo(p.codigo) === cod);
   const ps = normTxt(texto).split(/[^a-z0-9ñ]+/).filter((w) => w.length > 1).map(raizTxt);
   if (!ps.length) return lista;
   const pajar = (p: T) => normTxt([p.codigo, String(p.codigo || '').replace(/-/g, ''), p.nombre, p.marca, p.categoria, p.descripcion, p.talla, p.publico].join(' '));
