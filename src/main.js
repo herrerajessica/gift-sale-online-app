@@ -456,24 +456,32 @@ import {
   // Letras de la categoría + número. Se pone solo y no cambia aunque después cambie la categoría.
   const PREFIJOS = { "Ropa":"ROP", "Zapatos":"ZAP", "Carteras y bolsos":"CAR", "Accesorios":"ACC", "Relojes y joyería":"REL", "Perfumes y belleza":"PER", "Electrónica":"ELE", "Hogar":"HOG", "Juguetes":"JUG", "Otros":"OTR" };
   const prefijoDe = cat => { if(PREFIJOS[cat]) return PREFIJOS[cat]; const l = String(cat||"").normalize("NFD").replace(/[^A-Za-z]/g,"").toUpperCase(); return l.length >= 3 ? l.slice(0,3) : "OTR"; };
-  const codigosEnCurso = new Set();
+  // Códigos ya pedidos en esta sesión: cuentan aunque la lista todavía no traiga el cambio, para no repetir números.
+  // Valen 30 s: después manda lo que está guardado.
+  const codigosLocales = new Map();
+  const codigoDe = p => { const l = codigosLocales.get(p.id); if(l && (l.c === p.codigo || Date.now() - l.t > 30000)){ codigosLocales.delete(p.id); return p.codigo || ""; } return l ? l.c : (p.codigo || ""); };
   async function asignarCodigos(){
     if(!S.canEdit || !S.loaded) return;
-    const ahora = Date.now();
+    const ahora = Date.now(), orden = (a,b)=>(a.creado||0)-(b.creado||0) || String(a.id).localeCompare(String(b.id));
+    const ultimo = {}, vistos = new Map(), repetidos = [];
+    for(const p of [...S.products].sort(orden)){
+      const c = codigoDe(p); if(!c) continue;
+      // Código repetido (por ejemplo, dos pestañas o dos equipos a la vez): se queda con el producto más antiguo.
+      if(vistos.has(c)){ repetidos.push(p); continue; }
+      vistos.set(c, p.id);
+      const m = /^([A-Z]{3})-(\d+)$/.exec(c); if(m) ultimo[m[1]] = Math.max(ultimo[m[1]]||0, +m[2]);
+    }
     // Espera a que la IA ponga la categoría (o 3 minutos) para elegir bien las letras.
-    const faltan = S.products.filter(p=>!p.codigo && !codigosEnCurso.has(p.id) && (p.categoria || ahora - (p.creado||0) > 180000))
-      .sort((a,b)=>(a.creado||0)-(b.creado||0));
-    if(!faltan.length) return;
-    const ultimo = {};
-    for(const p of S.products){ const m = /^([A-Z]{3})-(\d+)$/.exec(p.codigo||""); if(m) ultimo[m[1]] = Math.max(ultimo[m[1]]||0, +m[2]); }
-    for(const p of faltan.slice(0, 200)){
+    const faltan = S.products.filter(p=>!codigoDe(p) && (p.categoria || ahora - (p.creado||0) > 180000));
+    const lista = [...repetidos, ...faltan].sort(orden).slice(0, 200);
+    for(const p of lista){
       const pre = prefijoDe(p.categoria), n = (ultimo[pre]||0) + 1; ultimo[pre] = n;
       const codigo = pre + "-" + String(n).padStart(3,"0");
-      codigosEnCurso.add(p.id);
-      S.db.doc("productos/"+p.id).update({ codigo }).catch(()=>{}).finally(()=>setTimeout(()=>codigosEnCurso.delete(p.id), 5000));
+      const l = { c: codigo, t: Date.now() }; codigosLocales.set(p.id, l);
+      S.db.doc("productos/"+p.id).update({ codigo }).catch(()=>{ if(codigosLocales.get(p.id) === l) codigosLocales.delete(p.id); });
     }
   }
-  const codTag = p => p.codigo ? el("span",{class:"cod-tag"}, p.codigo) : null;
+  const codTag = p => codigoDe(p) ? el("span",{class:"cod-tag"}, codigoDe(p)) : null;
   const PUBLICOS = ["Mujer","Hombre","Niños","Unisex"];
   async function classify(items){
     if(!S.ai || !items.length) return;
