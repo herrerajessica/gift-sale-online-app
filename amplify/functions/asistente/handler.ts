@@ -137,7 +137,7 @@ export const handler = async (event: Evento) => {
         const n = propuesta.productos.length + propuesta.pedidos.length;
         return n
           ? { ok: true, cambios: n, nota: 'Propuesta enviada a la vendedora. Aún NO está aplicada: debe revisarla y tocar Aplicar.' }
-          : { ok: false, nota: 'Ningún cambio era válido o todos ya tenían ese valor.' };
+          : { ok: false, nota: 'No se envió ninguna propuesta: ningún cambio era válido o esos productos ya tenían ese valor. No digas que propusiste cambios.' };
       }
       default:
         return { error: 'Herramienta desconocida' };

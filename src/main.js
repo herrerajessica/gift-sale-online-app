@@ -2160,9 +2160,30 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     setTimeout(()=>{ if(inp.value.trim() === enviado){ inp.value = ""; inp.dispatchEvent(new Event("input")); } }, 150);
   }
   // Negritas (**texto**) y saltos de línea en las respuestas del asistente, sin usar innerHTML.
-  function textoAsis(t){
+  // Las tablas Markdown (| a | b |) se muestran como tabla, igual que la tarjeta de cambios.
+  function negritas(t){
     const out = [];
     String(t).split(/\*\*(.+?)\*\*/s).forEach((parte, i)=>{ if(parte) out.push(i % 2 ? el("strong",{}, parte) : document.createTextNode(parte)); });
+    return out;
+  }
+  function textoAsis(t){
+    const out = [], lineas = String(t).split("\n"), celdas = l => l.trim().replace(/^\||\|$/g,"").split("|").map(c=>c.trim());
+    const esFila = l => /^\s*\|.*\|\s*$/.test(l), esSep = l => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(l);
+    let texto = [];
+    const soltar = ()=>{ const s = texto.join("\n").replace(/^\n+|\n+$/g,""); if(s) out.push(...negritas(s)); texto = []; };
+    for(let i = 0; i < lineas.length; i++){
+      if(esFila(lineas[i]) && i + 1 < lineas.length && esSep(lineas[i+1])){
+        soltar();
+        const cab = celdas(lineas[i]), filas = []; i += 2;
+        while(i < lineas.length && esFila(lineas[i])) filas.push(celdas(lineas[i++]));
+        i--;
+        const num = c => /^(S\/|\$|US\$)?\s?-?[\d.,]+\s?%?$/.test(c);
+        out.push(el("div",{class:"tablewrap asis-tabla"}, el("table",null,
+          el("thead",null, el("tr",null, ...cab.map(c=>el("th",null, ...negritas(c))))),
+          el("tbody",null, ...filas.map(f=>el("tr",null, ...cab.map((_,j)=>el("td", num(f[j]||"") ? {class:"num"} : null, ...negritas(f[j]||"")))))))));
+      } else texto.push(lineas[i]);
+    }
+    soltar();
     return out;
   }
   function abrirAsis(){ cargarAsis(); $("asis").hidden = false; $("asisBtn").hidden = true; pintarAsis(); $("asisInput").focus(); }
