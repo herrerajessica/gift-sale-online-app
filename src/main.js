@@ -11,6 +11,11 @@ import { interpretarComando } from './comandos.js';
 // Lógica de Showroomcito (misma que la versión de Claude).
 
   const $ = id => document.getElementById(id);
+  // append() del navegador escribe "null" si le pasas null: aquí se ignoran los vacíos (campos opcionales).
+  for(const Proto of [Element.prototype, DocumentFragment.prototype]){
+    const original = Proto.append;
+    if(!original.__sinVacios){ Proto.append = function(...k){ return original.apply(this, k.filter(x=>x!=null && x!==false)); }; Proto.append.__sinVacios = true; }
+  }
   const S = { db:null, assets:null, canEdit:false, products:[], config:{}, q:"", cat:"", mode:"each", pub:"",
               selecting:false, sel:new Set(), pending:[] };
   // Dólares siempre (el costo de la etiqueta está en USD).
@@ -847,7 +852,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   // ---------- Detalle / edición ----------
   let openId=null, photoIdx=0;
   function openProduct(id){ openId=id; photoIdx=0; drawSheet(); $("overlay").hidden=false; }
-  function closeSheet(){ openId=null; $("overlay").hidden=true; $("overlay").textContent=""; }
+  function closeSheet(){ openId=null; $("overlay").hidden=true; $("overlay").textContent=""; if(!$("cli").hidden) pintarCli(); }
   $("overlay").addEventListener("click", e=>{ if(e.target.id==="overlay") (cartOpen?closeCart:closeSheet)(); });
   document.addEventListener("keydown", e=>{ if(e.key==="Escape"){ if(cartOpen) closeCart(); else if(openId) closeSheet(); } });
   function drawSheet(){
@@ -1416,11 +1421,16 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     $("cliBtnTxt").textContent = tx("¿Buscas algo?","Need help?");
   }
   function tarjetaCli(p){
-    const of = oferta(p), cover = p.fotos && p.fotos[0];
-    return el("button",{class:"cli-prod",type:"button",onclick:()=>{ openProduct(p.id); }},
-      cover ? el("img",{src:src(cover.thumb||cover.full),alt:"",loading:"lazy"}) : el("span",{class:"sinfoto"}),
-      el("span",null, el("b",null, p.nombre||""), el("small",null, [codigoDe(p), p.marca, p.talla ? tx("Talla ","Size ")+p.talla : ""].filter(Boolean).join(" · "))),
-      el("span",{class:"pr"}, p.precio==null ? tx("Consultar","Ask") : money(p.precio), of ? el("s",null, money(of.antes)) : null));
+    const of = oferta(p), cover = p.fotos && p.fotos[0], enPedido = !!cart[p.id], sold = agotado(p);
+    // Agregar (o quitar) del pedido sin salir del chat
+    const agregar = el("button",{class:"cli-add"+(enPedido?" in":""),type:"button",disabled:sold?"":false,"aria-label":(enPedido?tx("Quitar del pedido: ","Remove from order: "):tx("Agregar al pedido: ","Add to order: "))+(p.nombre||""),
+      onclick:()=>{ if(cart[p.id]) delete cart[p.id]; else { cart[p.id]=1; toast(tx("Agregado a tu pedido","Added to your order")); } saveCart(); render(); pintarCli(); }},
+      sold ? tx("Agotado","Sold out") : enPedido ? tx("✓ Agregado","✓ Added") : tx("+ Agregar","+ Add"));
+    return el("div",{class:"cli-prod"},
+      el("button",{class:"cli-ver",type:"button",onclick:()=>openProduct(p.id),"aria-label":tx("Ver ","View ")+(p.nombre||"")},
+        cover ? el("img",{src:src(cover.thumb||cover.full),alt:"",loading:"lazy"}) : el("span",{class:"sinfoto"}),
+        el("span",null, el("b",null, p.nombre||""), el("small",null, [codigoDe(p), p.marca, p.talla ? tx("Talla ","Size ")+p.talla : ""].filter(Boolean).join(" · ")))),
+      el("span",{class:"cli-der"}, el("span",{class:"pr"}, p.precio==null ? tx("Consultar","Ask") : money(p.precio), of ? el("s",null, money(of.antes)) : null), agregar));
   }
   function pintarCli(){
     const log = $("cliLog"); log.textContent = "";
@@ -1443,6 +1453,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       ideas.forEach(t=>sug.append(el("button",{type:"button",onclick:()=>enviarCli(t)}, t)));
     }
     const wa = waDigits(), w = $("cliWa"); w.textContent = "";
+    const n = cartCount();
+    if(n) w.append(el("button",{class:"btn tag cli-pedido",type:"button",onclick:()=>{ $("cli").hidden = true; document.body.classList.remove("cli-abierto"); pintarCliBtn(); openCart(); }}, tx(`🛒 Ver mi pedido (${n}) · ${money(cartTotals().total)}`, `🛒 View my order (${n}) · ${money(cartTotals().total)}`)), el("br"));
     if(wa) w.append(tx("¿Prefieres hablar con la tienda? ","Rather talk to the store? "), el("a",{href:`https://wa.me/${wa}`,target:"_blank",rel:"noopener"}, tx("Escríbenos por WhatsApp","Message us on WhatsApp")));
     log.scrollTop = log.scrollHeight;
   }
@@ -1458,8 +1470,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       cliLog.push({ role:"error", text: tx("No pude responder ahora. Intenta de nuevo o escríbenos por WhatsApp.","I couldn't answer right now. Try again or message us on WhatsApp.") });
     }finally{ cliOcupado = false; $("cliEnviar").disabled = false; guardarCli(); pintarCli(); }
   }
-  $("cliBtn").onclick = ()=>{ cargarCli(); $("cli").hidden = false; pintarCliBtn(); pintarCli(); $("cliInput").focus(); };
-  $("cliCerrar").onclick = ()=>{ $("cli").hidden = true; pintarCliBtn(); };
+  $("cliBtn").onclick = ()=>{ cargarCli(); $("cli").hidden = false; document.body.classList.add("cli-abierto"); pintarCliBtn(); pintarCli(); $("cliInput").focus(); };
+  $("cliCerrar").onclick = ()=>{ $("cli").hidden = true; document.body.classList.remove("cli-abierto"); pintarCliBtn(); };
   $("cliNuevo").onclick = ()=>{ cliLog = []; guardarCli(); pintarCli(); };
   $("cliForm").addEventListener("submit", e=>{ e.preventDefault(); enviarCli($("cliInput").value); });
   $("cliInput").addEventListener("keydown", e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); enviarCli($("cliInput").value); } });
