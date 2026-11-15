@@ -107,4 +107,13 @@ test.describe('REQ-027 Panel de la vendedora por pestañas', () => {
     await plan.getByRole('button').click();
     await expect(page.getByRole('dialog', { name: 'Planes' })).toBeVisible();
   });
+
+  test('CP-094 Al editar un producto se elige su tipo y la categoría se pone sola @REQ-032', async ({ page }) => {
+    await page.locator('#grid .card button.open').first().click();
+    const tipo = page.locator('#eTipo');
+    await expect(tipo).toBeVisible();
+    await tipo.selectOption('Falda');
+    await expect(page.locator('#eCat')).toHaveValue('Ropa');
+    await page.keyboard.press('Escape');   // no se guarda nada
+  });
 });

@@ -1,3 +1,4 @@
+import { tiposDe, categoriaDeTipo } from '../shared/rubros';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 // Converse API: el mismo código sirve para Amazon Nova y para Claude; solo cambia MODEL_ID.
 import { BedrockRuntimeClient, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
@@ -14,7 +15,7 @@ const MAX_FOTOS = 8;
 
 export const CONDICIONES = ['nuevo_etiqueta', 'nuevo', 'caja_abierta', 'como_nuevo', 'usado'];
 
-type Resultado = { i: number; categoria?: string; publico?: string; nombre?: string; marca?: string; costo?: number; talla?: string; condicion?: string; descripcion?: string };
+type Resultado = { i: number; tipo?: string; categoria?: string; publico?: string; nombre?: string; marca?: string; costo?: number; talla?: string; condicion?: string; descripcion?: string };
 
 async function leerFoto(path: string): Promise<Uint8Array> {
   if (!path.startsWith('productos/')) throw new Error('Ruta no permitida');
@@ -22,13 +23,15 @@ async function leerFoto(path: string): Promise<Uint8Array> {
   return obj.Body!.transformToByteArray();
 }
 
-function prompt(n: number, ingles: boolean): string {
+function prompt(n: number, ingles: boolean, rubro?: string | null): string {
+  const tipos = tiposDe(rubro).map(([t]) => t);
   const nombre = ingles
     ? '- "nombre": nombre corto de venta EN INGLÉS (la tienda vende a clientes de EE. UU.), de 2 a 6 palabras, que describa tipo, estilo y color, sin la marca (ej. "Wide leg drawstring jeans", "Black running sneakers").'
     : '- "nombre": nombre corto de venta en español, de 2 a 6 palabras, que describa tipo, estilo y color, sin la marca (ej. "Jean wide leg con cordón", "Zapatillas running negras").';
   return `Eres el asistente de una tienda ${ingles ? 'de Estados Unidos' : 'en Perú que revende productos traídos de Estados Unidos'}. Te paso ${n} foto(s) de producto, en orden, numeradas desde 0.
 Para cada foto responde un objeto con:
 - "i": el número de la foto
+- "tipo": el tipo de producto, exactamente uno de: ${tipos.join(', ')}; si no es ninguno, ""
 - "categoria": exactamente una de: ${CATEGORIAS.join(', ')}
 - "publico": exactamente uno de: ${PUBLICOS.join(', ')} (usa Unisex si no se distingue)
 ${nombre}
@@ -37,7 +40,7 @@ ${nombre}
 - "talla": la talla si se lee en la etiqueta o en el producto (ej. "8", "M", "32x30"); si no, "".
 - "condicion": exactamente una de: ${CONDICIONES.join(', ')}. Usa nuevo_etiqueta si se ve la etiqueta de la tienda colgando; caja_abierta si está en su caja abierta; si no estás segura, "".
 - "descripcion": 1 o 2 frases cortas para vender, ${ingles ? 'EN INGLÉS' : 'en español'}, solo con lo que se ve (tipo, color, estilo, detalles, si trae caja o etiqueta). No inventes materiales, medidas ni que es original.
-Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","publico":"Mujer","nombre":"Mocasines rosados con lazo","marca":"","costo":19.99,"talla":"8","condicion":"nuevo_etiqueta","descripcion":"Mocasines rosados con lazo, nuevos con etiqueta. Cómodos para el día a día."}]`;
+Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"tipo":"Zapatos","categoria":"Zapatos","publico":"Mujer","nombre":"Mocasines rosados con lazo","marca":"","costo":19.99,"talla":"8","condicion":"nuevo_etiqueta","descripcion":"Mocasines rosados con lazo, nuevos con etiqueta. Cómodos para el día a día."}]`;
 }
 
 function limpiar(arr: unknown, n: number): Resultado[] {
@@ -46,7 +49,9 @@ function limpiar(arr: unknown, n: number): Resultado[] {
     .filter((r): r is Resultado => !!r && typeof r === 'object' && Number.isInteger(Number((r as Resultado).i)))
     .map((r) => ({
       i: Number(r.i),
-      categoria: CATEGORIAS.includes(String(r.categoria)) ? String(r.categoria) : undefined,
+      tipo: categoriaDeTipo(String(r.tipo)) ? String(r.tipo) : undefined,
+      // Si la IA dio un tipo conocido, la categoría sale de él (así nunca se contradicen)
+      categoria: categoriaDeTipo(String(r.tipo)) || (CATEGORIAS.includes(String(r.categoria)) ? String(r.categoria) : undefined),
       publico: PUBLICOS.includes(String(r.publico)) ? String(r.publico) : undefined,
       nombre: typeof r.nombre === 'string' && r.nombre.trim() ? r.nombre.trim().slice(0, 80) : undefined,
       marca: typeof r.marca === 'string' && r.marca.trim() ? r.marca.trim().slice(0, 40) : undefined,
@@ -60,12 +65,14 @@ function limpiar(arr: unknown, n: number): Resultado[] {
 
 // ---------- Dictado por voz ----------
 const MAX_TEXTOS = 40;
-type Dictado = { i: number; nombre?: string; marca?: string; precio?: number; moneda?: string; costo?: number; stock?: number; talla?: string; condicion?: string; categoria?: string; publico?: string; descripcion?: string };
+type Dictado = { i: number; tipo?: string; nombre?: string; marca?: string; precio?: number; moneda?: string; costo?: number; stock?: number; talla?: string; condicion?: string; categoria?: string; publico?: string; descripcion?: string };
 
-function promptDictado(textos: string[], ingles: boolean, moneda: string): string {
+function promptDictado(textos: string[], ingles: boolean, moneda: string, rubro?: string | null): string {
+  const tipos = tiposDe(rubro).map(([t]) => t);
   return `Eres el asistente de una vendedora ${ingles ? 'de Estados Unidos' : 'en Perú'}. Ella fue mirando sus productos y dictó por voz un texto por producto (puede tener errores del reconocimiento de voz). Los precios de su tienda están en ${moneda === 'PEN' ? 'soles' : 'dólares'}.
 Para cada texto responde un objeto con:
 - "i": el número del texto
+- "tipo": el tipo de producto que dijo, exactamente uno de: ${tipos.join(', ')}; si no es ninguno, ""
 - "nombre": nombre corto de venta ${ingles ? 'EN INGLÉS' : 'en español'}, de 2 a 6 palabras (tipo, estilo, color), sin la marca ni el precio
 - "marca": la marca si la dijo, con su ortografía correcta (ej. "gues" → "Guess", "maicol cors" → "Michael Kors", "bat an bodi" → "Bath & Body Works"); si no, ""
 - "precio": el precio de venta que dijo, como número; si no dijo precio, null
@@ -90,11 +97,12 @@ function limpiarDictado(arr: unknown, n: number): Dictado[] {
     .filter((r): r is Dictado => !!r && typeof r === 'object' && Number.isInteger(Number((r as Dictado).i)))
     .map((r) => ({
       i: Number(r.i),
+      tipo: categoriaDeTipo(String(r.tipo)) ? String(r.tipo) : undefined,
       nombre: txt(r.nombre, 80), marca: txt(r.marca, 40), talla: txt(r.talla, 12), descripcion: txt(r.descripcion, 300),
       precio: num(r.precio, 100000), moneda: r.moneda === 'PEN' || r.moneda === 'USD' ? r.moneda : undefined,
       costo: num(r.costo, 10000), stock: typeof r.stock === 'number' && r.stock >= 0 && r.stock < 100000 ? Math.floor(r.stock) : undefined,
       condicion: CONDICIONES.includes(String(r.condicion)) ? String(r.condicion) : undefined,
-      categoria: CATEGORIAS.includes(String(r.categoria)) ? String(r.categoria) : undefined,
+      categoria: categoriaDeTipo(String(r.tipo)) || (CATEGORIAS.includes(String(r.categoria)) ? String(r.categoria) : undefined),
       publico: PUBLICOS.includes(String(r.publico)) ? String(r.publico) : undefined,
     }))
     .filter((r) => r.i >= 0 && r.i < n);
@@ -105,12 +113,12 @@ function leerArreglo(texto: string): unknown {
   try { return JSON.parse(texto.slice(inicio, fin + 1)); } catch { return []; }
 }
 
-async function interpretarDictado(args: { textos?: (string | null)[] | null; idioma?: string | null; moneda?: string | null }) {
+async function interpretarDictado(args: { textos?: (string | null)[] | null; idioma?: string | null; moneda?: string | null; rubro?: string | null }) {
   const textos = (args.textos ?? []).filter((t): t is string => !!t && !!t.trim()).map((t) => t.trim().slice(0, 600)).slice(0, MAX_TEXTOS);
   if (!textos.length) return JSON.stringify([]);
   const res = await bedrock.send(new ConverseCommand({
     modelId: process.env.MODEL_ID,
-    messages: [{ role: 'user', content: [{ text: promptDictado(textos, args.idioma === 'en', args.moneda === 'PEN' ? 'PEN' : 'USD') }] }],
+    messages: [{ role: 'user', content: [{ text: promptDictado(textos, args.idioma === 'en', args.moneda === 'PEN' ? 'PEN' : 'USD', args.rubro) }] }],
     inferenceConfig: { maxTokens: 4096, temperature: 0 },
   }));
   const texto: string = (res.output?.message?.content ?? []).map((c: { text?: string }) => c.text ?? '').join('');
@@ -118,7 +126,7 @@ async function interpretarDictado(args: { textos?: (string | null)[] | null; idi
 }
 
 // ---------- Fotos ----------
-type EventoIA = { fieldName?: string; arguments: { paths?: (string | null)[] | null; idioma?: string | null; textos?: (string | null)[] | null; moneda?: string | null } };
+type EventoIA = { fieldName?: string; arguments: { paths?: (string | null)[] | null; idioma?: string | null; textos?: (string | null)[] | null; moneda?: string | null; rubro?: string | null } };
 
 export const handler = async (event: EventoIA) => {
   if (event.fieldName === 'interpretarDictado') return interpretarDictado(event.arguments);
@@ -132,7 +140,7 @@ export const handler = async (event: EventoIA) => {
       role: 'user',
       content: [
         ...imagenes.map((bytes) => ({ image: { format: 'jpeg' as const, source: { bytes } } })),
-        { text: prompt(paths.length, event.arguments.idioma === 'en') },
+        { text: prompt(paths.length, event.arguments.idioma === 'en', event.arguments.rubro) },
       ],
     }],
     inferenceConfig: { maxTokens: 2048, temperature: 0 },

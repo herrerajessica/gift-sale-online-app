@@ -7,6 +7,7 @@ import {
   miTiendaActual, listarPedidos, cambiarEstadoPedido, cambiarPlanTienda, confianza, refrescarProductos, preguntarTienda,
 } from './amplify-adapter.js';
 import { interpretarComando } from './comandos.js';
+import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, marcaDeTexto, MARCAS } from './rubros.js';
 
 // Lógica de Showroomcito (misma que la versión de Claude).
 
@@ -477,6 +478,8 @@ import { interpretarComando } from './comandos.js';
   // ---------- Código de cada producto (ej. CAR-001) ----------
   // Letras de la categoría + número. Se pone solo y no cambia aunque después cambie la categoría.
   const PREFIJOS = { "Ropa":"ROP", "Zapatos":"ZAP", "Carteras y bolsos":"CAR", "Accesorios":"ACC", "Relojes y joyería":"REL", "Perfumes y belleza":"PER", "Electrónica":"ELE", "Hogar":"HOG", "Juguetes":"JUG", "Otros":"OTR" };
+  // Rubro de la tienda (moda por defecto): decide los tipos de producto que se ofrecen
+  const rubroActual = () => (S.config && S.config.rubro) || "moda";
   const prefijoDe = cat => { if(PREFIJOS[cat]) return PREFIJOS[cat]; const l = String(cat||"").normalize("NFD").replace(/[^A-Za-z]/g,"").toUpperCase(); return l.length >= 3 ? l.slice(0,3) : "OTR"; };
   // Códigos ya pedidos en esta sesión: cuentan aunque la lista todavía no traiga el cambio, para no repetir números.
   // Valen 30 s: después manda lo que está guardado.
@@ -494,10 +497,10 @@ import { interpretarComando } from './comandos.js';
       const m = /^([A-Z]{3})-(\d+)$/.exec(c); if(m) ultimo[m[1]] = Math.max(ultimo[m[1]]||0, +m[2]);
     }
     // Espera a que la IA ponga la categoría (o 3 minutos) para elegir bien las letras.
-    const faltan = S.products.filter(p=>!codigoDe(p) && (p.categoria || ahora - (p.creado||0) > 180000));
+    const faltan = S.products.filter(p=>!codigoDe(p) && (p.tipo || p.categoria || ahora - (p.creado||0) > 180000));
     const lista = [...repetidos, ...faltan].sort(orden).slice(0, 200);
     for(const p of lista){
-      const pre = prefijoDe(p.categoria), n = (ultimo[pre]||0) + 1; ultimo[pre] = n;
+      const pre = prefijoDeTipo(p.tipo) || prefijoDe(p.categoria), n = (ultimo[pre]||0) + 1; ultimo[pre] = n;
       const codigo = pre + "-" + String(n).padStart(3,"0");
       const l = { c: codigo, t: Date.now() }; codigosLocales.set(p.id, l);
       S.db.doc("productos/"+p.id).update({ codigo }).catch(()=>{ if(codigosLocales.get(p.id) === l) codigosLocales.delete(p.id); });
@@ -543,6 +546,7 @@ import { interpretarComando } from './comandos.js';
       const prompt = `Eres el asistente de una tienda ${esUS() ? "de Estados Unidos" : "en Perú que revende productos traídos de Estados Unidos"}. Te paso ${batch.length} foto(s) de producto, en orden, numeradas desde 0.
 Para cada foto responde un objeto con:
 - "i": el número de la foto
+- "tipo": el tipo de producto, exactamente uno de: ${tiposDe(rubroActual()).map(t=>t[0]).join(", ")}; si no es ninguno, ""
 - "categoria": exactamente una de: ${CATS.join(", ")}
 - "publico": exactamente uno de: ${PUBLICOS.join(", ")} (usa Unisex si no se distingue)
 ${esUS() ? '- "nombre": nombre corto de venta EN INGLÉS (la tienda vende a clientes de EE. UU.), de 2 a 6 palabras, que describa tipo, estilo y color, sin la marca (ej. "Wide leg drawstring jeans", "Black running sneakers").' : '- "nombre": nombre corto de venta en español, de 2 a 6 palabras, que describa tipo, estilo y color, sin la marca (ej. "Jean wide leg con cordón", "Zapatillas running negras").'}
@@ -553,7 +557,7 @@ ${esUS() ? '- "nombre": nombre corto de venta EN INGLÉS (la tienda vende a clie
 - "descripcion": 1 o 2 frases cortas para vender, ${esUS() ? "EN INGLÉS" : "en español"}, solo con lo que se ve (tipo, color, estilo, detalles, si trae caja o etiqueta). No inventes materiales, medidas ni que es original.
 Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","publico":"Mujer","nombre":"Mocasines rosados con lazo","marca":"","costo":19.99,"talla":"8","condicion":"nuevo_etiqueta","descripcion":"Mocasines rosados con lazo, nuevos con etiqueta. Cómodos para el día a día."}]`;
       let res;
-      try { res = await S.ai.json(prompt, { images: batch.map(b=>b.blob), modelTier:"quick", idioma: esUS() ? "en" : "es" }); }
+      try { res = await S.ai.json(prompt, { images: batch.map(b=>b.blob), modelTier:"quick", idioma: esUS() ? "en" : "es", rubro: rubroActual() }); }
       catch(e){
         const c = e && e.code;
         if(c==="not_granted"||c==="sampling_disabled"||c==="images_unavailable"||c==="capability_disabled"||c==="capability_removed"||c==="not_declared"){ S.ai=null; $("aiRow").hidden=true; $("bulkAI").hidden=true; console.warn("IA no disponible:", e); S.aiMsg="La IA no está disponible en este momento; completa los datos a mano o intenta más tarde"; toast(S.aiMsg); return; }
@@ -564,7 +568,9 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       await Promise.all(batch.map(async (b, j)=>{
         const r = arr.find(x=>x && Number(x.i)===j) || arr[j]; if(!r) { fails++; return; }
         const patch = {};
-        if(b.cat && CATS.includes(r.categoria)) patch.categoria = r.categoria;
+        // Tipo (Vestido, Falda…): la categoría sale de él
+        if((b.cat || b.tipo) && categoriaDeTipo(r.tipo)){ patch.tipo = r.tipo; if(b.cat) patch.categoria = categoriaDeTipo(r.tipo); }
+        else if(b.cat && CATS.includes(r.categoria)) patch.categoria = r.categoria;
         if(b.pub!==false && PUBLICOS.includes(r.publico)) patch.publico = r.publico;
         // Dictado por voz: si la foto parece de otra categoría que lo dictado, se avisa en la vista previa.
         if(b.check && CATS.includes(r.categoria) && r.categoria!==b.check && S.noCoinciden) S.noCoinciden.add(b.id);
@@ -604,7 +610,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   function filtered(){
     const q = S.q.toLowerCase(), cod = normCodigo(S.q);
     if(cod) return S.products.filter(p => normCodigo(codigoDe(p)) === cod);
-    return S.products.filter(p => (!S.cat || p.categoria===S.cat) && (!S.pub || p.publico===S.pub || (S.pub!=="Niños" && p.publico==="Unisex")) && (!q || ((p.codigo||"")+" "+(p.codigo||"").replace("-","")+" "+p.nombre+" "+(p.marca||"")+" "+(p.talla?"talla size "+p.talla:"")+" "+(p.categoria||"")+" "+catTxt(p.categoria||"")+" "+(p.publico||"")+" "+pubTxt(p.publico||"")+" "+condTxt(p.condicion)+" "+(p.descripcion||"")).toLowerCase().includes(q)));
+    return S.products.filter(p => (!S.cat || p.categoria===S.cat) && (!S.pub || p.publico===S.pub || (S.pub!=="Niños" && p.publico==="Unisex")) && (!q || ((p.codigo||"")+" "+(p.codigo||"").replace("-","")+" "+(p.tipo||"")+" "+p.nombre+" "+(p.marca||"")+" "+(p.talla?"talla size "+p.talla:"")+" "+(p.categoria||"")+" "+catTxt(p.categoria||"")+" "+(p.publico||"")+" "+pubTxt(p.publico||"")+" "+condTxt(p.condicion)+" "+(p.descripcion||"")).toLowerCase().includes(q)));
   }
   function renderCats(){
     const counts = {}; S.products.forEach(p=>{ if(p.categoria) counts[p.categoria]=(counts[p.categoria]||0)+1; });
@@ -619,7 +625,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const pb=$("pubs"); pb.textContent="";
     if(pubs.length>1) pubs.forEach(x=>pb.append(el("button",{class:"chip sub","aria-pressed":String(S.pub===x),onclick:()=>{S.pub=S.pub===x?"":x;render();}},pubTxt(x))));
     const dl=$("catList"); dl.textContent=""; [...new Set([...CATS,...cats])].forEach(c=>dl.append(el("option",{value:c})));
-    const ml=$("marcaList"); ml.textContent=""; [...new Set(S.products.map(p=>p.marca).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"es")).forEach(m=>ml.append(el("option",{value:m})));
+    const ml=$("marcaList"); ml.textContent=""; [...new Set([...S.products.map(p=>p.marca).filter(Boolean), ...MARCAS])].sort((a,b)=>a.localeCompare(b,"es")).forEach(m=>ml.append(el("option",{value:m})));
     if(S.cat && !cats.includes(S.cat)) S.cat="";
     if(S.pub && !pubs.includes(S.pub)) S.pub="";
   }
@@ -901,6 +907,9 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
           el("label",{class:"f"},"Estado", (()=>{ const s=el("select",{id:"eStatus"}); [["disponible","Disponible"],["apartado","Apartado"],["vendido","Vendido"],["oculto","Oculto (no se muestra en la tienda)"]].forEach(([k,l])=>s.append(el("option",{value:k},l))); s.value=v("eStatus",p.estado||"disponible"); return s; })())
         ),
         el("div",{class:"row2"},
+          el("label",{class:"f"},"Tipo", (()=>{ const s=el("select",{id:"eTipo",onchange:()=>{ const c = categoriaDeTipo(s.value); if(c) $("eCat").value = c; }}); s.append(el("option",{value:""},"—"));
+            const tipos = tiposDe(rubroActual()).map(t=>t[0]); if(p.tipo && !tipos.includes(p.tipo)) tipos.unshift(p.tipo);
+            tipos.forEach(t=>s.append(el("option",{value:t},t))); s.value = v("eTipo",p.tipo||""); return s; })()),
           el("label",{class:"f"},"Categoría", el("input",{id:"eCat",list:"catList",value:v("eCat",p.categoria||""),placeholder:"Ropa, zapatos…"})),
           el("label",{class:"f"},"Para", (()=>{ const s=el("select",{id:"ePub"}); [["","—"],...PUBLICOS.map(x=>[x,x])].forEach(([k,l])=>s.append(el("option",{value:k},l))); s.value=v("ePub",p.publico||""); return s; })())),
         (()=>{ const ta=el("textarea",{id:"eDesc",rows:"4",placeholder:"Talla, color, estado, si es original…"}); ta.value=v("eDesc",p.descripcion||""); return el("label",{class:"f"},"Descripción", ta); })(),
@@ -913,7 +922,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       side.append(el("div",{class:"actions"},
         el("button",{class:"btn danger",type:"button",onclick:()=>{conf.hidden=false;}},"Borrar"),
         el("div",{style:"display:flex;gap:8px"}, el("button",{class:"btn",type:"button",onclick:closeSheet},"Cerrar"),
-          el("button",{class:"btn primary",type:"button",onclick:async()=>{ const patch={ nombre:$("eName").value.trim()||"Producto nuevo", marca:$("eMarca").value.trim(), stock:parseStock($("eStock").value), costo:parsePrice($("eCosto").value), talla:$("eTalla").value.trim(), condicion:$("eCond").value, precio:parsePrice($("ePrice").value), estado:$("eStatus").value, categoria:$("eCat").value.trim(), publico:$("ePub").value, descripcion:$("eDesc").value.trim(), compartido:$("eShare").checked, precioReventa:parsePrice($("ePrecioRev").value) }; if(patch.compartido && patch.precioReventa==null){ if(patch.precio==null){ toast("Para compartirlo, ponle un precio para revendedoras"); return; } patch.precioReventa = patch.precio; } try{ await S.db.doc("productos/"+p.id).update(patch); toast("Guardado"); closeSheet(); }catch(e){ toast("No se pudo guardar. Revisa tu conexión e intenta de nuevo."); } }},"Guardar"))
+          el("button",{class:"btn primary",type:"button",onclick:async()=>{ const patch={ nombre:$("eName").value.trim()||"Producto nuevo", marca:$("eMarca").value.trim(), stock:parseStock($("eStock").value), costo:parsePrice($("eCosto").value), talla:$("eTalla").value.trim(), condicion:$("eCond").value, precio:parsePrice($("ePrice").value), estado:$("eStatus").value, tipo:$("eTipo").value, categoria:$("eCat").value.trim(), publico:$("ePub").value, descripcion:$("eDesc").value.trim(), compartido:$("eShare").checked, precioReventa:parsePrice($("ePrecioRev").value) }; if(patch.compartido && patch.precioReventa==null){ if(patch.precio==null){ toast("Para compartirlo, ponle un precio para revendedoras"); return; } patch.precioReventa = patch.precio; } try{ await S.db.doc("productos/"+p.id).update(patch); toast("Guardado"); closeSheet(); }catch(e){ toast("No se pudo guardar. Revisa tu conexión e intenta de nuevo."); } }},"Guardar"))
       ), conf);
     } else {
       const st=p.estado||"disponible";
@@ -1140,6 +1149,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     if(document.activeElement!==$("setDias")) $("setDias").value = S.config.diasSeparado ? String(S.config.diasSeparado) : "";
     if(document.activeElement!==$("setGrupo")) $("setGrupo").value = S.config.grupoWhatsapp || "";
     $("setChatCli").checked = S.config.chatClientes !== false;
+    if(document.activeElement!==$("setRubro")){ const sr=$("setRubro"); if(!sr.options.length) RUBROS.forEach(r=>sr.append(el("option",{value:r.id},r.nombre))); sr.value = rubroActual(); }
     pintarCliBtn();
     // Botón "Únete a mi grupo" para los clientes
     const gl = $("grupoLink"), grupo = grupoValido(S.config.grupoWhatsapp);
@@ -1196,6 +1206,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         diasSeparado: Math.min(60, Math.max(1, parseStock($("setDias").value) || 7)),
         grupoWhatsapp: grupoValido($("setGrupo").value) || "",
         chatClientes: $("setChatCli").checked,
+        rubro: $("setRubro").value || "moda",
         yapeNumero:$("setYapeNum").value.trim(), yapeNombre:$("setYapeName").value.trim(),
         yapeQr: yapeQrNuevo!==undefined ? yapeQrNuevo : (S.config.yapeQr||""),
         pais, moneda,
@@ -1801,12 +1812,15 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     if((m = lo.match(/talla\s+([a-z0-9][a-z0-9.\/-]{0,7})/))) r.talla = m[1].toUpperCase();
     r.condicion = /con etiqueta/.test(lo) ? "nuevo_etiqueta" : /caja abierta/.test(lo) ? "caja_abierta" : /como nuev/.test(lo) ? "como_nuevo" : /usad/.test(lo) ? "usado" : /\bnuev[oa]s?\b/.test(lo) ? "nuevo" : "";
     const marca = MARCAS_VOZ.find(([re])=>re.test(t)); if(marca) r.marca = marca[1];
+    // "marca Lumina": la palabra (o dos) que sigue a "marca", aunque no sea una marca conocida
+    else if((m = t.match(/\bmarca\s+([A-Za-zÁÉÍÓÚÑáéíóúñ&'.]+(?:\s+(?!talla|nuev|usad|caja|con|de|a|en|precio|tengo|son|\d)[A-Za-zÁÉÍÓÚÑáéíóúñ&'.]+)?)/i))){ r.marca = m[1].replace(/\b\w/g, c=>c.toUpperCase()); r.marcaTexto = m[0]; }
     // Nombre: lo dictado sin marca, precio, cantidades, talla ni condición; solo la primera frase.
     let n = t.replace(/(?:me cost[oó]|cost[oó]|la etiqueta dice|etiqueta de)\s*\$?\s*\d+(?:[.,]\d+)?\s*(?:d[oó]lares|usd)?/gi," ")
       .replace(/s\/\.?\s*\d+(?:[.,]\d+)?|\$\s*\d+(?:[.,]\d+)?|\b(?:a|en|precio)?\s*\d+(?:[.,]\d+)?\s*(?:soles?|lucas|d[oó]lares|usd|bucks)\b/gi," ")
       .replace(/\b(?:tengo|son|quedan|hay|me quedan)\s+\d+\b|\b\d+\s+(?:unidades|piezas|pares)\b|\btalla\s+\S+/gi," ")
       .replace(/\b(nuev[oa]s?|usad[oa]s?|con etiqueta|caja abierta|como nuev[oa])\b/gi," ");
     if(marca) n = n.replace(marca[0], " ");
+    if(r.marcaTexto){ n = n.replace(r.marcaTexto, " "); delete r.marcaTexto; }
     n = n.split(/[,.;]/).map(x=>x.replace(/\s+/g," ").trim()).find(Boolean) || "";
     r.nombre = (n.charAt(0).toUpperCase() + n.slice(1)).slice(0,80) || "Producto nuevo";
     return r;
@@ -1814,11 +1828,13 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   async function entenderDictado(textos){
     const moneda = enSoles() ? "PEN" : "USD";
     let ia = [];
-    try{ ia = await interpretarDictado(textos, esUS() ? "en" : "es", moneda); }catch(e){ console.warn("Detalle técnico:", e); toast("La IA no respondió: completé lo que pude, revisa los datos"); }
+    try{ ia = await interpretarDictado(textos, esUS() ? "en" : "es", moneda, rubroActual()); }catch(e){ console.warn("Detalle técnico:", e); toast("La IA no respondió: completé lo que pude, revisa los datos"); }
     return textos.map((t, i)=>{
       const a = (Array.isArray(ia) && (ia.find(x=>x && Number(x.i)===i))) || {}, b = parsearLocal(t);
-      const d = { texto:t, nombre: a.nombre || b.nombre, marca: a.marca || b.marca || "", precio: a.precio ?? b.precio ?? null, moneda: a.moneda || b.moneda || null, costo: a.costo ?? b.costo ?? null,
-        stock: a.stock ?? b.stock ?? null, talla: a.talla || b.talla || "", condicion: CLAVES_COND.includes(a.condicion) ? a.condicion : (b.condicion || ""), categoria: CATS.includes(a.categoria) ? a.categoria : "", publico: PUBLICOS.includes(a.publico) ? a.publico : "", descripcion: a.descripcion || "" };
+      // Tipo y marca: lo que dijo la IA o, si no respondió, lo que se reconoce en las palabras (vestido, Zara…)
+      const tipo = categoriaDeTipo(a.tipo) ? a.tipo : tipoDeTexto(t, rubroActual());
+      const d = { texto:t, tipo, nombre: a.nombre || b.nombre, marca: a.marca || b.marca || marcaDeTexto(t) || "", precio: a.precio ?? b.precio ?? null, moneda: a.moneda || b.moneda || null, costo: a.costo ?? b.costo ?? null,
+        stock: a.stock ?? b.stock ?? null, talla: a.talla || b.talla || "", condicion: CLAVES_COND.includes(a.condicion) ? a.condicion : (b.condicion || ""), categoria: categoriaDeTipo(tipo) || (CATS.includes(a.categoria) ? a.categoria : ""), publico: PUBLICOS.includes(a.publico) ? a.publico : "", descripcion: a.descripcion || "" };
       // Si dijo el precio en otra moneda que la de la tienda, se convierte con el tipo de cambio.
       const tc = tipoCambio();
       if(d.precio!=null && d.moneda && d.moneda!==moneda && tc){ d.precio = moneda==="PEN" ? Math.round(d.precio*tc) : Math.round(d.precio/tc*100)/100; }
@@ -1833,7 +1849,9 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       const cond = el("select",null); opcionesCond("—").forEach(([k,l])=>cond.append(el("option",{value:k},l))); cond.value = d.condicion||""; cond.onchange = ()=>{ d.condicion = cond.value; };
       tabla.append(el("div",{class:"dict-fila"},
         el("strong",null, `${i+1}.`), el("span",{class:"orig"}, "“"+d.texto+"”"),
-        el("div",{class:"dict-campos"}, inp("nombre","Nombre",{maxlength:"80"}), inp("marca","Marca",{maxlength:"40",list:"marcaList"}), inp("precio",`Precio (${simbolo()})`,{inputmode:"decimal"}), inp("stock","Cantidad",{inputmode:"numeric",placeholder:"—"}), inp("talla","Talla",{maxlength:"12"}), el("label",{class:"f"},"Condición",cond))));
+        el("div",{class:"dict-campos"}, inp("nombre","Nombre",{maxlength:"80"}),
+          (()=>{ const s = el("select",{"aria-label":"Tipo"}); s.append(el("option",{value:""},"—")); tiposDe(rubroActual()).forEach(([t])=>s.append(el("option",{value:t},t))); s.value = d.tipo||""; s.onchange = ()=>{ d.tipo = s.value; d.categoria = categoriaDeTipo(s.value) || d.categoria; }; return el("label",{class:"f"},"Tipo",s); })(),
+          inp("marca","Marca",{maxlength:"40",list:"marcaList"}), inp("precio",`Precio (${simbolo()})`,{inputmode:"decimal"}), inp("stock","Cantidad",{inputmode:"numeric",placeholder:"—"}), inp("talla","Talla",{maxlength:"12"}), el("label",{class:"f"},"Condición",cond))));
     });
     card.append(tabla, el("div",{class:"send"},
       el("button",{class:"btn primary",type:"button",onclick:()=>{ D.fotos = []; D.paso="fotos"; pintarDict(); }},"Elegir las fotos"),
@@ -1887,9 +1905,9 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
           let ph = null, blob = null;
           if(f){ ph = await processPhoto(f.file, modo); blob = ph.full; delete ph._blob; }
           const ref = col.doc();
-          await ref.set({ nombre: d.nombre || "Producto nuevo", marca: d.marca || "", precio: d.precio, stock: d.stock, costo: d.costo, talla: d.talla || "", condicion: d.condicion || "", categoria: d.categoria || "", publico: d.publico || "", descripcion: d.descripcion || "", estado:"oculto", fotos: ph ? [ph] : [], creado: base + (n-i) });
+          await ref.set({ nombre: d.nombre || "Producto nuevo", tipo: d.tipo || "", marca: d.marca || "", precio: d.precio, stock: d.stock, costo: d.costo, talla: d.talla || "", condicion: d.condicion || "", categoria: d.categoria || "", publico: d.publico || "", descripcion: d.descripcion || "", estado:"oculto", fotos: ph ? [ph] : [], creado: base + (n-i) });
           ids[i] = ref.id;
-          if(ph && S.ai) paraIA.push({ id:ref.id, blob, name:false, cat:!d.categoria, marca:!d.marca, cond:!d.condicion, desc:!d.descripcion, talla:!d.talla, pub:!d.publico, costo: d.costo==null, check: d.categoria || "" });
+          if(ph && S.ai) paraIA.push({ id:ref.id, blob, name:false, tipo:!d.tipo, cat:!d.categoria, marca:!d.marca, cond:!d.condicion, desc:!d.descripcion, talla:!d.talla, pub:!d.publico, costo: d.costo==null, check: d.categoria || "" });
         }catch(e){ fallos++; console.warn("Detalle técnico:", e); }
         avanceDict.hechos++; if(D.paso==="subiendo") pintarDict();
       }
@@ -2445,7 +2463,7 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
       asisLog.push({ role:"user", text:texto }, { role:"assistant", text: AYUDA_ORDENES }); limpiarAsisInput(texto); guardarAsis(); pintarAsis(); return;
     }
     let orden = null;
-    try{ orden = interpretarComando(texto, { productos:S.products, seleccion:[...S.sel], codigoDe, enSoles:enSoles(), esCopia, money }); }catch(e){ console.warn("Orden rápida:", e); }
+    try{ orden = interpretarComando(texto, { productos:S.products, seleccion:[...S.sel], codigoDe, enSoles:enSoles(), esCopia, money, tipoDe: w=>tipoDeTexto(w, "variado") }); }catch(e){ console.warn("Orden rápida:", e); }
     if(orden){
       asisLog.push({ role:"user", text:texto }, orden.error ? { role:"assistant", text:orden.error } : { role:"assistant", text:orden.texto, propuesta:orden.propuesta });
       limpiarAsisInput(texto); guardarAsis(); pintarAsis(); return;
@@ -2574,13 +2592,17 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
     if(!tienda){
       if(ses.superadmin){ abrirPanel(); return; }
       show("onboard", true); $("obName").focus();
+      // ¿Qué vendes? Botones grandes en la misma pantalla (ya viene marcado Ropa y moda)
+      const rb = $("obRubros"); rb.textContent = "";
+      RUBROS.forEach((r,i)=>{ const b = el("button",{type:"button",class:"rubro","data-rubro":r.id,"aria-pressed":String(i===0),onclick:()=>{ rb.querySelectorAll(".rubro").forEach(x=>x.setAttribute("aria-pressed", String(x===b))); }}, el("b",null,r.nombre), el("span",null,r.detalle)); rb.append(b); });
       $("onboard").addEventListener("submit", async e=>{
         e.preventDefault(); const er=$("obErr"); er.hidden=true;
         const nombre=$("obName").value.trim(), slug=limpiarSlug($("obSlug").value), whatsapp=$("obWa").value.trim(), pais=$("obPais").value==="US"?"US":"PE";
         if(!nombre){ er.textContent="Escribe el nombre de tu tienda"; er.hidden=false; return; }
         if(!SLUG_RE.test(slug)){ er.textContent="El enlace debe tener entre 3 y 40 letras, números o guiones"; er.hidden=false; return; }
         $("obBtn").disabled=true;
-        try{ await crearTienda({ slug, nombre, whatsapp, email: ses.email, pais, moneda: pais==="US" ? "USD" : "PEN" }); location.reload(); }
+        const rubro = ($("obRubros").querySelector('[aria-pressed="true"]')||{}).dataset?.rubro || "moda";
+        try{ await crearTienda({ slug, nombre, whatsapp, email: ses.email, pais, moneda: pais==="US" ? "USD" : "PEN", rubro }); location.reload(); }
         catch(err){ er.textContent = err && err.code==="exists" ? "Ese enlace ya lo usa otra tienda. Prueba con otro." : err && err.code==="invalid" ? "Ese enlace no está permitido. Prueba con otro." : "No se pudo crear la vitrina: "+((err&&err.message)||""); er.hidden=false; }
         finally{ $("obBtn").disabled=false; }
       });

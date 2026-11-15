@@ -66,6 +66,7 @@ function listaParaIA(productos: Record<string, any>[], pregunta: string, moneda:
     if (p.precioAntes != null) { o.antes = sim + p.precioAntes; if (p.ofertaHasta) o.ofertaHasta = new Date(p.ofertaHasta).toISOString().slice(0, 10); }
     if (p.talla) o.t = p.talla;
     if (p.categoria) o.cat = p.categoria;
+    if (p.tipo) o.tipo = p.tipo;
     if (p.publico) o.para = p.publico;
     if (p.condicion) o.cond = p.condicion;
     if (p.descripcion) o.d = String(p.descripcion).slice(0, 140);

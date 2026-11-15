@@ -59,6 +59,10 @@ button{cursor:pointer}
 .drop.over{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 7%,var(--surface))}
 .drop h2{margin:0;font-family:var(--display);font-weight:800;font-size:clamp(20px,3vw,26px);text-wrap:balance}
 .drop p{margin:0;color:var(--muted);max-width:60ch}
+.rubros{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.rubro{display:grid;gap:2px;text-align:left;font:inherit;color:var(--ink);background:var(--surface);border:1.5px solid var(--line);border-radius:14px;padding:10px 12px;cursor:pointer;text-transform:none;letter-spacing:0}
+.rubro b{font-size:14.5px}.rubro span{font-size:12px;color:var(--muted);font-weight:400}
+.rubro[aria-pressed="true"]{border:2.5px solid var(--accent);box-shadow:0 0 0 3px rgb(31 79 209 / .15)}
 .formas{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;width:100%;max-width:900px;margin-top:6px}
 .forma{display:grid;justify-items:start;align-content:start;gap:6px;text-align:left;background:#f3f1fe;border:2px solid transparent;border-radius:20px;padding:20px 18px;font:inherit;color:var(--ink);cursor:pointer;transition:border-color .15s,transform .15s}
 .forma:hover,.forma:focus-visible{border-color:var(--accent);transform:translateY(-2px)}
@@ -671,6 +675,7 @@ html,body{overflow-x:clip}
   <form class="login" id="onboard" hidden novalidate>
     <h2>Crea tu vitrina</h2>
     <label class="f">Nombre de tu tienda<input id="obName" maxlength="60" placeholder="Ej. María Importados" required></label>
+ <div class="f"><span>¿Qué vendes?</span><div class="rubros" id="obRubros" role="group" aria-label="Qué vendes"></div></div>
     <label class="f">Enlace de tu vitrina<input id="obSlug" maxlength="40" placeholder="maria-importados" autocapitalize="off" spellcheck="false" required></label>
     <p class="note" style="margin:0">Tus clientes entrarán a <span class="copy" id="obPreview">…/?tienda=</span></p>
     <label class="f">WhatsApp (con código de país)<input id="obWa" inputmode="tel" placeholder="+51 986 639 533"></label>
@@ -736,6 +741,7 @@ html,body{overflow-x:clip}
       <label class="f solo-pe">Tipo de cambio (S/ por 1 USD)<input id="setRate" inputmode="decimal" placeholder="3.46"></label>
       <label class="f solo-pe">Descuento por Yape o efectivo (%)<input id="setDesc" inputmode="decimal" placeholder="Ej. 7" title="Tus precios son con tarjeta; quien paga con Yape o efectivo paga este porcentaje menos"></label>
       <label class="f">Grupo de WhatsApp de ventas (enlace)<input id="setGrupo" inputmode="url" placeholder="https://chat.whatsapp.com/…" title="En WhatsApp: tu grupo › Invitar al grupo › Copiar enlace. Tus clientes verán el botón Únete a mi grupo."></label>
+      <label class="f">Qué vendes<select id="setRubro"></select></label>
       <div class="f"><span>Asistente para tus clientes</span><label class="chk" style="text-transform:none;letter-spacing:0;font-weight:500"><input type="checkbox" id="setChatCli" checked> Activado: sugiere tus productos a quien pregunta en tu tienda ("regalos para niño de 5 años")</label></div>
       <label class="f">Días para separar tus productos (tiendas de confianza)<input id="setDias" inputmode="numeric" placeholder="7" title="Cuánto tiempo puede una tienda de confianza tener separado un producto tuyo antes de confirmar la venta"></label>
     </div>

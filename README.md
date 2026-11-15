@@ -45,6 +45,17 @@ La idea central es **subir muchas fotos de una vez**. Al arrastrar el lote se pu
 - **Cantidad (stock):** opcional; vacío significa "sin control". El cliente ve "Quedan N" o "¡Última unidad!" cuando quedan 3 o menos, y "Agotado" en 0. No puede pedir más unidades de las disponibles: lo valida la pantalla y también el servidor.
 - **Descuento automático:** al pagar con tarjeta, el webhook descuenta las unidades una sola vez (aunque Stripe reenvíe el aviso). Al confirmar un Yape, se descuentan cuando la vendedora toca *Confirmar pago*. Los pedidos por WhatsApp se ajustan a mano.
 
+## Catálogo por rubro (tipo de producto y marcas)
+
+Al crear la tienda, en la misma pantalla, la vendedora toca **¿Qué vendes?**: Ropa y moda (marcado por defecto), Zapatos, Carteras y accesorios, Belleza y perfumes, Relojes y joyería o De todo un poco (`Tienda.rubro`; se cambia en Datos de la tienda; vacío = moda).
+
+- Cada producto tiene **Tipo** (`Producto.tipo`: Vestido, Falda, Jean, Zapatillas, Cartera, Perfume…). La lista y sus categorías están en `src/rubros.js` (copia del servidor en `amplify/functions/shared/rubros.ts`). Al elegir el tipo, la categoría se pone sola.
+- La IA de fotos y la del dictado eligen el tipo de esa lista; si la IA no responde, el dictado lo reconoce por las palabras ("vestido", "zapatillas", "lentes") y la marca por una lista de ~90 marcas conocidas o por la palabra que sigue a "marca".
+- Los códigos nuevos salen del tipo: VES-001, FAL-001, JEA-001 (los ya puestos no cambian).
+- Marca: al escribir se sugieren las de la tienda y las conocidas.
+- Órdenes rápidas por tipo: "todas las faldas 20 % de descuento hoy".
+- Próximo: rubros sin fotos (Frutas y verduras, Abarrotes) con unidad (kg, atado) y productos de inicio.
+
 ## Asistente de compras para clientes
 
 En la tienda pública, el botón **¿Buscas algo?** abre un chat donde el cliente pregunta ("regalos para niño de 5 años", "¿qué ofertas hay?", "algo para mamá menos de S/ 100"). La consulta `preguntarTienda` (función `catalogo`, archivo `catalogo/cliente.ts`) arma la misma lista que ve el cliente (sin ocultos, vendidos ni agotados, sin costos ni origen) y le pide a Nova 2 Lite una respuesta corta con hasta 6 códigos. La tienda muestra tarjetas con foto, código y precio; al tocar una se abre el producto para agregarlo al pedido. El cierre sigue siendo por WhatsApp, Yape o tarjeta.
