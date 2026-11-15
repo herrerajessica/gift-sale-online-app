@@ -607,7 +607,17 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   function setProg(d,t,msg){ $("progBar").style.width = (t? d/t*100:0)+"%"; $("progCount").textContent = d+" / "+t; if(msg) $("progText").textContent = msg; }
 
   // ---------- Render ----------
-  function filtered(){
+  // Ordenar: más nuevos (como vienen) o por precio de hoy (con oferta); los "a consultar" al final
+  const ORDEN_KEY = "vitrina-orden";
+  S.orden = (()=>{ try{ return localStorage.getItem(ORDEN_KEY) || "nuevos"; }catch(e){ return "nuevos"; } })();
+  function ordenar(lista){
+    if(S.orden !== "barato" && S.orden !== "caro") return lista;
+    const sig = S.orden === "barato" ? 1 : -1;
+    return [...lista].sort((a,b)=>{ const pa = precioHoy(a), pb = precioHoy(b);
+      if(pa==null && pb==null) return 0; if(pa==null) return 1; if(pb==null) return -1; return sig * (pa - pb); });
+  }
+  function filtered(){ return ordenar(filtrar()); }
+  function filtrar(){
     const q = S.q.toLowerCase(), cod = normCodigo(S.q);
     if(cod) return S.products.filter(p => normCodigo(codigoDe(p)) === cod);
     return S.products.filter(p => (!S.cat || p.categoria===S.cat) && (!S.pub || p.publico===S.pub || (S.pub!=="Niños" && p.publico==="Unisex")) && (!q || ((p.codigo||"")+" "+(p.codigo||"").replace("-","")+" "+(p.tipo||"")+" "+p.nombre+" "+(p.marca||"")+" "+(p.talla?"talla size "+p.talla:"")+" "+(p.categoria||"")+" "+catTxt(p.categoria||"")+" "+(p.publico||"")+" "+pubTxt(p.publico||"")+" "+condTxt(p.condicion)+" "+(p.descripcion||"")).toLowerCase().includes(q)));
@@ -681,7 +691,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     pintarAsisSel();
     $("bulk").hidden = !S.selecting;
     $("bulkCount").textContent = S.sel.size + (S.sel.size===1?" seleccionado":" seleccionados");
-    $("bulkApply").disabled = $("bulkDel").disabled = $("bulkAI").disabled = $("bulkShare").disabled = $("bulkUnshare").disabled = !S.sel.size;
+    $("bulkApply").disabled = $("bulkDel").disabled = $("bulkAI").disabled = $("bulkShare").disabled = $("bulkMover").disabled = $("bulkUnshare").disabled = !S.sel.size;
   }
   $("selectBtn").onclick = ()=>{ S.selecting=true; S.sel.clear(); render(); $("bulk").scrollIntoView({block:"nearest"}); };
   $("bulkDone").onclick = ()=>{ S.selecting=false; S.sel.clear(); $("bulkConfirm").hidden=true; render(); };
@@ -716,6 +726,28 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   $("bulkAI").onclick = ()=>classifySelected();
   $("bulkShare").onclick = ()=>abrirCompartir([...S.sel]);
   $("bulkGrupo").onclick = ()=>abrirMensajeGrupo([...S.sel]);
+  // Mover a otra categoría (o tipo) con botones grandes, sin escribir
+  $("bulkMover").onclick = ()=>{
+    const ids = [...S.sel]; if(!ids.length){ toast("Toca los productos que quieres mover"); return; }
+    const ov=$("planOverlay"); ov.textContent=""; ov.hidden=false; delete ov.dataset.conf; delete ov.dataset.dict;
+    const cerrar = ()=>{ ov.hidden=true; ov.textContent=""; };
+    ov.onclick = e=>{ if(e.target===ov) cerrar(); };
+    const mover = async (cambio, nombre)=>{
+      cerrar();
+      const fails = await runPool(ids, id=>S.db.doc("productos/"+id).update(cambio));
+      toast(fails ? `Se movieron ${ids.length-fails}; ${fails} no se pudieron mover` : `${ids.length} producto${ids.length===1?"":"s"} movido${ids.length===1?"":"s"} a ${nombre}`);
+    };
+    const usadas = [...new Set(S.products.map(p=>p.categoria).filter(Boolean))];
+    const cats = [...new Set([...CATS.filter(c=>c!=="Otros"), ...usadas, "Otros"])];
+    const tipos = tiposDe(rubroActual());
+    const card = el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":"Mover a",style:"width:min(620px,100%)"},
+      el("div",{class:"cart-head"}, el("h2",null,`Mover ${ids.length} producto${ids.length===1?"":"s"} a…`), el("button",{class:"btn",type:"button",onclick:cerrar},"Cancelar")),
+      el("strong",null,"Categoría"),
+      el("div",{class:"mover-grid"}, ...cats.map(c=>el("button",{type:"button",class:"mover-op",onclick:()=>mover({ categoria:c }, c)}, catTxt(c)))),
+      el("details",null, el("summary",null,"O elige el tipo exacto (Vestido, Falda, Zapatillas…)"),
+        el("div",{class:"mover-grid",style:"margin-top:8px"}, ...tipos.map(([t,c])=>el("button",{type:"button",class:"mover-op",onclick:()=>mover({ tipo:t, categoria:c }, t)}, t)))));
+    ov.append(card);
+  };
   $("grupoBtn").onclick = ()=>abrirMensajeGrupo(S.selecting ? [...S.sel] : []);
   $("bulkUnshare").onclick = async ()=>{
     const ids = [...S.sel].filter(id=>{ const p=S.products.find(x=>x.id===id); return p && p.compartido && !esCopia(p); });
@@ -1257,6 +1289,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
 
   // ---------- Controles ----------
   $("q").addEventListener("input", e=>{ S.q=e.target.value; render(); });
+  $("orden").value = S.orden;
+  $("orden").onchange = e=>{ S.orden = e.target.value; try{ localStorage.setItem(ORDEN_KEY, S.orden); }catch(err){} render(); };
   $("pickBtn").onclick = ()=>$("fileInput").click();
   $("fileInput").onchange = e=>handleFiles(e.target.files);
   const setMode = m=>{ S.mode=m; $("modeEach").setAttribute("aria-pressed",String(m==="each")); $("modeGroup").setAttribute("aria-pressed",String(m==="group")); };

@@ -92,6 +92,10 @@ button{cursor:pointer}
 
 /* Filtros */
 .tools{margin-top:22px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.orden{flex:0 0 auto;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;background:var(--surface);font:inherit;font-size:14px;color:var(--ink)}
+.mover-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.mover-op{font:inherit;font-size:15px;font-weight:600;text-align:left;background:var(--surface);color:var(--ink);border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;cursor:pointer}
+.mover-op:hover,.mover-op:focus-visible{border-color:var(--accent)}
 .search{flex:1 1 220px;min-width:0;padding:10px 14px;border:1.5px solid var(--line);border-radius:10px;background:var(--surface)}
 .cats{display:flex;gap:6px;flex-wrap:wrap}
 .chip .cn{font-family:var(--mono);font-size:11px;opacity:.6}
@@ -848,6 +852,7 @@ html,body{overflow-x:clip}
   <a class="grupo-link" id="grupoLink" hidden target="_blank" rel="noopener"></a>
   <div class="tools">
     <input class="search" id="q" type="search" placeholder="Buscar producto…" aria-label="Buscar producto">
+    <select class="orden" id="orden" aria-label="Ordenar productos"><option value="nuevos">Más nuevos</option><option value="barato">Precio: menor a mayor</option><option value="caro">Precio: mayor a menor</option></select>
     <div class="cats" id="cats"></div>
     <div class="cats" id="pubs"></div>
   </div>
@@ -869,6 +874,7 @@ html,body{overflow-x:clip}
     <button class="btn" id="bulkAI" hidden>Clasificar con IA</button>
     <button class="btn" id="bulkTabla">Editar en tabla</button>
     <button class="btn" id="bulkDup">Buscar repetidos</button>
+    <button class="btn" id="bulkMover" title="Cambia la categoría de los marcados con un toque">Mover a…</button>
     <button class="btn" id="bulkGrupo" title="Arma el mensaje con estos productos para tu grupo de WhatsApp">📣 Mensaje para mi grupo</button>
     <button class="btn" id="bulkShare" title="Tus tiendas de confianza podrán revenderlos">Compartir</button>
     <button class="btn" id="bulkUnshare">Dejar de compartir</button>
