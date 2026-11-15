@@ -211,6 +211,7 @@ function configRef() {
         nombre: d.nombre || TIENDA, whatsapp: d.whatsapp || '', tipoCambio: d.tipoCambio ?? null,
         yapeNumero: d.yapeNumero || '', yapeNombre: d.yapeNombre || '', yapeQr: d.yapeQr || '',
         descuentoContado: typeof d.descuentoContado === 'number' ? d.descuentoContado : 0,
+        ...(Number.isInteger(d.diasSeparado) ? { diasSeparado: d.diasSeparado } : {}),
         ...(d.pais === 'US' || d.pais === 'PE' ? { pais: d.pais } : {}),
         ...(d.moneda === 'USD' || d.moneda === 'PEN' ? { moneda: d.moneda } : {}),
       };

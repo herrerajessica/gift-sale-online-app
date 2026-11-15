@@ -1031,6 +1031,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     if(document.activeElement!==$("setWa")) $("setWa").value = S.config.whatsapp||"";
     if(document.activeElement!==$("setRate")) $("setRate").value = S.config.tipoCambio!=null ? String(S.config.tipoCambio) : "";
     if(document.activeElement!==$("setDesc")) $("setDesc").value = S.config.descuentoContado ? String(S.config.descuentoContado) : "";
+    if(document.activeElement!==$("setDias")) $("setDias").value = S.config.diasSeparado ? String(S.config.diasSeparado) : "";
     if(document.activeElement!==$("setYapeNum")) $("setYapeNum").value = S.config.yapeNumero||"";
     if(document.activeElement!==$("setYapeName")) $("setYapeName").value = S.config.yapeNombre||"";
     if(yapeQrNuevo===undefined) pintarQrConfig(S.config.yapeQr||"");
@@ -1063,6 +1064,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       await S.db.doc("config/tienda").set({
         nombre:$("setName").value.trim(), whatsapp:$("setWa").value.trim(), tipoCambio: parsePrice($("setRate").value),
         descuentoContado: Math.min(30, Math.max(0, parseMargen($("setDesc").value) || 0)),
+        diasSeparado: Math.min(60, Math.max(1, parseStock($("setDias").value) || 7)),
         yapeNumero:$("setYapeNum").value.trim(), yapeNombre:$("setYapeName").value.trim(),
         yapeQr: yapeQrNuevo!==undefined ? yapeQrNuevo : (S.config.yapeQr||""),
         pais, moneda,
@@ -1591,14 +1593,23 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   const esCopia = p => !!(p && p.origenId);
   const infoCopia = p => (S.conf && S.conf.copias && S.conf.copias[p.id]) || null;
   const sumaPend = l => (l||[]).filter(r=>r.estado==="debe").reduce((t,r)=>t+(Number(r.monto)||0),0);
+  // Separados: lo que una revendedora guardó para su clienta y todavía no confirma como venta.
+  const separadosMios = () => S.conf ? S.conf.meDeben.filter(r=>r.estado==="separado") : [];   // de mis productos
+  const misSeparados = () => S.conf ? S.conf.debo.filter(r=>r.estado==="separado") : [];       // los que separé yo
+  const vencido = r => r.hasta && r.hasta < Date.now();
+  const fechaCorta = ms => new Date(ms).toLocaleDateString("es-PE",{ day:"numeric", month:"short" });
+  let avisoWa = null;   // tras separar: enlace para avisar a la dueña por WhatsApp
   // Precio para revendedoras: en soles se redondea al sol; en dólares, a centavos.
   const redondeoRev = n => enSoles() ? Math.max(1, Math.round(n)) : Math.max(0.5, Math.round(n*100)/100);
   function etiquetaConf(p){
     if(esCopia(p)){
-      const i = infoCopia(p);
+      const i = infoCopia(p), sep = misSeparados().filter(r=>r.copiaId===p.id);
+      if(sep.length) return el("span",{class:"conf-tag"+(sep.some(vencido)?" off":"")}, `Separado (${sep.reduce((t,r)=>t+(r.q||1),0)})` + (sep.some(vencido) ? " · vencido" : ""));
       if(i && !i.disponible) return el("span",{class:"conf-tag off"},"Ya no disponible");
       return el("span",{class:"conf-tag"}, i ? "De " + i.tiendaNombre : "De confianza");
     }
+    const sep = separadosMios().filter(r=>r.productoId===p.id);
+    if(sep.length) return el("span",{class:"conf-tag"+(sep.some(vencido)?" off":"")}, `Separado por ${sep[0].tiendaNombre}` + (sep.length>1 ? ` y ${sep.length-1} más` : "") + (sep.some(vencido) ? " · vencido" : ""));
     return p.compartido ? el("span",{class:"conf-tag"},"Compartido") : null;
   }
   function msgConf(e){
@@ -1632,14 +1643,18 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       if(inv){ partes.push(inv===1 ? "Tienes 1 invitación por responder" : `Tienes ${inv} invitaciones por responder`); urgente = true; }
       if(act) partes.push(act===1 ? "1 tienda de confianza" : `${act} tiendas de confianza`);
       if(nuevos) partes.push(nuevos===1 ? "1 producto para revender" : `${nuevos} productos para revender`);
+      const sep = separadosMios(), venc = sep.filter(vencido).length + misSeparados().filter(vencido).length;
+      if(sep.length) partes.push(sep.length===1 ? `${sep[0].tiendaNombre} separó 1 de tus productos` : `${sep.length} de tus productos están separados`);
+      if(venc){ partes.push(venc===1 ? "1 separado vencido" : `${venc} separados vencidos`); urgente = true; }
       if(meDeben) partes.push(`te deben ${money(meDeben)}`);
       if(debo) partes.push(`debes ${money(debo)}`);
       if(partes.length) txt = partes.join(" · ");
     }
     $("confText").textContent = txt;
     $("confBtn").className = "btn" + (urgente ? " tag" : "");
-    $("confBtn").textContent = urgente ? "Ver invitación" : "Abrir";
-    $("confBtn").onclick = ()=>abrirConfianza(urgente ? "tiendas" : null);
+    const hayInv = !!(c && c.relaciones.some(r=>r.estado==="pendiente" && !r.invitaYo));
+    $("confBtn").textContent = hayInv ? "Ver invitación" : urgente ? "Revisar" : "Abrir";
+    $("confBtn").onclick = ()=>abrirConfianza(hayInv ? "tiendas" : urgente ? "cuentas" : null);
   }
   let confTab = "tiendas";
   const confAbierto = () => !$("planOverlay").hidden && $("planOverlay").dataset.conf === "1";
@@ -1747,6 +1762,26 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       el("div",null, el("small",null,"Te deben"), el("b",null, money(sumaPend(c.meDeben))), el("small",null,"Por tus productos que vendieron otras tiendas")),
       el("div",null, el("small",null,"Debes"), el("b",null, money(sumaPend(c.debo))), el("small",null,"Por productos de otras tiendas que vendiste"))));
     const VIA = { tarjeta:"pagó con tarjeta", yape:"pagó con Yape", manual:"venta registrada a mano" };
+    // Separados: arriba de todo, porque bloquean unidades hasta que se confirmen o se liberen.
+    const filaSep = (r, mia) => {
+      const acts = el("div",{style:"display:flex;gap:6px;align-items:center;flex-wrap:wrap"},
+        el("span",{class:"pill "+(vencido(r)?"cancelado":"por_confirmar")}, vencido(r) ? "Vencido" : "Separado"));
+      if(!mia){
+        const v = el("button",{class:"btn primary",type:"button"},"Se vendió"); v.onclick = ()=>accionConf(v,"confirmar",{ reventaId:r.id }, x=>`Venta confirmada. Le debes ${money(Number(x && x.monto)||0)} a ${r.tiendaNombre}.`);
+        const l = el("button",{class:"btn",type:"button"},"Liberar"); l.onclick = ()=>accionConf(l,"liberar",{ reventaId:r.id },"Liberado: vuelve a estar disponible");
+        acts.append(v, l);
+      } else if(vencido(r)){
+        const l = el("button",{class:"btn",type:"button"},"Liberar"); l.onclick = ()=>accionConf(l,"liberar",{ reventaId:r.id },"Liberado: vuelve a estar disponible");
+        acts.append(l);
+      }
+      return el("div",{class:"conf-row"},
+        el("div",{class:"who"}, el("strong",null,`${r.nombre||"Producto"}${r.q>1?" × "+r.q:""}`),
+          el("small",null,[mia ? `Lo separó ${r.tiendaNombre}` : `De ${r.tiendaNombre}`, r.cliente ? "para "+r.cliente : "", r.hasta ? (vencido(r) ? "venció el " : "hasta el ") + fechaCorta(r.hasta) : ""].filter(Boolean).join(" · "))),
+        el("strong",{style:"font-family:var(--mono);font-variant-numeric:tabular-nums"}, money(Number(r.monto)||0)), acts);
+    };
+    const sepMios = separadosMios(), misSep = misSeparados();
+    if(sepMios.length){ sec.append(el("strong",null,"Separaron de tus productos"), el("span",{class:"note",style:"margin:0"},`Nadie más los puede vender mientras estén separados. Si vence el plazo (${c.diasSeparado||7} días, lo cambias en Datos de la tienda), puedes liberarlos.`)); sepMios.forEach(r=>sec.append(filaSep(r, true))); }
+    if(misSep.length){ sec.append(el("strong",null,"Tus separados"), el("span",{class:"note",style:"margin:0"},"Cuando tu clienta pague, toca “Se vendió”. Si no compra, toca “Liberar”.")); misSep.forEach(r=>sec.append(filaSep(r, false))); }
     const fila = (r, mia) => {
       const acts = el("div",{style:"display:flex;gap:6px;align-items:center;flex-wrap:wrap"},
         el("span",{class:"pill "+(r.estado==="pagado"?"pagado":"pendiente")}, r.estado==="pagado" ? "Pagado" : "Por pagar"));
@@ -1760,9 +1795,11 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
           el("small",null,[mia ? `Lo vendió ${r.tiendaNombre}` : `De ${r.tiendaNombre}`, r.creado ? new Date(r.creado).toLocaleDateString("es-PE") : "", VIA[r.via]||""].filter(Boolean).join(" · "))),
         el("strong",{style:"font-family:var(--mono);font-variant-numeric:tabular-nums"}, money(Number(r.monto)||0)), acts);
     };
+    const cerradas = r => r.estado==="debe" || r.estado==="pagado";
+    c = { ...c, meDeben: c.meDeben.filter(cerradas), debo: c.debo.filter(cerradas) };
     if(c.meDeben.length){ sec.append(el("strong",null,"Te deben"), el("span",{class:"note",style:"margin:0"},"Coordina la entrega del producto con la otra tienda. Cuando te pague, toca “Ya me pagó”.")); c.meDeben.forEach(r=>sec.append(fila(r, true))); }
     if(c.debo.length){ sec.append(el("strong",null,"Debes")); c.debo.forEach(r=>sec.append(fila(r, false))); }
-    if(!c.meDeben.length && !c.debo.length) sec.append(el("p",{class:"note",style:"margin:0"},"Aquí verás lo que te deben y lo que debes por los productos que se revenden. Por ahora no hay ventas."));
+    if(!c.meDeben.length && !c.debo.length && !sepMios.length && !misSep.length) sec.append(el("p",{class:"note",style:"margin:0"},"Aquí verás lo que te deben y lo que debes por los productos que se revenden. Por ahora no hay ventas."));
   }
   // Compartir varios productos a la vez (desde "Editar varios")
   function abrirCompartir(ids){
@@ -1815,9 +1852,24 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       const r = await accionConf(vb,"vendi",{ copiaId:p.id, q:n }, r=>`Venta registrada. Le debes ${money(Number(r && r.monto)||0)} a ${i ? i.tiendaNombre : "la otra tienda"}.`);
       if(r) closeSheet();
     };
-    side.append(el("fieldset",{class:"share-set"}, el("legend",null,"¿Lo vendiste por WhatsApp o en persona?"),
-      el("div",{style:"display:flex;gap:8px;align-items:end;flex-wrap:wrap"}, el("label",{class:"f"},"Unidades", q), vb),
-      el("span",{class:"note",style:"margin:0"},"Regístralo para que la otra tienda lo descuente y sepa cuánto le debes. Lo que tus clientes pagan en la web se registra solo.")));
+    const quien = el("input",{id:"eSepPara",maxlength:"60",value:v("eSepPara",""),placeholder:"Opcional"});
+    const sb = el("button",{class:"btn",type:"button",disabled: off ? "" : false},"Separar");
+    sb.onclick = async ()=>{
+      const n = parseStock(q.value) || 1;
+      const r = await accionConf(sb,"separar",{ copiaId:p.id, q:n, cliente:quien.value.trim() }, r=>`Separado hasta el ${fechaCorta(r.hasta)}: ${r.duenaNombre || "la dueña"} ya no lo puede vender. Avísale por WhatsApp.`);
+      if(r){ avisoWa = r.whatsapp ? { copiaId:p.id, url:r.whatsapp, nombre:r.duenaNombre } : null; if(openId) drawSheet(); }
+    };
+    const sepAqui = misSeparados().filter(r=>r.copiaId===p.id);
+    side.append(el("fieldset",{class:"share-set"}, el("legend",null,"¿Lo vendiste o te lo pidieron separar?"),
+      el("div",{style:"display:flex;gap:8px;align-items:end;flex-wrap:wrap"}, el("label",{class:"f"},"Unidades", q), el("label",{class:"f",style:"flex:1;min-width:120px"},"Para quién", quien)),
+      el("div",{style:"display:flex;gap:8px;flex-wrap:wrap"}, vb, sb),
+      el("span",{class:"note",style:"margin:0"},"Registrar venta: ya te pagaron. Separar: tu clienta lo pidió y paga después; nadie más lo puede vender mientras tanto. Lo que tus clientes pagan en la web se registra solo."),
+      avisoWa && avisoWa.copiaId===p.id ? el("a",{class:"btn tag",href:avisoWa.url,target:"_blank",rel:"noopener",style:"text-decoration:none;justify-self:start"}, `Avisar a ${avisoWa.nombre || "la dueña"} por WhatsApp`) : null,
+      ...sepAqui.map(r=>{
+        const vv = el("button",{class:"btn primary",type:"button"},"Se vendió"); vv.onclick = ()=>accionConf(vv,"confirmar",{ reventaId:r.id }, x=>`Venta confirmada. Le debes ${money(Number(x && x.monto)||0)}.`);
+        const ll = el("button",{class:"btn",type:"button"},"Liberar"); ll.onclick = ()=>accionConf(ll,"liberar",{ reventaId:r.id },"Liberado");
+        return el("div",{class:"conf-row"+(vencido(r)?" off":"")}, el("div",{class:"who"}, el("strong",null,`Separado${r.q>1?" × "+r.q:""}${r.cliente?" para "+r.cliente:""}`), el("small",null,(vencido(r)?"Venció el ":"Hasta el ")+fechaCorta(r.hasta))), vv, ll);
+      })));
     const conf = el("span",{class:"confirm",hidden:""},"¿Quitarlo de tu tienda?", el("button",{class:"btn danger",type:"button",onclick:async()=>{ try{ await S.db.doc("productos/"+p.id).delete(); closeSheet(); toast("Quitado de tu tienda"); cargarConfianza(); }catch(e){ toast("No se pudo quitar. Intenta de nuevo."); } }},"Sí, quitar"), el("button",{class:"btn",type:"button",onclick:()=>{conf.hidden=true;}},"No"));
     side.append(el("div",{class:"actions"},
       el("button",{class:"btn danger",type:"button",onclick:()=>{conf.hidden=false;}},"Quitar de mi tienda"),

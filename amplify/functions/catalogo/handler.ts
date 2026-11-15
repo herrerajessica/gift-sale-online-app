@@ -59,7 +59,7 @@ export const handler: Schema['catalogo']['functionHandler'] = async (event) => {
     if (c.origenId) {
       const o = copias.get(String(c.id));
       if (!o) continue;
-      p = { ...c, stock: o.stock, estado: o.estado === 'apartado' ? 'apartado' : c.estado, fotosFull: o.fotosFull, fotosThumb: o.fotosThumb };
+      p = { ...c, stock: o.stock, fotosFull: o.fotosFull, fotosThumb: o.fotosThumb };
     }
     productos.push({
       id: p.id, nombre: p.nombre, marca: p.marca || '', precio: p.precio ?? null,

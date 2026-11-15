@@ -103,11 +103,13 @@ async function listar(t: Item) {
   const cuenta = async (r: Item, otra: string) => ({
     id: r.id, tienda: otra, tiendaNombre: await nombreDe(otra), nombre: r.nombre, q: r.q, monto: r.monto,
     moneda: r.moneda, via: r.via, estado: r.estado, creado: r.creado,
+    productoId: r.productoId, copiaId: r.copiaId, hasta: r.hasta ?? null, cliente: r.cliente || '',
   });
   const orden = (a: Item, b: Item) => Number(b.creado) - Number(a.creado);
 
   return {
     moneda: monedaDe(t),
+    diasSeparado: diasDe(t),
     relaciones: rels.map((r) => ({ tienda: r.otra, nombre: nombres.get(r.otra), estado: r.estado, invitaYo: r.invita === t.id }))
       .sort((a, b) => String(a.nombre).localeCompare(String(b.nombre))),
     compartidos,
@@ -116,6 +118,121 @@ async function listar(t: Item) {
     meDeben: await Promise.all(meDeben.sort(orden).slice(0, 300).map((r) => cuenta(r, r.revendedora))),
     debo: await Promise.all(debo.sort(orden).slice(0, 300).map((r) => cuenta(r, r.duena))),
   };
+}
+
+const diasDe = (t: Item) => (Number.isInteger(t.diasSeparado) && t.diasSeparado > 0 ? Math.min(60, t.diasSeparado) : 7);
+const plataTxt = (n: number, moneda: string) => (moneda === 'PEN' ? 'S/ ' : '$') + n.toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+const escHtml = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+const fechaTxt = (ms: number) => new Date(ms).toLocaleDateString('es-PE', { day: 'numeric', month: 'long', timeZone: 'America/Lima' });
+function avisoHtml(titulo: string, texto: string) {
+  return `<!doctype html><html lang="es"><body style="margin:0;background:#f7f5f0;font-family:Arial,Helvetica,sans-serif;color:#16203a"><div style="max-width:520px;margin:0 auto;padding:24px 16px"><div style="background:#fff;border:1px solid #e3dfd6;border-radius:14px;padding:24px"><h1 style="margin:0 0 12px;font-size:22px">${titulo}</h1><p style="margin:0;font-size:15px">${texto}</p></div><p style="font-size:12px;color:#5b6275;text-align:center;margin:16px 0 0">Aviso automático de tu tienda en Showroomcito.</p></div></body></html>`;
+}
+
+// ---------- Separar (la clienta de la revendedora pidió que se lo guarden) ----------
+async function separar(t: Item, d: Item) {
+  const { Item: copia } = await ddb.send(new GetCommand({ TableName: PRODUCTO(), Key: { id: String(d.copiaId || '') } }));
+  if (!copia || copia.tiendaId !== t.id || !copia.origenId) fallo('Ese producto no es de una tienda de confianza');
+  const r = await leerRelacion(t.id, String(copia!.origenTienda));
+  const o = (await leerProductos([String(copia!.origenId)])).get(String(copia!.origenId));
+  const ok = originalVendible(copia!, o, !!r && r.estado === 'aceptada');
+  if (!ok) fallo('Este producto ya no está disponible para separar');
+  const q = Math.min(99, Math.max(1, Math.floor(Number(d.q) || 1)));
+  if (typeof ok!.stock === 'number' && q > ok!.stock) fallo(ok!.stock > 0 ? `Solo quedan ${ok!.stock}` : 'Ya no quedan unidades');
+  if (typeof ok!.stock !== 'number' && q > 1) fallo('Este producto es una pieza única');
+  const duena = await leerTienda(String(ok!.tiendaId));
+  const dias = diasDe(duena || {});
+  const ahora = Date.now(), iso = new Date().toISOString();
+  const moneda = duena ? monedaDe(duena) : 'USD';
+  const unitario = typeof ok!.precioReventa === 'number' ? ok!.precioReventa : (typeof ok!.precio === 'number' ? ok!.precio : 0);
+  const id = randomUUID(), hasta = ahora + dias * 864e5, cliente = String(d.cliente || '').trim().slice(0, 60);
+  // Primero se bloquean las unidades en el original (con condición, para que dos tiendas no separen la misma).
+  try {
+    if (typeof ok!.stock === 'number') {
+      await ddb.send(new UpdateCommand({
+        TableName: PRODUCTO(), Key: { id: ok!.id },
+        UpdateExpression: 'SET stock = stock - :q, updatedAt = :t', ConditionExpression: 'stock >= :q',
+        ExpressionAttributeValues: { ':q': q, ':t': iso },
+      }));
+    } else {
+      await ddb.send(new UpdateCommand({
+        TableName: PRODUCTO(), Key: { id: ok!.id },
+        UpdateExpression: 'SET estado = :a, updatedAt = :t', ConditionExpression: 'attribute_not_exists(estado) OR estado = :d',
+        ExpressionAttributeValues: { ':a': 'apartado', ':d': 'disponible', ':t': iso },
+      }));
+    }
+  } catch (e) {
+    if ((e as { name?: string }).name === 'ConditionalCheckFailedException') fallo('Alguien lo acaba de separar o vender. Ya no está disponible.');
+    throw e;
+  }
+  await ddb.send(new PutCommand({
+    TableName: REVENTA(),
+    Item: {
+      id, __typename: 'Reventa', duena: ok!.tiendaId, revendedora: t.id, productoId: ok!.id, copiaId: copia!.id, nombre: ok!.nombre,
+      q, monto: Math.round(unitario * q * 100) / 100, moneda, via: 'manual', estado: 'separado', hasta, cliente, creado: ahora, createdAt: iso, updatedAt: iso,
+    },
+  }));
+  const msg = `Hola, soy ${t.nombre}. Separé ${q > 1 ? q + ' unidades de ' : ''}"${ok!.nombre}"${cliente ? ' para ' + cliente : ''}. Te confirmo la venta hasta el ${fechaTxt(hasta)}.`;
+  if (duena && duena.email) {
+    await enviarCorreo({
+      para: duena.email, responderA: t.email, asunto: `${t.nombre} separó tu producto: ${ok!.nombre}`,
+      html: avisoHtml('Separaron tu producto', `<b>${escHtml(t.nombre)}</b>, tu tienda de confianza, separó <b>${escHtml(ok!.nombre)}</b>${q > 1 ? ` × ${q}` : ''}${cliente ? ` para ${escHtml(cliente)}` : ''}. Ya no se puede vender en ninguna tienda. Tiene hasta el <b>${fechaTxt(hasta)}</b> para confirmar la venta; si no, puedes liberarlo desde <b>Tiendas de confianza › Cuentas</b>.`),
+    });
+  }
+  const wa = String(duena?.whatsapp || '').replace(/\D/g, '');
+  return { ok: true, id, hasta, dias, duenaNombre: duena?.nombre || '', whatsapp: wa ? `https://wa.me/${wa}?text=${encodeURIComponent(msg)}` : '' };
+}
+
+/** La revendedora confirma que el separado se vendió: pasa a la cuenta "debe". */
+async function confirmarSeparado(t: Item, d: Item) {
+  const { Item: r } = await ddb.send(new GetCommand({ TableName: REVENTA(), Key: { id: String(d.reventaId || '') } }));
+  if (!r || r.revendedora !== t.id) fallo('Ese separado no es tuyo');
+  if (r!.estado !== 'separado') fallo('Ese separado ya se cerró');
+  const iso = new Date().toISOString();
+  await ddb.send(new UpdateCommand({
+    TableName: REVENTA(), Key: { id: r!.id }, ConditionExpression: 'estado = :s',
+    UpdateExpression: 'SET estado = :e, creado = :c, updatedAt = :t', ExpressionAttributeValues: { ':s': 'separado', ':e': 'debe', ':c': Date.now(), ':t': iso },
+  }));
+  // Pieza única: de apartada pasa a vendida (con cantidad, las unidades ya se descontaron al separar).
+  const { Item: o } = await ddb.send(new GetCommand({ TableName: PRODUCTO(), Key: { id: String(r!.productoId) } }));
+  if (o && typeof o.stock !== 'number' && o.estado === 'apartado') {
+    await ddb.send(new UpdateCommand({ TableName: PRODUCTO(), Key: { id: o.id }, UpdateExpression: 'SET estado = :v, updatedAt = :t', ExpressionAttributeValues: { ':v': 'vendido', ':t': iso } }));
+  }
+  const duena = await leerTienda(String(r!.duena));
+  if (duena && duena.email) {
+    await enviarCorreo({
+      para: duena.email, responderA: t.email, asunto: `Vendieron tu producto: ${r!.nombre}`,
+      html: avisoHtml('Vendieron tu producto', `<b>${escHtml(t.nombre)}</b> confirmó la venta de <b>${escHtml(r!.nombre)}</b>${r!.q > 1 ? ` × ${r!.q}` : ''}. Te debe <b>${plataTxt(Number(r!.monto) || 0, r!.moneda)}</b>. Cuando te pague, márcalo en <b>Tiendas de confianza › Cuentas</b>.`),
+    });
+  }
+  return { ok: true, monto: r!.monto, moneda: r!.moneda };
+}
+
+/** Libera un separado: la revendedora en cualquier momento; la dueña cuando ya venció. */
+async function liberarSeparado(t: Item, d: Item) {
+  const { Item: r } = await ddb.send(new GetCommand({ TableName: REVENTA(), Key: { id: String(d.reventaId || '') } }));
+  if (!r || (r.revendedora !== t.id && r.duena !== t.id)) fallo('Ese separado no es tuyo');
+  if (r!.estado !== 'separado') fallo('Ese separado ya se cerró');
+  if (r!.duena === t.id && r!.revendedora !== t.id && Number(r!.hasta) > Date.now()) fallo(`Todavía no vence: la otra tienda tiene hasta el ${fechaTxt(Number(r!.hasta))}`);
+  const iso = new Date().toISOString();
+  await ddb.send(new UpdateCommand({
+    TableName: REVENTA(), Key: { id: r!.id }, ConditionExpression: 'estado = :s',
+    UpdateExpression: 'SET estado = :e, updatedAt = :t', ExpressionAttributeValues: { ':s': 'separado', ':e': 'liberado', ':t': iso },
+  }));
+  // Devuelve las unidades (o vuelve a dejar disponible la pieza única).
+  const { Item: o } = await ddb.send(new GetCommand({ TableName: PRODUCTO(), Key: { id: String(r!.productoId) } }));
+  if (o && typeof o.stock === 'number') {
+    await ddb.send(new UpdateCommand({ TableName: PRODUCTO(), Key: { id: o.id }, UpdateExpression: 'SET stock = stock + :q, updatedAt = :t', ExpressionAttributeValues: { ':q': Number(r!.q) || 1, ':t': iso } }));
+  } else if (o && o.estado === 'apartado') {
+    await ddb.send(new UpdateCommand({ TableName: PRODUCTO(), Key: { id: o.id }, UpdateExpression: 'SET estado = :v, updatedAt = :t', ExpressionAttributeValues: { ':v': 'disponible', ':t': iso } }));
+  }
+  const otra = await leerTienda(String(r!.duena === t.id ? r!.revendedora : r!.duena));
+  if (otra && otra.email) {
+    await enviarCorreo({
+      para: otra.email, asunto: `Separado liberado: ${r!.nombre}`,
+      html: avisoHtml('Se liberó un separado', `<b>${escHtml(t.nombre)}</b> liberó <b>${escHtml(r!.nombre)}</b>${r!.q > 1 ? ` × ${r!.q}` : ''}. Vuelve a estar disponible.`),
+    });
+  }
+  return { ok: true };
 }
 
 // ---------- Invitar, aceptar y cortar ----------
@@ -226,6 +343,7 @@ async function vendi(t: Item, d: Item) {
 async function saldar(t: Item, d: Item) {
   const { Item: r } = await ddb.send(new GetCommand({ TableName: REVENTA(), Key: { id: String(d.reventaId || '') } }));
   if (!r || r.duena !== t.id) fallo('Solo la dueña del producto puede marcarlo como pagado');
+  if (r!.estado === 'separado' || r!.estado === 'liberado') fallo('Primero la otra tienda debe confirmar la venta');
   const estado = d.estado === 'debe' ? 'debe' : 'pagado';
   await ddb.send(new UpdateCommand({
     TableName: REVENTA(), Key: { id: r!.id },
@@ -267,6 +385,9 @@ export const handler = async (event: Evento) => {
     case 'cortar': res = await cortar(t, d); break;
     case 'agregar': res = await agregar(t, d); break;
     case 'vendi': res = await vendi(t, d); break;
+    case 'separar': res = await separar(t, d); break;
+    case 'confirmar': res = await confirmarSeparado(t, d); break;
+    case 'liberar': res = await liberarSeparado(t, d); break;
     case 'saldar': res = await saldar(t, d); break;
     default: fallo('Acción desconocida');
   }

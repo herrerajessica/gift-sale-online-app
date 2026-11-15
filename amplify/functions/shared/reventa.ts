@@ -40,7 +40,8 @@ export async function leerProductos(ids: string[]) {
 export function originalVendible(copia: Item, original: Item | undefined, relacionOk: boolean) {
   if (!original || !relacionOk) return null;
   if (original.tiendaId !== copia.origenTienda || !original.compartido) return null;
-  if (original.estado === 'vendido' || original.estado === 'oculto') return null;
+  // Apartado (separado) por la dueña o por otra revendedora: nadie más lo puede vender.
+  if (original.estado === 'vendido' || original.estado === 'oculto' || original.estado === 'apartado') return null;
   return original;
 }
 

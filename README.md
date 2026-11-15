@@ -66,6 +66,7 @@ Dos vendedoras se conectan (una invita con el enlace de la tienda de la otra y l
 - **Foto, cantidad y disponibilidad** siempre salen del original (el catálogo y los pagos lo verifican en el servidor). Si la dueña lo vende, lo oculta o deja de compartirlo, desaparece de la otra tienda.
 - **Ventas:** con tarjeta se registran solas (webhook); con Yape al confirmar el pago; por WhatsApp con *Registrar venta*. Baja la cantidad del original, se anota la deuda (tabla `Reventa`) y la dueña recibe un correo.
 - **Cuentas:** cobra la revendedora y le paga a la dueña por fuera (Yape, efectivo); la dueña lo marca como pagado.
+- **Separados:** si la clienta de la revendedora pide que se lo guarden, la revendedora toca **Separar**: las unidades se bloquean en el original (nadie más lo puede vender), la dueña lo ve en su panel ("Separado por…"), recibe correo y la revendedora puede avisarle por WhatsApp con el mensaje listo. Luego **Se vendió** (pasa a la cuenta) o **Liberar** (vuelve a estar disponible). Cada dueña fija en *Datos de la tienda* cuántos días dura un separado (por defecto 7); al vencer, ella también puede liberarlo.
 - Solo entre tiendas con la misma moneda. Al cortar la relación se quitan los productos revendidos de ambas tiendas.
 - La dueña de Showroomcito ve y puede cortar todas las relaciones desde su panel.
 

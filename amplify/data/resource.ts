@@ -33,6 +33,8 @@ const schema = a.schema({
       yapeQr: a.string(),       // ruta de la imagen del QR en S3
       // Descuento (%) por pagar con Yape o efectivo; el precio normal es el de tarjeta
       descuentoContado: a.float(),
+      // Tiendas de confianza: cuántos días puede durar un separado de los productos de esta tienda (por defecto 7)
+      diasSeparado: a.integer(),
       // País de la tienda: PE (soles, Yape, tienda en español) o US (solo dólares, tienda del cliente en inglés)
       pais: a.enum(['PE', 'US']),
       // Moneda de los precios: PEN (soles, tiendas de Perú) o USD. Sin valor = USD (tiendas antiguas).
@@ -134,7 +136,9 @@ const schema = a.schema({
       moneda: a.string(),                  // PEN | USD
       via: a.string(),                     // tarjeta | yape | manual
       pedidoId: a.string(),
-      estado: a.string(),                  // debe | pagado
+      estado: a.string(),                  // separado | debe | pagado | liberado
+      hasta: a.float(),                    // separado: vence en esta fecha (según los días que fijó la dueña)
+      cliente: a.string(),                 // separado: para quién (opcional)
       creado: a.float(),
     })
     .secondaryIndexes((index) => [index('duena').name('reventasByDuena'), index('revendedora').name('reventasByRevendedora')])
