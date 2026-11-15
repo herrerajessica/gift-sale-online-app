@@ -2130,7 +2130,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const log = $("asisLog"); log.textContent = "";
     if(!asisLog.length) log.append(el("div",{class:"burbuja assistant"}, `Hola${S.config && S.config.nombre ? ", " + S.config.nombre : ""}. Puedo revisar tu tienda, escribir descripciones, poner precios con margen o ayudarte con tus pedidos. ¿Qué necesitas?`));
     for(const m of asisLog){
-      if(m.text) log.append(el("div",{class:"burbuja " + m.role}, m.text));
+      if(m.text){ const b = el("div",{class:"burbuja " + m.role}); if(m.role === "assistant") b.append(...textoAsis(m.text)); else b.textContent = m.text; log.append(b); }
       if(m.propuesta && (m.propuesta.productos.length || m.propuesta.pedidos.length)) log.append(tarjetaPropuesta(m));
     }
     if(asisOcupado) log.append(el("div",{class:"pensando"},"Revisando tu tienda…"));
@@ -2141,7 +2141,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   async function enviarAsis(texto){
     texto = String(texto||"").trim(); if(!texto || asisOcupado) return;
     asisLog.push({ role:"user", text:texto }); asisOcupado = true; guardarAsis(); pintarAsis();
-    $("asisInput").value = ""; $("asisEnviar").disabled = true;
+    limpiarAsisInput(texto); $("asisEnviar").disabled = true;
     try{
       const conversacion = asisLog.filter(m=>m.role==="user"||m.role==="assistant").map(m=>({ role:m.role, text:m.text }));
       const r = await S.asistente(conversacion, [...S.sel]);
@@ -2151,6 +2151,19 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     }finally{
       asisOcupado = false; $("asisEnviar").disabled = false; guardarAsis(); pintarAsis(); $("asisInput").focus();
     }
+  }
+  // Vacía la caja al enviar. Antes se apaga el micrófono (si no, sigue escribiendo lo que escuchó) y se
+  // suelta el foco: el dictado del teclado del celular vuelve a pegar el texto si la caja sigue activa.
+  function limpiarAsisInput(enviado){
+    if(asisRec){ const r = asisRec; asisRec = null; r.onresult = null; r.onend = null; try{ r.stop(); }catch(e){} $("asisMic").classList.remove("on"); $("asisMic").setAttribute("aria-label","Hablar con el asistente"); }
+    const inp = $("asisInput"); inp.blur(); inp.value = ""; inp.dispatchEvent(new Event("input"));
+    setTimeout(()=>{ if(inp.value.trim() === enviado){ inp.value = ""; inp.dispatchEvent(new Event("input")); } }, 150);
+  }
+  // Negritas (**texto**) y saltos de línea en las respuestas del asistente, sin usar innerHTML.
+  function textoAsis(t){
+    const out = [];
+    String(t).split(/\*\*(.+?)\*\*/s).forEach((parte, i)=>{ if(parte) out.push(i % 2 ? el("strong",{}, parte) : document.createTextNode(parte)); });
+    return out;
   }
   function abrirAsis(){ cargarAsis(); $("asis").hidden = false; $("asisBtn").hidden = true; pintarAsis(); $("asisInput").focus(); }
   function cerrarAsis(){ $("asis").hidden = true; $("asisBtn").hidden = !S.canEdit; }
