@@ -389,6 +389,85 @@ td small{color:var(--muted);font-family:var(--mono)}
 .prev-card input,.prev-card select{font-size:14px;padding:6px 8px;width:100%;min-width:0;box-sizing:border-box}
 .prev-card .sinfoto{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:13px}
 #asisMic.on{background:var(--sold);border-color:var(--sold);color:#fff}
+/* ----- Página principal de Showroomcito ----- */
+.landing{display:grid;gap:8px;margin-block:8px 32px}
+.btn.big{padding:12px 20px;font-size:16px}
+.l-tira{overflow:hidden;background:#16203A;color:#fff;border-radius:999px;margin-top:12px;padding:10px 0;font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.l-tira-mov{display:flex;gap:40px;width:max-content;animation:tira 38s linear infinite}
+.l-tira-mov span{white-space:nowrap}
+@keyframes tira{to{transform:translateX(-50%)}}
+.l-hero{position:relative;display:grid;justify-items:center;text-align:center;gap:18px;padding:44px 0 8px;isolation:isolate}
+/* las esferas de fondo llegan hasta el borde de la pantalla sin crear barra de desplazamiento */
+html,body{overflow-x:clip}
+.l-hero .logo-row{justify-content:center}
+.l-hero h2{margin:0;font-family:var(--display);font-weight:800;font-size:clamp(40px,8.4vw,92px);line-height:.98;letter-spacing:-.04em;text-wrap:balance;max-width:14ch}
+.l-hero h2 mark{background:linear-gradient(transparent 58%,#F4A51C 58%,#F4A51C 92%,transparent 92%);color:inherit;padding:0 .06em}
+.l-hero>p{margin:0;color:var(--muted);font-size:clamp(16px,2vw,20px);max-width:56ch}
+.l-btns{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
+.pill{display:inline-flex;align-items:center;gap:12px;border-radius:999px;padding:14px 26px;font-weight:700;font-size:17px;text-decoration:none;border:0;cursor:pointer;font-family:var(--body);text-transform:none;letter-spacing:0}
+.pill.blanco{background:var(--surface);color:var(--ink);box-shadow:0 10px 30px -12px rgba(22,32,58,.35);padding-right:8px}
+.pill.blanco i{font-style:normal;width:40px;height:40px;border-radius:999px;background:#F4A51C;color:#16203A;display:grid;place-items:center;font-size:18px}
+.pill.lleno{background:#16203A;color:#fff;box-shadow:0 10px 30px -12px rgba(22,32,58,.6)}
+:root[data-theme="dark"] .pill.lleno{background:#F4A51C;color:#16203A}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .pill.lleno{background:#F4A51C;color:#16203A}}
+.pill:hover{transform:translateY(-1px)}
+.l-blob{position:absolute;border-radius:999px;z-index:-1;pointer-events:none}
+.l-b1{width:340px;height:340px;left:-260px;top:240px;background:radial-gradient(circle at 35% 35%,#FFE3A3,#F4A51C 70%);opacity:.55;filter:blur(2px)}
+.l-b2{width:420px;height:420px;right:-300px;top:300px;background:radial-gradient(circle at 40% 40%,#FBD3E0,#E9785B 75%);opacity:.35;filter:blur(6px)}
+.l-b3{width:70px;height:70px;left:18%;top:470px;background:radial-gradient(circle at 30% 30%,#E7ECFF,#5B7BE8 70%);box-shadow:0 12px 24px -8px rgba(91,123,232,.6)}
+.l-x{position:absolute;left:14%;top:150px;color:#9AA7F0;font-size:30px;font-weight:900;z-index:-1}
+.l-escena{position:relative;width:min(900px,100%);margin-top:18px;padding:30px 0 0}
+.l-laptop{width:min(720px,88%);margin:0 auto}
+.l-pantalla{background:#fff;border:12px solid #16203A;border-bottom-width:16px;border-radius:18px 18px 0 0;padding:10px;display:grid;gap:10px;color:#16203A}
+.l-base{height:14px;background:linear-gradient(#2a3654,#16203A);border-radius:0 0 18px 18px;width:112%;margin-left:-6%}
+.l-nav{display:flex;gap:14px;align-items:center;font-size:12px;border-bottom:1px solid #e3dfd6;padding:2px 4px 8px}
+.l-nav b{font-family:var(--display);font-size:15px;margin-right:auto}
+.l-nav span{color:#5b6275}
+.l-nav em{font-style:normal;background:#1a8f4a;color:#fff;border-radius:999px;padding:2px 8px;font-weight:700}
+.l-grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.l-phone{position:absolute;right:2%;bottom:-6px;width:min(190px,30%);border:8px solid #16203A;border-radius:26px;background:#F7F5F0;padding:8px 6px 10px;display:grid;gap:8px;box-shadow:0 24px 48px -20px rgba(22,32,58,.55);transform:rotate(4deg)}
+.l-phone-bar{background:#16203A;color:#fff;border-radius:10px;padding:6px 8px;font-size:11px;text-align:left}
+.l-phone-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.l-mini{background:#fff;border:1px solid #e3dfd6;border-radius:10px;overflow:hidden;display:grid;gap:2px;padding-bottom:8px;position:relative;color:#16203A;text-align:left}
+.l-mini i{display:block;aspect-ratio:1}
+.l-mini .p{position:absolute;left:6px;top:calc(50% - 22px);background:#F4A51C;color:#1b1400;font-family:var(--mono);font-weight:700;font-size:11px;padding:1px 6px;border-radius:4px}
+.l-mini b{font-size:12px;padding:4px 8px 0;line-height:1.2}
+.l-mini em{font-style:normal;font-size:10px;font-weight:700;color:#14532d;padding:0 8px}
+.l-phone-wa{background:#1a8f4a;color:#fff;text-align:center;border-radius:999px;padding:6px;font-weight:700;font-size:11px}
+.l-chip{position:absolute;z-index:2;background:var(--surface);color:var(--ink);border-radius:14px;padding:10px 14px;font-weight:700;font-size:14px;box-shadow:0 14px 30px -14px rgba(22,32,58,.45);white-space:nowrap}
+.l-chip.c1{left:0;top:70px}.l-chip.c2{left:4%;bottom:40px}.l-chip.c3{right:0;top:20px}
+@media (prefers-reduced-motion:no-preference){.l-chip{animation:flota 5s ease-in-out infinite}.l-chip.c2{animation-delay:-1.6s}.l-chip.c3{animation-delay:-3.2s}}
+@media (prefers-reduced-motion:reduce){.l-tira-mov{animation:none}}
+@keyframes flota{50%{transform:translateY(-8px)}}
+@media (max-width:760px){.l-grid4{grid-template-columns:repeat(2,1fr)}.l-nav span{display:none}.l-chip{font-size:12px;padding:8px 10px}.l-chip.c1{top:0}.l-chip.c3{display:none}.l-phone{width:38%}.l-b1,.l-b2{opacity:.3}.l-x,.l-b3{display:none}}
+.l-sec{display:grid;gap:16px;padding-block:28px;border-top:1px solid var(--line)}
+.l-sec h3,.l-cta h3{margin:0;font-family:var(--display);font-weight:800;font-size:clamp(26px,4vw,36px);letter-spacing:-.02em}
+.l-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.l-card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;display:grid;gap:6px;align-content:start}
+.l-card strong{font-family:var(--display);font-size:19px}
+.l-card span:last-child{color:var(--muted)}
+.l-ico{font-size:28px}
+.l-dark{background:#16203A;color:#fff;border-radius:20px;padding:28px clamp(16px,4vw,32px);border-top:0}
+.l-dark h3 span{color:#F4A51C}
+.l-pasos{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px}
+.l-pasos li{display:flex;gap:14px;align-items:flex-start}
+.l-pasos b{flex:none;width:48px;height:48px;border-radius:999px;background:#F4A51C;color:#16203A;font-family:var(--display);font-size:24px;display:grid;place-items:center}
+.l-pasos div{display:grid;gap:4px}
+.l-pasos strong{font-family:var(--display);font-size:19px}
+.l-pasos span{color:#C9CFDD}
+.l-feat{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+.l-feat>div{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:grid;gap:4px}
+.l-feat strong{font-size:16px}
+.l-feat span{color:var(--muted);font-size:14px}
+.l-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.l-moneda{display:flex;gap:6px}
+.l-faq{display:grid;gap:8px}
+.l-faq details{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 16px}
+.l-faq summary{cursor:pointer;font-weight:700}
+.l-faq p{margin:8px 0 0;color:var(--muted)}
+.l-cta{display:grid;gap:10px;justify-items:center;text-align:center;padding:36px 16px;border-radius:20px;background:color-mix(in srgb,#F4A51C 18%,var(--surface));border:1px solid color-mix(in srgb,#F4A51C 45%,var(--line))}
+.l-cta p{margin:0;color:var(--muted)}
+.l-contacto a{color:var(--ink);font-weight:700}
 </style>
 </head>
 <body>
@@ -404,13 +483,99 @@ td small{color:var(--muted);font-family:var(--mono)}
 </header>
 
 <main class="wrap">
-  <section class="hero" id="landing" hidden>
-    <div class="logo-row"><svg aria-hidden="true" width="52" height="52" viewBox="0 0 64 64" fill="none" stroke-linejoin="round"><rect width="64" height="64" rx="14" fill="#F4A51C"/><g transform="translate(6 6) scale(.8125)"><rect x="15" y="24" width="34" height="36" rx="6" fill="#FFFFFF" stroke="#16203A" stroke-width="4.5"/><path d="M14 8h36l6 14H8L14 8z" fill="#16203A"/><path d="M8 22a6 6 0 0 0 12 0a6 6 0 0 0 12 0a6 6 0 0 0 12 0a6 6 0 0 0 12 0z" fill="#FFFFFF" stroke="#16203A" stroke-width="3.5"/><path d="M27 52h10" stroke="#16203A" stroke-width="4" stroke-linecap="round"/></g></svg><span class="logo-txt">showroom<span>cito</span></span></div>
-    <span class="stamp" style="color:var(--accent)">Para mercaditos, ventas desde casa y viajeras</span>
-    <h2>Tu showroom en el celular</h2>
-    <p>Sube todas tus fotos de una vez, nuevas o usadas. La IA les pone nombre, categoría y precio, y tus clientes te piden por WhatsApp y pagan con Yape o tarjeta.</p>
-    <div class="actions" style="justify-content:flex-start"><button class="btn primary" type="button" id="goSignup">Crear mi vitrina</button><button class="btn" type="button" id="goLogin">Ya tengo cuenta</button></div>
-  </section>
+  <div class="landing" id="landing" hidden>
+    <div class="l-tira" aria-hidden="true"><div class="l-tira-mov"><span>⚡ Gratis hasta 10 productos</span><span>⚡ Yape sin comisión</span><span>⚡ Carga tus productos por voz</span><span>⚡ La IA lee la etiqueta</span><span>⚡ Pedidos completos por WhatsApp</span><span>⚡ Perú y Estados Unidos</span><span>⚡ Tiendas de confianza</span><span>⚡ Gratis hasta 10 productos</span><span>⚡ Yape sin comisión</span><span>⚡ Carga tus productos por voz</span><span>⚡ La IA lee la etiqueta</span><span>⚡ Pedidos completos por WhatsApp</span><span>⚡ Perú y Estados Unidos</span><span>⚡ Tiendas de confianza</span></div></div>
+    <section class="l-hero">
+      <span class="l-blob l-b1" aria-hidden="true"></span><span class="l-blob l-b2" aria-hidden="true"></span><span class="l-blob l-b3" aria-hidden="true"></span><span class="l-x" aria-hidden="true">✕</span>
+      <div class="logo-row"><svg aria-hidden="true" width="44" height="44" viewBox="0 0 64 64" fill="none" stroke-linejoin="round"><rect width="64" height="64" rx="14" fill="#F4A51C"/><g transform="translate(6 6) scale(.8125)"><rect x="15" y="24" width="34" height="36" rx="6" fill="#FFFFFF" stroke="#16203A" stroke-width="4.5"/><path d="M14 8h36l6 14H8L14 8z" fill="#16203A"/><path d="M8 22a6 6 0 0 0 12 0a6 6 0 0 0 12 0a6 6 0 0 0 12 0a6 6 0 0 0 12 0z" fill="#FFFFFF" stroke="#16203A" stroke-width="3.5"/><path d="M27 52h10" stroke="#16203A" stroke-width="4" stroke-linecap="round"/></g></svg><span class="logo-txt">showroom<span>cito</span></span></div>
+      <h2>Tu <mark>showroom</mark> en el celular</h2>
+      <p>Sube todas tus fotos de una vez, nuevas o usadas. La IA les pone nombre, marca y precio; tú compartes tu enlace y tus clientas te piden por WhatsApp y pagan con Yape o tarjeta.</p>
+      <div class="l-btns">
+        <a class="pill blanco" href="#comoFunciona">Mira cómo funciona <i aria-hidden="true">↓</i></a>
+        <button class="pill lleno" type="button" id="goSignup">Crear mi showroom gratis</button>
+      </div>
+      <span class="note" style="margin:0">Gratis hasta 10 productos · <button class="linkish" type="button" id="goLogin" style="font-size:inherit">Ya tengo cuenta</button></span>
+      <div class="l-escena" aria-hidden="true">
+        <span class="l-chip c1">✨ La IA lee la etiqueta</span>
+        <span class="l-chip c2">💜 Yape sin comisión</span>
+        <span class="l-chip c3">🎙️ Díctalo por voz</span>
+        <div class="l-laptop"><div class="l-pantalla">
+          <div class="l-nav"><b>maria-importados</b><span>Ropa</span><span>Zapatos</span><span>Carteras</span><span>Relojes</span><em>🛒 2</em></div>
+          <div class="l-grid4">
+            <div class="l-mini"><i style="background:#d9b48f"></i><span class="p">S/ 85</span><b>Cartera camel</b><em>Nuevo con etiqueta</em></div>
+            <div class="l-mini"><i style="background:#b9c4d6"></i><span class="p">S/ 140</span><b>Reloj dorado</b><em>Caja abierta</em></div>
+            <div class="l-mini"><i style="background:#f3c6d3"></i><span class="p">S/ 59</span><b>Perfume floral</b><em>Nuevo</em></div>
+            <div class="l-mini"><i style="background:#a9c7a3"></i><span class="p">S/ 45</span><b>Jean wide leg</b><em>Usado como nuevo</em></div>
+          </div></div><div class="l-base"></div></div>
+        <div class="l-phone">
+          <div class="l-phone-bar"><b>maria-importados</b></div>
+          <div class="l-phone-grid">
+            <div class="l-mini"><i style="background:#f5dc8a"></i><span class="p">S/ 35</span><b>Bloques</b><em>Nuevo</em></div>
+            <div class="l-mini"><i style="background:#9fb6e6"></i><span class="p">S/ 22</span><b>Gorra azul</b><em>Nuevo</em></div>
+          </div>
+          <div class="l-phone-wa">Pedir por WhatsApp</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="l-sec">
+      <h3>¿Para quién es?</h3>
+      <div class="l-cards">
+        <div class="l-card"><span class="l-ico" aria-hidden="true">🛍️</span><strong>Mercaditos y bazares</strong><span>Muestra todo lo que llevas al mercadito y sigue vendiendo después, desde tu casa.</span></div>
+        <div class="l-card"><span class="l-ico" aria-hidden="true">🏠</span><strong>Ventas desde casa</strong><span>Lo nuevo y lo usado que ya no usas: ropa, zapatos, juguetes, cosas del hogar.</span></div>
+        <div class="l-card"><span class="l-ico" aria-hidden="true">✈️</span><strong>Traído de USA</strong><span>Compras en tus viajes o en EE. UU. y revendes: la IA lee la marca, la talla y el precio de la etiqueta.</span></div>
+      </div>
+    </section>
+
+    <section class="l-sec l-dark" id="comoFunciona">
+      <h3>Así de fácil</h3>
+      <ol class="l-pasos">
+        <li><b>1</b><div><strong>Sube todas tus fotos</strong><span>De una sola vez: 10, 50 o 100. O díctalos por voz mientras los miras.</span></div></li>
+        <li><b>2</b><div><strong>La IA hace el resto</strong><span>Nombre, categoría, marca, talla, condición y una descripción corta. Tú solo revisas.</span></div></li>
+        <li><b>3</b><div><strong>Comparte tu enlace</strong><span>Tus clientas eligen y te llega el pedido completo por WhatsApp, con precios.</span></div></li>
+      </ol>
+    </section>
+
+    <section class="l-sec">
+      <h3>Todo lo que necesitas para vender</h3>
+      <div class="l-feat">
+        <div><strong>📸 Fotos en lote</strong><span>Se mejoran solas y pesan poco, para que tu tienda cargue rápido con datos móviles.</span></div>
+        <div><strong>🎙️ Carga por voz</strong><span>Dicta “cartera Coach, nueva con etiqueta, 85 soles” y listo. Ves una vista previa antes de publicar.</span></div>
+        <div><strong>💬 Pedidos por WhatsApp</strong><span>El mensaje llega armado: productos, cantidades y total.</span></div>
+        <div><strong>💜 Yape y tarjeta</strong><span>Tu QR de Yape en la tienda, sin comisión, y pago con tarjeta en línea.</span></div>
+        <div><strong>🤝 Tiendas de confianza</strong><span>Comparte productos con otras vendedoras y revende los suyos como tuyos. Separados y cuentas claras.</span></div>
+        <div><strong>✨ Asistente</strong><span>“Bájale 10 soles a las carteras”: te propone los cambios y tú confirmas.</span></div>
+        <div><strong>🇵🇪 🇺🇸 Perú y EE. UU.</strong><span>Precios en soles o dólares, y tu tienda en inglés para clientas de EE. UU.</span></div>
+        <div><strong>📦 Stock y estados</strong><span>Cantidades, apartados, vendidos y productos repetidos bajo control.</span></div>
+      </div>
+    </section>
+
+    <section class="l-sec" id="planes">
+      <div class="l-head"><h3>Planes</h3>
+        <div class="l-moneda" role="group" aria-label="Moneda de los precios"><button class="chip" type="button" data-moneda="PEN" aria-pressed="true">Soles</button><button class="chip" type="button" data-moneda="USD" aria-pressed="false">Dólares</button></div></div>
+      <div class="plans" id="lPlanes"></div>
+      <p class="note" style="margin:0">Pagas según cuántos productos se muestran en tu tienda; los ocultos no cuentan. Puedes cambiar de plan o volver a Free cuando quieras.</p>
+    </section>
+
+    <section class="l-sec">
+      <h3>Preguntas frecuentes</h3>
+      <div class="l-faq">
+        <details><summary>¿Necesito saber de tecnología?</summary><p>No. Si sabes mandar fotos por WhatsApp, sabes usar Showroomcito. Todo funciona desde el celular.</p></details>
+        <details><summary>¿Cobran comisión por mis ventas?</summary><p>Por WhatsApp y Yape, no: el dinero llega directo a ti. Con tarjeta se cobra 8 % por venta, que cubre lo que cobra el banco y la plataforma de pagos.</p></details>
+        <details><summary>¿Puedo vender cosas usadas?</summary><p>Sí. Cada producto muestra su condición: nuevo con etiqueta, nuevo, caja abierta, usado como nuevo o usado.</p></details>
+        <details><summary>¿Mis clientas necesitan instalar algo?</summary><p>No. Abren tu enlace desde el celular, eligen y te escriben por WhatsApp o pagan en línea.</p></details>
+        <details><summary>¿Funciona si vendo en Estados Unidos?</summary><p>Sí. Eliges el país de tus clientas: para EE. UU. la tienda se muestra en inglés y con precios en dólares.</p></details>
+        <details><summary>¿Qué pasa si llego al límite de mi plan?</summary><p>No se borra nada: tus productos quedan guardados y puedes mejorar el plan u ocultar algunos para publicar otros.</p></details>
+      </div>
+    </section>
+
+    <section class="l-cta">
+      <h3>Abre tu showroom hoy</h3>
+      <p>Empieza gratis con tus primeros 10 productos.</p>
+      <div class="actions" style="justify-content:center"><button class="btn tag big" type="button" data-ir="signup">Crear mi showroom gratis</button></div>
+      <p class="l-contacto">¿Dudas? Escríbenos a <a href="mailto:ventas@showroomcito.com">ventas@showroomcito.com</a></p>
+    </section>
+  </div>
 
   <form class="login" id="login" hidden novalidate>
     <h2 id="authTitle">Entrar</h2>
