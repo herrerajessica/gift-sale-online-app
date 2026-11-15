@@ -40,7 +40,8 @@ const cdn = new Distribution(Stack.of(bucket), 'FotosCdn', {
 
 // --- Catálogo público: lee las tablas (solo lectura) ---
 const catalogoFn = backend.catalogo.resources.lambda;
-tablaTienda.grantReadData(catalogoFn);
+// Lectura y escritura en Tienda: el asistente de clientes cuenta los mensajes del día (límite por plan).
+tablaTienda.grantReadWriteData(catalogoFn);
 tablaProducto.grantReadData(catalogoFn);
 catalogoFn.addToRolePolicy(new PolicyStatement({
   actions: ['dynamodb:Query'],
@@ -51,6 +52,18 @@ backend.catalogo.addEnvironment('PRODUCTO_TABLE', tablaProducto.tableName);
 // Productos de tiendas de confianza: el catálogo verifica que la relación siga activa.
 tablaConfianza.grantReadData(catalogoFn);
 backend.catalogo.addEnvironment('CONFIANZA_TABLE', tablaConfianza.tableName);
+// Asistente de compras de los clientes: Bedrock (Nova 2 Lite; Claude Haiku si se cambia MODEL_ID)
+catalogoFn.addToRolePolicy(new PolicyStatement({
+  actions: ['bedrock:InvokeModel'],
+  resources: [
+    'arn:aws:bedrock:*::foundation-model/amazon.nova-2-lite*',
+    'arn:aws:bedrock:::foundation-model/amazon.nova-2-lite*',
+    'arn:aws:bedrock:*:*:inference-profile/global.amazon.nova-2-lite*',
+    'arn:aws:bedrock:*:*:inference-profile/us.amazon.nova-2-lite*',
+    'arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-5-5*',
+    'arn:aws:bedrock:*:*:inference-profile/global.anthropic.claude-haiku-5-5*',
+  ],
+}));
 
 // --- Pagos: crea sesiones de Stripe y pedidos ---
 const pagosFn = backend.pagos.resources.lambda;

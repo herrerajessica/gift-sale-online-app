@@ -358,6 +358,23 @@ td small{color:var(--muted);font-family:var(--mono)}
 .propuesta .despues{font-weight:600}
 .propuesta .acciones{display:flex;gap:8px;flex-wrap:wrap}
 .propuesta.hecha{border-color:var(--ok)}.propuesta.descartada{border-color:var(--line);opacity:.7}
+.cli-btn{bottom:calc(76px + env(safe-area-inset-bottom,0px));background:var(--accent);color:#fff}
+.cli-prods{display:grid;gap:8px;justify-self:stretch;min-width:0}
+.cli-prod{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:6px}
+.cli-ver{display:grid;grid-template-columns:56px 1fr;gap:10px;align-items:center;text-align:left;background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;min-width:0}
+.cli-ver:hover b{text-decoration:underline}
+.cli-prod img,.cli-prod .sinfoto{width:56px;height:56px;border-radius:8px;object-fit:cover;background:var(--paper)}
+.cli-prod b{display:block;font-size:14px;line-height:1.25}
+.cli-prod small{color:var(--muted);font-size:12px}
+.cli-der{display:grid;justify-items:end;gap:5px}
+.cli-prod .pr{font:700 13px var(--mono);white-space:nowrap}
+.cli-prod .pr s{font-weight:500;opacity:.7;margin-left:4px}
+.cli-add{border:1.5px solid var(--ink);background:var(--surface);color:var(--ink);border-radius:999px;padding:5px 11px;font:700 12.5px var(--body);white-space:nowrap;cursor:pointer}
+.cli-add.in{background:var(--ok,#15803d);border-color:var(--ok,#15803d);color:#fff}
+.cli-add:disabled{opacity:.5;cursor:default}
+.asis-sel .cli-pedido{margin:0 0 8px;padding:9px 14px;border-radius:10px;text-decoration:none;font-weight:700;background:var(--tag);color:var(--tag-ink)}
+/* Con el chat del cliente abierto, el producto y el pedido se abren encima del chat */
+body.cli-abierto .overlay{z-index:30}
 .asis-sel{margin:0;padding:6px 14px 8px;font-size:13px;color:var(--muted)}
 .asis-sel b{color:var(--ink)}
 .asis-sel button{border:0;background:none;padding:0 0 0 6px;font:inherit;color:var(--accent,#1d4ed8);text-decoration:underline;cursor:pointer}
@@ -706,6 +723,7 @@ html,body{overflow-x:clip}
       <label class="f solo-pe">Tipo de cambio (S/ por 1 USD)<input id="setRate" inputmode="decimal" placeholder="3.46"></label>
       <label class="f solo-pe">Descuento por Yape o efectivo (%)<input id="setDesc" inputmode="decimal" placeholder="Ej. 7" title="Tus precios son con tarjeta; quien paga con Yape o efectivo paga este porcentaje menos"></label>
       <label class="f">Grupo de WhatsApp de ventas (enlace)<input id="setGrupo" inputmode="url" placeholder="https://chat.whatsapp.com/…" title="En WhatsApp: tu grupo › Invitar al grupo › Copiar enlace. Tus clientes verán el botón Únete a mi grupo."></label>
+      <div class="f"><span>Asistente para tus clientes</span><label class="chk" style="text-transform:none;letter-spacing:0;font-weight:500"><input type="checkbox" id="setChatCli" checked> Activado: sugiere tus productos a quien pregunta en tu tienda ("regalos para niño de 5 años")</label></div>
       <label class="f">Días para separar tus productos (tiendas de confianza)<input id="setDias" inputmode="numeric" placeholder="7" title="Cuánto tiempo puede una tienda de confianza tener separado un producto tuyo antes de confirmar la venta"></label>
     </div>
     <fieldset class="yape-set solo-pe">
@@ -819,6 +837,24 @@ html,body{overflow-x:clip}
 
 <div class="overlay" id="overlay" hidden></div>
 <button class="asis-btn" id="asisBtn" type="button" hidden aria-controls="asis"><svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 2l1.8 5.2L19 9l-5.2 1.8L12 16l-1.8-5.2L5 9l5.2-1.8zM19 14l.9 2.6L22.5 17.5l-2.6.9L19 21l-.9-2.6-2.6-.9 2.6-.9z"/></svg><span>Asistente</span></button>
+<!-- Asistente de compras para los clientes -->
+<button class="asis-btn cli-btn" id="cliBtn" type="button" hidden aria-controls="cli"><span aria-hidden="true">💬</span> <span id="cliBtnTxt">¿Buscas algo?</span></button>
+<aside class="asis" id="cli" hidden aria-label="Asistente de compras">
+  <header class="asis-head">
+    <div><strong id="cliTitulo">¿En qué te ayudo?</strong><span class="note" id="cliSub" style="margin:0;display:block">Te recomiendo productos de esta tienda.</span></div>
+    <button class="btn" type="button" id="cliNuevo">Nueva</button>
+    <button class="btn" type="button" id="cliCerrar" aria-label="Cerrar">✕</button>
+  </header>
+  <div class="asis-log" id="cliLog" aria-live="polite"></div>
+  <div class="asis-sug" id="cliSug"></div>
+  <p class="asis-sel" id="cliWa"></p>
+  <form class="asis-form" id="cliForm" novalidate>
+    <textarea id="cliInput" rows="1" maxlength="500" placeholder="Ej.: regalos para niño de 5 años" aria-label="Tu pregunta"></textarea>
+    <button class="btn" type="button" id="cliMic" aria-label="Hablar" hidden>🎙️</button>
+    <button class="btn primary" type="submit" id="cliEnviar">Enviar</button>
+  </form>
+</aside>
+
 <aside class="asis" id="asis" hidden aria-label="Asistente de tu tienda">
   <header class="asis-head">
     <div><strong>Asistente de tu tienda</strong><span class="note" style="margin:0;display:block">Pregunta o pide cambios como en WhatsApp. Nada se cambia sin tu permiso.</span></div>

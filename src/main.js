@@ -4,13 +4,18 @@ import {
   signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn, resetPassword, confirmResetPassword, updatePassword,
   googleDisponible, entrarConGoogle, alVolverDeGoogle,
   PLANES, planVigente, tieneFondoIA, pagarPlan, quitarFondo, asistente, interpretarDictado, cancelarPlan, conectarCobros, estadoCobros, pagarPedido, pedidoYape,
-  miTiendaActual, listarPedidos, cambiarEstadoPedido, cambiarPlanTienda, confianza, refrescarProductos,
+  miTiendaActual, listarPedidos, cambiarEstadoPedido, cambiarPlanTienda, confianza, refrescarProductos, preguntarTienda,
 } from './amplify-adapter.js';
 import { interpretarComando } from './comandos.js';
 
 // Lógica de Showroomcito (misma que la versión de Claude).
 
   const $ = id => document.getElementById(id);
+  // append() del navegador escribe "null" si le pasas null: aquí se ignoran los vacíos (campos opcionales).
+  for(const Proto of [Element.prototype, DocumentFragment.prototype]){
+    const original = Proto.append;
+    if(!original.__sinVacios){ Proto.append = function(...k){ return original.apply(this, k.filter(x=>x!=null && x!==false)); }; Proto.append.__sinVacios = true; }
+  }
   const S = { db:null, assets:null, canEdit:false, products:[], config:{}, q:"", cat:"", mode:"each", pub:"",
               selecting:false, sel:new Set(), pending:[] };
   // Dólares siempre (el costo de la etiqueta está en USD).
@@ -847,7 +852,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   // ---------- Detalle / edición ----------
   let openId=null, photoIdx=0;
   function openProduct(id){ openId=id; photoIdx=0; drawSheet(); $("overlay").hidden=false; }
-  function closeSheet(){ openId=null; $("overlay").hidden=true; $("overlay").textContent=""; }
+  function closeSheet(){ openId=null; $("overlay").hidden=true; $("overlay").textContent=""; if(!$("cli").hidden) pintarCli(); }
   $("overlay").addEventListener("click", e=>{ if(e.target.id==="overlay") (cartOpen?closeCart:closeSheet)(); });
   document.addEventListener("keydown", e=>{ if(e.key==="Escape"){ if(cartOpen) closeCart(); else if(openId) closeSheet(); } });
   function drawSheet(){
@@ -951,6 +956,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   function renderCartBar(){
     const n = cartCount(), {total, consultar} = cartTotals();
     $("cartbar").hidden = !n || S.selecting;
+    pintarCliBtn();
     $("cartN").textContent = n;
     $("cartT").textContent = total ? dual(total) + (consultar?" +":"") : (consultar?tx("Consultar","Ask price"):"");
     $("cartLbl").textContent = tx("Mi pedido","My order");
@@ -1133,6 +1139,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     if(document.activeElement!==$("setDesc")) $("setDesc").value = S.config.descuentoContado ? String(S.config.descuentoContado) : "";
     if(document.activeElement!==$("setDias")) $("setDias").value = S.config.diasSeparado ? String(S.config.diasSeparado) : "";
     if(document.activeElement!==$("setGrupo")) $("setGrupo").value = S.config.grupoWhatsapp || "";
+    $("setChatCli").checked = S.config.chatClientes !== false;
+    pintarCliBtn();
     // Botón "Únete a mi grupo" para los clientes
     const gl = $("grupoLink"), grupo = grupoValido(S.config.grupoWhatsapp);
     gl.hidden = !grupo || S.canEdit;
@@ -1187,6 +1195,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         descuentoContado: Math.min(30, Math.max(0, parseMargen($("setDesc").value) || 0)),
         diasSeparado: Math.min(60, Math.max(1, parseStock($("setDias").value) || 7)),
         grupoWhatsapp: grupoValido($("setGrupo").value) || "",
+        chatClientes: $("setChatCli").checked,
         yapeNumero:$("setYapeNum").value.trim(), yapeNombre:$("setYapeName").value.trim(),
         yapeQr: yapeQrNuevo!==undefined ? yapeQrNuevo : (S.config.yapeQr||""),
         pais, moneda,
@@ -1396,6 +1405,76 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     $("viewStore").href = enlaceDe(t.id);
     $("copyLink").onclick = async ()=>{ try{ await navigator.clipboard.writeText(enlaceDe(t.id)); toast("Enlace copiado"); }catch(e){ const r=document.createRange(); r.selectNodeContents($("bannerLink")); const sl=getSelection(); sl.removeAllRanges(); sl.addRange(r); toast("Selecciona y copia el enlace"); } };
   }
+
+  // ---------- Asistente de compras del cliente ----------
+  // El cliente pregunta ("regalos para niño de 5 años") y recibe productos de ESTA tienda para ver o pedir.
+  let cliLog = [], cliOcupado = false, cliRec = null;
+  const CLI_KEY = () => "cli:" + ((S.config && S.config.id) || "tienda");
+  const guardarCli = ()=>{ try{ sessionStorage.setItem(CLI_KEY(), JSON.stringify(cliLog.slice(-30))); }catch(e){} };
+  const cargarCli = ()=>{ try{ cliLog = JSON.parse(sessionStorage.getItem(CLI_KEY()) || "[]"); }catch(e){ cliLog = []; } };
+  function cliActivo(){ return !S.canEdit && S.config && S.config.chatClientes !== false && S.products.length > 0 && (estadoCatalogo()||{}).estado === "aprobada"; }
+  function pintarCliBtn(){
+    const b = $("cliBtn"); if(!b) return;
+    b.hidden = !cliActivo() || !$("cli").hidden;
+    b.style.bottom = $("cartbar").hidden ? "" : "calc(76px + env(safe-area-inset-bottom,0px))";
+    if(!b.style.bottom) b.style.bottom = "calc(16px + env(safe-area-inset-bottom,0px))";
+    $("cliBtnTxt").textContent = tx("¿Buscas algo?","Need help?");
+  }
+  function tarjetaCli(p){
+    const of = oferta(p), cover = p.fotos && p.fotos[0], enPedido = !!cart[p.id], sold = agotado(p);
+    // Agregar (o quitar) del pedido sin salir del chat
+    const agregar = el("button",{class:"cli-add"+(enPedido?" in":""),type:"button",disabled:sold?"":false,"aria-label":(enPedido?tx("Quitar del pedido: ","Remove from order: "):tx("Agregar al pedido: ","Add to order: "))+(p.nombre||""),
+      onclick:()=>{ if(cart[p.id]) delete cart[p.id]; else { cart[p.id]=1; toast(tx("Agregado a tu pedido","Added to your order")); } saveCart(); render(); pintarCli(); }},
+      sold ? tx("Agotado","Sold out") : enPedido ? tx("✓ Agregado","✓ Added") : tx("+ Agregar","+ Add"));
+    return el("div",{class:"cli-prod"},
+      el("button",{class:"cli-ver",type:"button",onclick:()=>openProduct(p.id),"aria-label":tx("Ver ","View ")+(p.nombre||"")},
+        cover ? el("img",{src:src(cover.thumb||cover.full),alt:"",loading:"lazy"}) : el("span",{class:"sinfoto"}),
+        el("span",null, el("b",null, p.nombre||""), el("small",null, [codigoDe(p), p.marca, p.talla ? tx("Talla ","Size ")+p.talla : ""].filter(Boolean).join(" · ")))),
+      el("span",{class:"cli-der"}, el("span",{class:"pr"}, p.precio==null ? tx("Consultar","Ask") : money(p.precio), of ? el("s",null, money(of.antes)) : null), agregar));
+  }
+  function pintarCli(){
+    const log = $("cliLog"); log.textContent = "";
+    $("cliTitulo").textContent = tx("¿En qué te ayudo?","How can I help?");
+    $("cliSub").textContent = tx(`Te recomiendo productos de ${S.config.nombre || "esta tienda"}.`, `I'll suggest products from ${S.config.nombre || "this store"}.`);
+    $("cliInput").placeholder = tx("Ej.: regalos para niño de 5 años","E.g.: gifts for a 5-year-old boy");
+    $("cliNuevo").textContent = tx("Nueva","New"); $("cliEnviar").textContent = tx("Enviar","Send");
+    if(!cliLog.length) log.append(el("div",{class:"burbuja assistant"}, tx("¡Hola! Cuéntame qué buscas (para quién, ocasión, talla o presupuesto) y te muestro opciones de la tienda.","Hi! Tell me what you're looking for (who it's for, occasion, size or budget) and I'll show you options from the store.")));
+    for(const m of cliLog){
+      if(m.text){ const b = el("div",{class:"burbuja " + m.role}); if(m.role==="assistant") b.append(...textoAsis(m.text)); else b.textContent = m.text; log.append(b); }
+      if(m.codigos && m.codigos.length){
+        const prods = m.codigos.map(c=>S.products.find(p=>codigoDe(p)===c)).filter(Boolean);
+        if(prods.length) log.append(el("div",{class:"cli-prods"}, ...prods.map(tarjetaCli)));
+      }
+    }
+    if(cliOcupado) log.append(el("div",{class:"pensando"}, tx("Buscando en la tienda…","Looking through the store…")));
+    const sug = $("cliSug"); sug.textContent = "";
+    if(!cliLog.length){
+      const ideas = esUS() ? ["Gifts for a 5-year-old boy","What's on sale?","Something for mom","Under $50"] : ["Regalos para niño de 5 años","¿Qué ofertas hay?","Algo para mamá","Menos de S/ 100"];
+      ideas.forEach(t=>sug.append(el("button",{type:"button",onclick:()=>enviarCli(t)}, t)));
+    }
+    const wa = waDigits(), w = $("cliWa"); w.textContent = "";
+    const n = cartCount();
+    if(n) w.append(el("button",{class:"btn tag cli-pedido",type:"button",onclick:()=>{ $("cli").hidden = true; document.body.classList.remove("cli-abierto"); pintarCliBtn(); openCart(); }}, tx(`🛒 Ver mi pedido (${n}) · ${money(cartTotals().total)}`, `🛒 View my order (${n}) · ${money(cartTotals().total)}`)), el("br"));
+    if(wa) w.append(tx("¿Prefieres hablar con la tienda? ","Rather talk to the store? "), el("a",{href:`https://wa.me/${wa}`,target:"_blank",rel:"noopener"}, tx("Escríbenos por WhatsApp","Message us on WhatsApp")));
+    log.scrollTop = log.scrollHeight;
+  }
+  async function enviarCli(texto){
+    texto = String(texto||"").trim(); if(!texto || cliOcupado) return;
+    if(cliRec){ const r = cliRec; cliRec = null; r.onresult = null; r.onend = null; try{ r.stop(); }catch(e){} $("cliMic").classList.remove("on"); }
+    cliLog.push({ role:"user", text:texto }); cliOcupado = true; guardarCli(); pintarCli();
+    const inp = $("cliInput"); inp.blur(); inp.value = ""; $("cliEnviar").disabled = true;
+    try{
+      const r = await preguntarTienda(cliLog.filter(m=>m.role==="user"||m.role==="assistant").map(m=>({ role:m.role, text:m.text })));
+      cliLog.push({ role:"assistant", text: r.texto || "", codigos: Array.isArray(r.codigos) ? r.codigos : [] });
+    }catch(e){
+      cliLog.push({ role:"error", text: tx("No pude responder ahora. Intenta de nuevo o escríbenos por WhatsApp.","I couldn't answer right now. Try again or message us on WhatsApp.") });
+    }finally{ cliOcupado = false; $("cliEnviar").disabled = false; guardarCli(); pintarCli(); }
+  }
+  $("cliBtn").onclick = ()=>{ cargarCli(); $("cli").hidden = false; document.body.classList.add("cli-abierto"); pintarCliBtn(); pintarCli(); $("cliInput").focus(); };
+  $("cliCerrar").onclick = ()=>{ $("cli").hidden = true; document.body.classList.remove("cli-abierto"); pintarCliBtn(); };
+  $("cliNuevo").onclick = ()=>{ cliLog = []; guardarCli(); pintarCli(); };
+  $("cliForm").addEventListener("submit", e=>{ e.preventDefault(); enviarCli($("cliInput").value); });
+  $("cliInput").addEventListener("keydown", e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); enviarCli($("cliInput").value); } });
 
   // ---------- Mensaje para el grupo de WhatsApp de ventas ----------
   // WhatsApp no deja publicar solo en un grupo: armamos el mensaje y la vendedora lo comparte y elige su grupo.
@@ -2437,6 +2516,16 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
     };
   }
   $("asisInput").addEventListener("keydown", e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); enviarAsis($("asisInput").value); } });
+  if(SR){
+    $("cliMic").hidden = false;
+    $("cliMic").onclick = ()=>{
+      if(cliRec){ try{ cliRec.stop(); }catch(e){} return; }
+      const inp = $("cliInput"); cliRec = new SR(); cliRec.lang = esUS() ? "en-US" : "es-PE"; cliRec.interimResults = true;
+      cliRec.onresult = e=>{ let t = ""; for(let i=0;i<e.results.length;i++) t += e.results[i][0].transcript; inp.value = t; };
+      cliRec.onend = ()=>{ cliRec = null; $("cliMic").classList.remove("on"); inp.focus(); };
+      try{ cliRec.start(); $("cliMic").classList.add("on"); }catch(e){ cliRec = null; }
+    };
+  }
   $("asisInput").addEventListener("input", e=>{ e.target.style.height = "auto"; e.target.style.height = Math.min(140, e.target.scrollHeight) + "px"; });
   document.addEventListener("keydown", e=>{ if(e.key==="Escape" && !$("asis").hidden) cerrarAsis(); });
 
