@@ -607,6 +607,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       grid.append(card);
     }
     const n = S.products.length;
+    if(S.canEdit) marcarTab("productos", n, false);
     $("count").textContent = n ? (list.length===n ? tx(`${n} productos`,`${n} products`) : tx(`${list.length} de ${n} productos`,`${list.length} of ${n} products`)) : "";
     const empty=$("empty");
     if(S.loaded && !n){ empty.hidden=false; $("emptyTitle").textContent = S.canEdit ? "Tu vitrina está vacía" : tx("Pronto habrá productos aquí","Products coming soon"); $("emptyText").textContent = S.canEdit ? "Arrastra todas tus fotos al recuadro de arriba. Cada foto se convierte en un producto listo para vender, y después le pones nombre y precio." : tx("Esta tienda todavía no ha publicado productos. Vuelve en un rato.","This store hasn't published any products yet. Check back soon."); }
@@ -1077,7 +1078,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     if(yapeQrNuevo===undefined) pintarQrConfig(S.config.yapeQr||"");
     render(); if(openId) drawSheet();
   }
-  $("settingsBtn").onclick = ()=>{ $("settings").hidden = !$("settings").hidden; };
+  $("settingsBtn").onclick = ()=>{ if(document.querySelector("main").classList.contains("con-tabs")) irTab("datos"); else $("settings").hidden = !$("settings").hidden; };
   // Cambiar contraseña estando dentro (Datos de la tienda)
   $("verSetPass").onclick = ()=>{ const ver = $("setPassNueva").type==="password"; ["setPassActual","setPassNueva"].forEach(id=>{ $(id).type = ver ? "text" : "password"; }); $("verSetPass").setAttribute("aria-pressed", String(ver)); $("verSetPass").textContent = ver ? "🙈" : "👁"; };
   $("setPassNueva").addEventListener("input", ()=>{
@@ -1129,7 +1130,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         const fails = await runPool(conPrecio.map(p=>p.id), id=>{ const p = S.products.find(x=>x.id===id); const v = moneda==="PEN" ? Math.round(p.precio*tc) : Math.round(p.precio/tc*100)/100; return S.db.doc("productos/"+id).update({ precio: v }); });
         toast(fails ? `Datos guardados; ${fails} precios no se pudieron convertir` : `Datos guardados y ${conPrecio.length} precios convertidos a ${moneda==="PEN" ? "soles" : "dólares"}`);
       } else toast("Datos guardados");
-      yapeQrNuevo = undefined; $("settings").hidden=true;
+      yapeQrNuevo = undefined; if(!document.querySelector("main").classList.contains("con-tabs")) $("settings").hidden=true;
     }catch(e){ toast("No se pudo guardar. Intenta de nuevo."); }
   };
 
@@ -1330,12 +1331,42 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     $("copyLink").onclick = async ()=>{ try{ await navigator.clipboard.writeText(enlaceDe(t.id)); toast("Enlace copiado"); }catch(e){ const r=document.createRange(); r.selectNodeContents($("bannerLink")); const sl=getSelection(); sl.removeAllRanges(); sl.addRange(r); toast("Selecciona y copia el enlace"); } };
   }
 
+  // ---------- Pestañas de la vendedora ----------
+  const TABS = ["productos","pedidos","confianza","plan","datos"], TAB_KEY = "vitrina-tab";
+  function irTab(tab, guardar = true){
+    if(!TABS.includes(tab)) tab = "productos";
+    const main = document.querySelector("main"); main.dataset.tab = tab;
+    document.querySelectorAll("#vtabs [data-tab]").forEach(b=>{ const on = b.dataset.tab === tab; b.setAttribute("aria-selected", String(on)); b.tabIndex = on ? 0 : -1; });
+    if(tab === "pedidos") $("pedidosBox").open = true;
+    if(guardar){ try{ localStorage.setItem(TAB_KEY, tab); }catch(e){} }
+    const nav = $("vtabs"); if(nav.getBoundingClientRect().top < 0) nav.scrollIntoView({ block:"start" });
+  }
+  function activarTabs(){
+    const main = document.querySelector("main"); main.classList.add("con-tabs");
+    show("vtabs", true); show("settings", true); show("settingsBtn", false);
+    const nav = $("vtabs"); nav.setAttribute("role","tablist");
+    nav.querySelectorAll("[data-tab]").forEach(b=>{ b.setAttribute("role","tab"); b.onclick = ()=>irTab(b.dataset.tab); });
+    nav.addEventListener("keydown", e=>{
+      if(e.key!=="ArrowRight" && e.key!=="ArrowLeft") return;
+      const i = TABS.indexOf(main.dataset.tab), sig = TABS[(i + (e.key==="ArrowRight" ? 1 : TABS.length-1)) % TABS.length];
+      irTab(sig); nav.querySelector(`[data-tab="${sig}"]`).focus();
+    });
+    let tab = (location.hash||"").slice(1);
+    if(!TABS.includes(tab)){ try{ tab = localStorage.getItem(TAB_KEY) || ""; }catch(e){ tab = ""; } }
+    if(params.get("plan") || params.get("cobros")) tab = "plan";
+    irTab(tab, false);
+  }
+  function quitarTabs(){ document.querySelector("main").classList.remove("con-tabs"); show("vtabs", false); }
+  // Numerito en cada pestaña (resaltado si hay algo por hacer)
+  function marcarTab(tab, n, alerta){ const e = $("vtN-"+tab); if(!e) return; e.textContent = n ? String(n) : ""; e.classList.toggle("alerta", !!alerta); }
+
   // ----- Panel de la dueña -----
   let panelFiltro = "pendiente", tiendasCache = [];
   async function abrirPanel(){
+    quitarTabs();
     // El panel de la dueña muestra solo la administración: se ocultan los recuadros de su propia tienda.
     show("vitrina", false); show("storeBanner", false); show("onboard", false); show("confBox", false);
-    show("planBox", false); show("cobrosBox", false); show("pedidosBox", false); show("settings", false); show("asisBtn", false);
+    show("planBox", false); show("planAviso", false); show("pedidosVacio", false); show("cobrosBox", false); show("pedidosBox", false); show("settings", false); show("asisBtn", false);
     show("panel", true);
     $("panelRows").textContent = ""; $("panelCount").textContent = "Cargando vitrinas…";
     try{ tiendasCache = await listarTiendas(); }catch(e){ $("panelCount").textContent = "No se pudieron cargar las vitrinas: " + ((e&&e.message)||""); return; }
@@ -1377,7 +1408,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     return { plan, usados, libres: plan.limite==null ? Infinity : Math.max(0, plan.limite - usados) };
   }
   function actualizarPlan(){
-    const box=$("planBox"); if(!S.canEdit || !$("panel").hidden){ box.hidden=true; return; }
+    const box=$("planBox"); if(!S.canEdit || !$("panel").hidden){ box.hidden=true; $("planAviso").hidden=true; return; }
     const u = usoPlan(), ilimitado = u.plan.limite==null;
     const pct = ilimitado ? 0 : Math.min(100, Math.round(u.usados / u.plan.limite * 100));
     const lleno = !ilimitado && u.usados >= u.plan.limite, cerca = !lleno && pct >= 80;
@@ -1394,6 +1425,11 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     if(!ilimitado){ const bar=el("div",{class:"meter"}); const i=el("i"); i.style.width=pct+"%"; bar.append(i); info.append(bar); }
     info.append(el("span",{class:"note",style:"margin:0"}, msg + extra));
     box.append(info, el("button",{class:"btn"+(lleno||cerca?" tag":""),type:"button",onclick:abrirPlanes}, ilimitado ? "Ver planes" : "Mejorar plan"));
+    // Con pestañas el plan queda en otra hoja: si está lleno, se avisa también en Productos.
+    marcarTab("plan", lleno ? "!" : "", lleno);
+    const av = $("planAviso"); av.textContent = "";
+    av.hidden = !lleno;
+    if(lleno) av.append(el("span",null, msg), el("button",{class:"linkish",type:"button",onclick:abrirPlanes},"Mejorar plan"));
   }
   function abrirPlanes(){
     const u = usoPlan(), ov=$("planOverlay"); ov.textContent=""; ov.hidden=false; delete ov.dataset.conf;
@@ -1769,6 +1805,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       if(partes.length) txt = partes.join(" · ");
     }
     $("confText").textContent = txt;
+    { const inv = c ? c.relaciones.filter(r=>r.estado==="pendiente" && !r.invitaYo).length : 0, venc = c ? separadosMios().filter(vencido).length + misSeparados().filter(vencido).length : 0; marcarTab("confianza", inv + venc, urgente); }
     $("confBtn").className = "btn" + (urgente ? " tag" : "");
     const hayInv = !!(c && c.relaciones.some(r=>r.estado==="pendiente" && !r.invitaYo));
     $("confBtn").textContent = hayInv ? "Ver invitación" : urgente ? "Revisar" : "Abrir";
@@ -2032,7 +2069,9 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     let lista = [];
     try{ lista = await listarPedidos(); }catch(e){ return; }
     show("pedidosBox", lista.length > 0 && $("panel").hidden);
+    show("pedidosVacio", !lista.length && $("panel").hidden);
     const pagados = lista.filter(p=>p.estado==="pagado").length, porConfirmar = lista.filter(p=>p.estado==="por_confirmar").length;
+    marcarTab("pedidos", porConfirmar + pagados, porConfirmar > 0);
     $("pedidosCount").textContent = [porConfirmar ? `${porConfirmar} por confirmar` : "", pagados ? `${pagados} por entregar` : ""].filter(Boolean).join(" · ") || `${lista.length}`;
     if(porConfirmar) $("pedidosBox").open = true;
     const tb=$("pedidosRows"); tb.textContent="";
@@ -2311,6 +2350,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     show("myStoreBtn", !!ses.superadmin);
     $("myStoreBtn").onclick = ()=>{ location.hash=""; location.reload(); };
     bannerVendedora(tienda);
+    activarTabs();
     S.config = tienda; actualizarPlan(); pintarCobros(); cargarPedidos(); pintarConfBox(); cargarConfianza();
     if(tienda.stripeAccountId && !tienda.cobrosActivos && !params.get("cobros")){
       estadoCobros().then(r=>{ if(r.cobrosActivos){ S.config = { ...S.config, cobrosActivos:true }; pintarCobros(); } }).catch(()=>{});

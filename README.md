@@ -45,6 +45,18 @@ La idea central es **subir muchas fotos de una vez**. Al arrastrar el lote se pu
 - **Cantidad (stock):** opcional; vacío significa "sin control". El cliente ve "Quedan N" o "¡Última unidad!" cuando quedan 3 o menos, y "Agotado" en 0. No puede pedir más unidades de las disponibles: lo valida la pantalla y también el servidor.
 - **Descuento automático:** al pagar con tarjeta, el webhook descuenta las unidades una sola vez (aunque Stripe reenvíe el aviso). Al confirmar un Yape, se descuentan cuando la vendedora toca *Confirmar pago*. Los pedidos por WhatsApp se ajustan a mano.
 
+## Panel de la vendedora por pestañas
+
+Al entrar, la vendedora ve su tienda separada en pestañas (se recuerda la última que abrió en ese equipo):
+
+- **Productos**: subir fotos, dictar, editar varios y la vitrina. Si el plan está lleno, aquí sale un aviso con "Mejorar plan".
+- **Pedidos**: pedidos con tarjeta o Yape. El número de la pestaña son los pedidos por confirmar o por entregar.
+- **Tiendas de confianza**: invitaciones, productos para revender, separados y cuentas.
+- **Plan y cobros**: plan, productos usados y pagos con tarjeta (Stripe). Al volver de Stripe se abre esta pestaña.
+- **Datos de la tienda**: nombre, WhatsApp, moneda, Yape, días de separado y contraseña.
+
+También se puede abrir una pestaña con el enlace: `#pedidos`, `#confianza`, `#plan` o `#datos`. El enlace para copiar y la vista de cliente quedan arriba, en todas las pestañas. El panel de la dueña y la tienda que ven los clientes no tienen pestañas.
+
 ## Código de cada producto
 
 Cada producto recibe un código corto con las letras de su categoría y un número: `CAR-001` (carteras y bolsos), `ZAP-001` (zapatos), `ROP-` ropa, `ACC-` accesorios, `REL-` relojes y joyería, `PER-` perfumes y belleza, `ELE-` electrónica, `HOG-` hogar, `JUG-` juguetes, `OTR-` otros.

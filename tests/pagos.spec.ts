@@ -13,6 +13,8 @@ test.describe('REQ-007 Planes por cantidad de productos', () => {
     const login = new LoginPage(page);
     await login.abrir();
     await login.login(USER, PASS);
+    // El plan está en su propia pestaña del panel de la vendedora
+    await page.getByRole('tab', { name: /Plan y cobros/ }).click();
     const plan = page.locator('#planBox');
     await expect(plan).toBeVisible();
     await expect(plan).toContainText(/Plan (Free|Básico|Pro|Plus)/);
