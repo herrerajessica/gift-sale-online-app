@@ -13,14 +13,17 @@ import { pagos } from './functions/pagos/resource';
 import { stripeWebhook } from './functions/stripe-webhook/resource';
 import { fondo } from './functions/fondo/resource';
 import { asistente } from './functions/asistente/resource';
+import { confianza } from './functions/confianza/resource';
 
-const backend = defineBackend({ auth, data, storage, clasificar, catalogo, pagos, stripeWebhook, fondo, asistente });
+const backend = defineBackend({ auth, data, storage, clasificar, catalogo, pagos, stripeWebhook, fondo, asistente, confianza });
 
 const bucket = backend.storage.resources.bucket;
 const tablas = backend.data.resources.tables;
 const tablaTienda = tablas['Tienda'];
 const tablaProducto = tablas['Producto'];
 const tablaPedido = tablas['Pedido'];
+const tablaConfianza = tablas['Confianza'];
+const tablaReventa = tablas['Reventa'];
 
 // CDN para que las fotos carguen rápido y sin URLs firmadas.
 // Se crea en el mismo stack del bucket para evitar referencias circulares.
@@ -45,6 +48,9 @@ catalogoFn.addToRolePolicy(new PolicyStatement({
 }));
 backend.catalogo.addEnvironment('TIENDA_TABLE', tablaTienda.tableName);
 backend.catalogo.addEnvironment('PRODUCTO_TABLE', tablaProducto.tableName);
+// Productos de tiendas de confianza: el catálogo verifica que la relación siga activa.
+tablaConfianza.grantReadData(catalogoFn);
+backend.catalogo.addEnvironment('CONFIANZA_TABLE', tablaConfianza.tableName);
 
 // --- Pagos: crea sesiones de Stripe y pedidos ---
 const pagosFn = backend.pagos.resources.lambda;
@@ -54,6 +60,8 @@ tablaPedido.grantWriteData(pagosFn);
 backend.pagos.addEnvironment('TIENDA_TABLE', tablaTienda.tableName);
 backend.pagos.addEnvironment('PRODUCTO_TABLE', tablaProducto.tableName);
 backend.pagos.addEnvironment('PEDIDO_TABLE', tablaPedido.tableName);
+tablaConfianza.grantReadData(pagosFn);
+backend.pagos.addEnvironment('CONFIANZA_TABLE', tablaConfianza.tableName);
 
 // --- Webhook de Stripe: URL pública protegida por la firma de Stripe ---
 const webhookFn = backend.stripeWebhook.resources.lambda;
@@ -63,6 +71,9 @@ tablaProducto.grantReadWriteData(webhookFn);
 backend.stripeWebhook.addEnvironment('TIENDA_TABLE', tablaTienda.tableName);
 backend.stripeWebhook.addEnvironment('PEDIDO_TABLE', tablaPedido.tableName);
 backend.stripeWebhook.addEnvironment('PRODUCTO_TABLE', tablaProducto.tableName);
+// Venta con tarjeta de un producto de confianza: baja la cantidad del original y anota la deuda.
+tablaReventa.grantReadWriteData(webhookFn);
+backend.stripeWebhook.addEnvironment('REVENTA_TABLE', tablaReventa.tableName);
 const webhookUrl = webhookFn.addFunctionUrl({ authType: FunctionUrlAuthType.NONE });
 
 backend.addOutput({
@@ -130,3 +141,18 @@ clasificarFn.addToRolePolicy(new PolicyStatement({
     'arn:aws:bedrock:*:*:inference-profile/us.amazon.nova-2-lite*',
   ],
 }));
+
+// --- Tiendas de confianza: relaciones, productos compartidos y cuentas entre vendedoras ---
+const confianzaFn = backend.confianza.resources.lambda;
+tablaTienda.grantReadData(confianzaFn);
+tablaProducto.grantReadWriteData(confianzaFn);
+tablaConfianza.grantReadWriteData(confianzaFn);
+tablaReventa.grantReadWriteData(confianzaFn);
+confianzaFn.addToRolePolicy(new PolicyStatement({
+  actions: ['dynamodb:Query'],
+  resources: [`${tablaProducto.tableArn}/index/*`, `${tablaConfianza.tableArn}/index/*`, `${tablaReventa.tableArn}/index/*`],
+}));
+backend.confianza.addEnvironment('TIENDA_TABLE', tablaTienda.tableName);
+backend.confianza.addEnvironment('PRODUCTO_TABLE', tablaProducto.tableName);
+backend.confianza.addEnvironment('CONFIANZA_TABLE', tablaConfianza.tableName);
+backend.confianza.addEnvironment('REVENTA_TABLE', tablaReventa.tableName);

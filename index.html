@@ -329,6 +329,66 @@ td small{color:var(--muted);font-family:var(--mono)}
 .recordar{display:flex;gap:8px;align-items:center;font-size:14px}
 .paid{margin-top:16px;border:1.5px solid var(--ok);background:var(--surface);border-radius:12px;padding:14px;display:grid;gap:8px}
 .paid h2{margin:0;font-family:var(--display);font-weight:800;font-size:22px}
+.pill.conf{color:var(--accent)}
+.conf-tag{display:inline-block;width:fit-content;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;border:1.5px solid var(--accent);color:var(--accent);margin-top:2px}
+.conf-tag.off{border-color:var(--sold);color:var(--sold)}
+.conf-box{border:1.5px solid var(--accent);border-radius:10px;padding:10px 12px;display:grid;gap:6px;background:color-mix(in srgb,var(--accent) 6%,var(--surface))}
+.conf-box.off{border-color:var(--sold);background:color-mix(in srgb,var(--sold) 6%,var(--surface))}
+.conf-tabs{display:flex;gap:6px;flex-wrap:wrap}
+.conf-sec{display:grid;gap:10px}
+.conf-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.conf-row .who{flex:1;min-width:140px;display:grid;gap:2px}
+.conf-row .who small{color:var(--muted)}
+.rv-list{display:grid;gap:8px}
+.rv-item{display:grid;grid-template-columns:auto 56px 1fr;gap:10px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.rv-item img,.rv-item .noimg{width:56px;height:56px;object-fit:cover;border-radius:8px;background:var(--line)}
+.rv-item .t{display:grid;gap:2px;min-width:0}
+.rv-item .t strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rv-item .t small{color:var(--muted)}
+.rv-item.ya{opacity:.6}
+.rv-foot{position:sticky;bottom:-18px;background:var(--surface);padding:10px 0 2px;display:flex;gap:10px;align-items:end;flex-wrap:wrap;border-top:1px solid var(--line)}
+.sumas{display:flex;gap:10px;flex-wrap:wrap}
+.sumas div{flex:1;min-width:140px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:grid;gap:2px}
+.sumas b{font-family:var(--mono);font-size:20px;font-variant-numeric:tabular-nums}
+.sumas small{color:var(--muted)}
+.share-set{border:1px solid var(--line);border-radius:10px;padding:10px 12px 12px;display:grid;gap:10px;margin:0}
+.share-set legend{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.04em;text-transform:uppercase;padding:0 4px}
+.chk{display:flex;gap:8px;align-items:center;font-size:14px}
+.dict-mic{display:flex;gap:12px;align-items:center;flex-wrap:wrap;border:1.5px solid var(--line);border-radius:12px;padding:12px}
+.dict-mic.on{border-color:var(--sold)}
+.mic{width:64px;height:64px;border-radius:999px;border:0;background:var(--accent);color:#fff;font-size:28px;display:grid;place-items:center;flex:none}
+.dict-mic.on .mic{background:var(--sold);animation:latido 1.2s ease-in-out infinite}
+@keyframes latido{50%{box-shadow:0 0 0 10px color-mix(in srgb,var(--sold) 20%,transparent)}}
+@media (prefers-reduced-motion: reduce){.dict-mic.on .mic{animation:none}}
+.dict-vivo{flex:1;min-width:180px;display:grid;gap:4px}
+.dict-vivo .en-curso{font-size:15px}
+.dict-vivo .interino{color:var(--muted);font-style:italic}
+.dict-list{display:grid;gap:8px;counter-reset:dict}
+.dict-item{display:grid;grid-template-columns:28px 1fr auto;gap:8px;align-items:start}
+.dict-item .n{font-family:var(--mono);font-weight:700;color:var(--muted);padding-top:9px;text-align:right}
+.dict-item textarea{min-height:44px;resize:vertical}
+.dict-tabla{display:grid;gap:8px}
+.dict-fila{border:1px solid var(--line);border-radius:10px;padding:10px;display:grid;gap:8px}
+.dict-fila .orig{font-size:12px;color:var(--muted);font-style:italic}
+.dict-campos{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}
+.par-item{display:grid;grid-template-columns:28px 72px 1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.par-item .n{font-family:var(--mono);font-weight:700;color:var(--muted);text-align:right}
+.par-item img,.par-item .noimg{width:72px;height:72px;object-fit:cover;border-radius:8px;background:var(--line);display:grid;place-items:center;font-size:11px;color:var(--muted);text-align:center}
+.par-item .t{display:grid;gap:2px;min-width:0}
+.par-item .t small{color:var(--muted)}
+.par-item .mov{display:flex;gap:4px}
+.par-item .mov .btn{padding:6px 10px}
+.prev-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+.prev-card{border:1px solid var(--line);border-radius:12px;overflow:hidden;display:grid;background:var(--surface)}
+.prev-card.alerta{border:2px solid var(--hold)}
+.prev-card .ph{aspect-ratio:1;background:var(--line);position:relative}
+.prev-card .ph img{width:100%;height:100%;object-fit:cover;display:block}
+.prev-card .ph .price{position:absolute;left:8px;bottom:8px}
+.prev-card .body{padding:10px;display:grid;gap:6px}
+.prev-card .aviso{font-size:12px;font-weight:600;color:var(--hold)}
+.prev-card input,.prev-card select{font-size:14px;padding:6px 8px;width:100%;min-width:0;box-sizing:border-box}
+.prev-card .sinfoto{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:13px}
+#asisMic.on{background:var(--sold);border-color:var(--sold);color:#fff}
 </style>
 </head>
 <body>
@@ -395,6 +455,12 @@ td small{color:var(--muted);font-family:var(--mono)}
     <button class="btn primary" type="button" id="cobrosBtn">Activar pagos con tarjeta</button>
   </section>
 
+  <section class="banner" id="confBox" hidden>
+    <span class="pill conf">Tiendas de confianza</span>
+    <span id="confText" style="flex:1;min-width:0">Comparte productos con vendedoras de confianza y revende los suyos como tuyos.</span>
+    <button class="btn" type="button" id="confBtn">Abrir</button>
+  </section>
+
   <details class="pedidos" id="pedidosBox" hidden>
     <summary><strong>Pedidos en línea</strong> <span class="cn" id="pedidosCount"></span></summary>
     <div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Productos</th><th>Total</th><th>Pago</th><th>Estado</th><th></th></tr></thead><tbody id="pedidosRows"></tbody></table></div>
@@ -404,6 +470,10 @@ td small{color:var(--muted);font-family:var(--mono)}
     <div class="panel-head"><h2>Panel de la dueña</h2><span class="note" id="panelCount" style="margin:0"></span></div>
     <div class="cats" id="panelFilter"></div>
     <div class="tablewrap"><table><thead><tr><th>Vitrina</th><th>Correo</th><th>WhatsApp</th><th>Estado</th><th>Plan</th><th>Creada</th><th></th></tr></thead><tbody id="panelRows"></tbody></table></div>
+    <details class="pedidos" id="panelConf">
+      <summary><strong>Tiendas de confianza</strong> <span class="cn" id="panelConfCount"></span></summary>
+      <div class="tablewrap"><table><thead><tr><th>Tiendas</th><th>Invitó</th><th>Estado</th><th>Desde</th><th></th></tr></thead><tbody id="panelConfRows"></tbody></table></div>
+    </details>
   </section>
 
   <section class="settings" id="settings" hidden>
@@ -414,6 +484,7 @@ td small{color:var(--muted);font-family:var(--mono)}
       <label class="f">País de tus clientes<select id="setPais"><option value="PE">Perú (soles, Yape, español)</option><option value="US">Estados Unidos (dólares, inglés)</option></select></label>
       <label class="f solo-pe">Tipo de cambio (S/ por 1 USD)<input id="setRate" inputmode="decimal" placeholder="3.46"></label>
       <label class="f solo-pe">Descuento por Yape o efectivo (%)<input id="setDesc" inputmode="decimal" placeholder="Ej. 7" title="Tus precios son con tarjeta; quien paga con Yape o efectivo paga este porcentaje menos"></label>
+      <label class="f">Días para separar tus productos (tiendas de confianza)<input id="setDias" inputmode="numeric" placeholder="7" title="Cuánto tiempo puede una tienda de confianza tener separado un producto tuyo antes de confirmar la venta"></label>
     </div>
     <fieldset class="yape-set solo-pe">
       <legend>Cobrar con Yape</legend>
@@ -455,6 +526,7 @@ td small{color:var(--muted);font-family:var(--mono)}
       <label class="defaults" id="aiRow" hidden><input type="checkbox" id="aiToggle" checked style="width:auto"> Detectar categoría, público y nombre con IA</label>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
         <button class="btn primary" id="pickBtn">Elegir fotos</button>
+        <button class="btn" id="dictBtn" title="Dicta tus productos mientras los miras y luego sube sus fotos">🎙️ Dictar productos</button>
         <button class="btn" id="selectBtn">Editar varios</button>
       </div>
       <input type="file" id="fileInput" accept="image/*" multiple hidden>
@@ -491,6 +563,8 @@ td small{color:var(--muted);font-family:var(--mono)}
     <button class="btn" id="bulkAI" hidden>Clasificar con IA</button>
     <button class="btn" id="bulkTabla">Editar en tabla</button>
     <button class="btn" id="bulkDup">Buscar repetidos</button>
+    <button class="btn" id="bulkShare" title="Tus tiendas de confianza podrán revenderlos">Compartir</button>
+    <button class="btn" id="bulkUnshare">Dejar de compartir</button>
     <button class="btn danger" id="bulkDel">Borrar</button>
     <span class="confirm" id="bulkConfirm" hidden>¿Borrar <span id="bulkN"></span> productos para siempre? <button class="btn danger" id="bulkDelYes">Sí, borrar</button><button class="btn" id="bulkDelNo">No</button></span>
     <button class="btn" id="bulkDone">Listo</button>
@@ -520,6 +594,7 @@ td small{color:var(--muted);font-family:var(--mono)}
   <div class="asis-sug" id="asisSug"></div>
   <form class="asis-form" id="asisForm" novalidate>
     <textarea id="asisInput" rows="1" maxlength="1500" placeholder="Escribe aquí…" aria-label="Mensaje para el asistente"></textarea>
+    <button class="btn" type="button" id="asisMic" aria-label="Hablar con el asistente" title="Habla y revisa el texto antes de enviarlo" hidden>🎙️</button>
     <button class="btn primary" type="submit" id="asisEnviar">Enviar</button>
   </form>
 </aside>

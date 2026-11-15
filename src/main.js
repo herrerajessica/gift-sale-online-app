@@ -3,8 +3,8 @@ import {
   miTienda, crearTienda, listarTiendas, cambiarEstadoTienda, limpiarSlug, SLUG_RE,
   signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn,
   googleDisponible, entrarConGoogle, alVolverDeGoogle,
-  PLANES, planVigente, tieneFondoIA, pagarPlan, quitarFondo, asistente, cancelarPlan, conectarCobros, estadoCobros, pagarPedido, pedidoYape,
-  miTiendaActual, listarPedidos, cambiarEstadoPedido, cambiarPlanTienda,
+  PLANES, planVigente, tieneFondoIA, pagarPlan, quitarFondo, asistente, interpretarDictado, cancelarPlan, conectarCobros, estadoCobros, pagarPedido, pedidoYape,
+  miTiendaActual, listarPedidos, cambiarEstadoPedido, cambiarPlanTienda, confianza, refrescarProductos,
 } from './amplify-adapter.js';
 
 // Lógica de Showroomcito (misma que la versión de Claude).
@@ -268,8 +268,12 @@ import {
     const [ha, ca] = a.slice(3).split("-"), [hb, cb] = b.slice(3).split("-");
     let v = BigInt("0x"+ha) ^ BigInt("0x"+hb), dist = 0;
     while(v){ dist += Number(v & 1n); v >>= 1n; }
-    const col = [0,2,4].reduce((t,k)=>t + Math.abs(parseInt(ca.substr(k,2),16) - parseInt(cb.substr(k,2),16)), 0);
-    return dist <= 5 && col <= 24;
+    // Color: se compara el TONO (proporción de rojo, verde y azul), no el brillo. Así la misma foto
+    // subida "tal cual" y "mejorada" (más clara y contrastada) se reconoce como repetida.
+    const prop = c => { const v = [0,2,4].map(k=>parseInt(c.substr(k,2),16)), t = (v[0]+v[1]+v[2]) || 1; return v.map(x=>x/t); };
+    const pa = prop(ca), pb = prop(cb);
+    const tono = Math.abs(pa[0]-pb[0]) + Math.abs(pa[1]-pb[1]) + Math.abs(pa[2]-pb[2]);
+    return dist <= 5 && tono <= 0.06;
   }
   async function huellaDeArchivo(f){ try{ return huellaDeImagen(await decode(f)); }catch(e){ return null; } }
   function huellaDeUrl(url){
@@ -479,14 +483,16 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         const r = arr.find(x=>x && Number(x.i)===j) || arr[j]; if(!r) { fails++; return; }
         const patch = {};
         if(b.cat && CATS.includes(r.categoria)) patch.categoria = r.categoria;
-        if(PUBLICOS.includes(r.publico)) patch.publico = r.publico;
+        if(b.pub!==false && PUBLICOS.includes(r.publico)) patch.publico = r.publico;
+        // Dictado por voz: si la foto parece de otra categoría que lo dictado, se avisa en la vista previa.
+        if(b.check && CATS.includes(r.categoria) && r.categoria!==b.check && S.noCoinciden) S.noCoinciden.add(b.id);
         if(b.name && typeof r.nombre==="string" && r.nombre.trim()) patch.nombre = r.nombre.trim().slice(0,80);
         if(b.marca!==false && typeof r.marca==="string" && r.marca.trim()) patch.marca = r.marca.trim().slice(0,40);
-        if(typeof r.costo==="number" && r.costo>0 && r.costo<10000){
+        if(b.costo!==false && typeof r.costo==="number" && r.costo>0 && r.costo<10000){
           patch.costo = Math.round(r.costo*100)/100;
           if(b.margen!=null){ const pm = precioConMargen(patch.costo, b.margen); if(pm!=null) patch.precio = pm; }
         }
-        if(typeof r.talla==="string" && r.talla.trim()) patch.talla = r.talla.trim().slice(0,12);
+        if(b.talla!==false && typeof r.talla==="string" && r.talla.trim()) patch.talla = r.talla.trim().slice(0,12);
         if(b.cond!==false && CLAVES_COND.includes(r.condicion)) patch.condicion = r.condicion;
         if(b.desc && typeof r.descripcion==="string" && r.descripcion.trim()) patch.descripcion = r.descripcion.trim().slice(0,300);
         if(Object.keys(patch).length){ try{ await S.db.doc("productos/"+b.id).update(patch); }catch(e){ fails++; } }
@@ -557,7 +563,10 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       if(S.selecting) ph.append(el("span",{class:"check","aria-hidden":"true"}, S.sel.has(p.id)?"✓":""));
       else if(p.fotos && p.fotos.length>1) ph.append(el("span",{class:"multi"}, p.fotos.length+tx(" fotos"," photos")));
       const contado = p.precio!=null && !agotado(p) ? solesContado(p.precio) : null;
-      open.append(ph, el("div",{class:"info",style:"padding-bottom:0"}, contado!=null ? el("span",{class:"contado"}, `S/ ${contado.toLocaleString("es-PE")} con Yape o efectivo`) : null, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, el("span",{class:"name"},p.nombre||tx("Sin nombre","Untitled")), p.condicion ? el("span",{class:"cond-tag cond-"+p.condicion}, condTxt(p.condicion)) : null, el("span",{class:"meta"}, el("span",null,[catTxt(p.categoria), p.talla ? tx("Talla ","Size ")+p.talla : ""].filter(Boolean).join(" · ")), el("span",null,pubTxt(p.publico||""))), S.canEdit && p.costo!=null ? el("span",{class:"costo"}, `Costo ${usd(p.costo)}`+(p.precio!=null && costoMon(p.costo) ? ` · margen ${Math.round((p.precio/costoMon(p.costo)-1)*100)} %` : "")) : null, stockTxt(p) ? el("span",{class:"stockpill"+(S.canEdit && p.stock>3?" ok":"")}, stockTxt(p)) : null));
+      // Producto de una tienda de confianza: la cantidad es la del original.
+      const ic = S.canEdit && esCopia(p) ? infoCopia(p) : null;
+      const ps = ic ? { ...p, stock: ic.stock } : p;
+      open.append(ph, el("div",{class:"info",style:"padding-bottom:0"}, contado!=null ? el("span",{class:"contado"}, `S/ ${contado.toLocaleString("es-PE")} con Yape o efectivo`) : null, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, el("span",{class:"name"},p.nombre||tx("Sin nombre","Untitled")), p.condicion ? el("span",{class:"cond-tag cond-"+p.condicion}, condTxt(p.condicion)) : null, S.canEdit ? etiquetaConf(p) : null, el("span",{class:"meta"}, el("span",null,[catTxt(p.categoria), p.talla ? tx("Talla ","Size ")+p.talla : ""].filter(Boolean).join(" · ")), el("span",null,pubTxt(p.publico||""))), S.canEdit && p.costo!=null && !esCopia(p) ? el("span",{class:"costo"}, `Costo ${usd(p.costo)}`+(p.precio!=null && costoMon(p.costo) ? ` · margen ${Math.round((p.precio/costoMon(p.costo)-1)*100)} %` : "")) : null, ic && ic.precioReventa!=null ? el("span",{class:"costo"}, `Te cuesta ${money(ic.precioReventa)}` + (p.precio!=null ? ` · ganas ${money(p.precio - ic.precioReventa)}` : "")) : null, stockTxt(ps) ? el("span",{class:"stockpill"+(S.canEdit && ps.stock>3?" ok":"")}, stockTxt(ps)) : null));
       card.append(open);
       if(!S.selecting) card.append(el("div",{class:"info",style:"padding-top:0"}, addButton(p)));
       grid.append(card);
@@ -578,7 +587,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     pintarAsisSel();
     $("bulk").hidden = !S.selecting;
     $("bulkCount").textContent = S.sel.size + (S.sel.size===1?" seleccionado":" seleccionados");
-    $("bulkApply").disabled = $("bulkDel").disabled = $("bulkAI").disabled = !S.sel.size;
+    $("bulkApply").disabled = $("bulkDel").disabled = $("bulkAI").disabled = $("bulkShare").disabled = $("bulkUnshare").disabled = !S.sel.size;
   }
   $("selectBtn").onclick = ()=>{ S.selecting=true; S.sel.clear(); render(); $("bulk").scrollIntoView({block:"nearest"}); };
   $("bulkDone").onclick = ()=>{ S.selecting=false; S.sel.clear(); $("bulkConfirm").hidden=true; render(); };
@@ -593,21 +602,32 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     let sinCosto = 0;
     const fails = await runPool(ids, id=>{
       const p = S.products.find(x=>x.id===id); const cambio = { ...patch };
-      if(mg!=null){ const pm = p ? precioConMargen(p.costo, mg) : null; if(pm!=null) cambio.precio = pm; else sinCosto++; }
+      // De una tienda de confianza: la cantidad y las ventas las maneja la dueña (se registran con "Registrar venta").
+      if(esCopia(p)){ delete cambio.stock; if(cambio.estado && cambio.estado!=="oculto" && cambio.estado!=="disponible") delete cambio.estado; }
+      if(mg!=null && !esCopia(p)){ const pm = p ? precioConMargen(p.costo, mg) : null; if(pm!=null) cambio.precio = pm; else sinCosto++; }
       return Object.keys(cambio).length ? S.db.doc("productos/"+id).update(cambio) : Promise.resolve();
     });
     if(sinCosto) toast(`${sinCosto} producto(s) sin costo: el margen no se aplicó a esos`);
     $("bulkPrice").value=$("bulkCat").value=$("bulkMarca").value=$("bulkStock").value=$("bulkMargen").value=""; $("bulkStatus").value=""; $("bulkPub").value=""; $("bulkCond").value="";
     toast(fails ? `Actualizados ${ids.length-fails}; ${fails} fallaron` : `${ids.length} productos actualizados`); renderBulk();
   };
+  $("dictBtn").onclick = ()=>{ if(!S.canEdit) return; abrirDictado(); };
   $("bulkAI").onclick = ()=>classifySelected();
+  $("bulkShare").onclick = ()=>abrirCompartir([...S.sel]);
+  $("bulkUnshare").onclick = async ()=>{
+    const ids = [...S.sel].filter(id=>{ const p=S.products.find(x=>x.id===id); return p && p.compartido && !esCopia(p); });
+    if(!ids.length){ toast("Ninguno de los seleccionados está compartido"); return; }
+    const fails = await runPool(ids, id=>S.db.doc("productos/"+id).update({ compartido:false }));
+    toast(fails ? `${fails} no se pudieron cambiar` : `${ids.length} producto(s) ya no se comparten. Las otras tiendas dejan de mostrarlos.`);
+  };
   $("bulkDup").onclick = ()=>buscarRepetidos();
   $("bulkTabla").onclick = ()=>{ if(!S.sel.size){ toast("Selecciona productos o toca Todos"); return; } abrirLote([...S.sel], "seleccion"); };
   $("bulkDel").onclick = ()=>{ $("bulkN").textContent=S.sel.size; $("bulkConfirm").hidden=false; };
   $("bulkDelNo").onclick = ()=>{ $("bulkConfirm").hidden=true; };
   $("bulkDelYes").onclick = async ()=>{
     $("bulkConfirm").hidden=true; const ids=[...S.sel];
-    const fails = await runPool(ids, async id=>{ const p=S.products.find(x=>x.id===id); await S.db.doc("productos/"+id).delete(); if(p) await deletePhotos(p.fotos||[]); });
+    // Las fotos de un producto de confianza son de la otra tienda: solo se quita de esta.
+    const fails = await runPool(ids, async id=>{ const p=S.products.find(x=>x.id===id); await S.db.doc("productos/"+id).delete(); if(p && !esCopia(p)) await deletePhotos(p.fotos||[]); });
     S.sel.clear(); toast(fails ? `${fails} no se pudieron borrar` : `${ids.length} productos borrados`); render();
   };
   async function deletePhotos(fotos){ for(const f of fotos){ for(const id of [f.full,f.thumb]){ if(id){ try{ await S.assets.delete(id); }catch(e){} } } } }
@@ -742,27 +762,29 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const p = S.products.find(x=>x.id===openId); const ov=$("overlay");
     if(!p){ closeSheet(); return; }
     const fotos = p.fotos||[]; if(photoIdx>=fotos.length) photoIdx=0;
-    const keep = {}; ov.querySelectorAll("input,textarea,select").forEach(i=>{ if(i.id) keep[i.id]=i.value; });
+    const keep = {}; ov.querySelectorAll("input,textarea,select").forEach(i=>{ if(i.id) keep[i.id] = i.type==="checkbox" ? i.checked : i.value; });
+    const editaFotos = S.canEdit && !esCopia(p);   // las fotos de un producto de confianza las maneja la otra tienda
     ov.textContent="";
     const gal = el("div",{class:"gal"});
     if(fotos[photoIdx]) gal.append(el("img",{class:"main",src:src(fotos[photoIdx].full),alt:p.nombre||""}));
     const th = el("div",{class:"thumbs"});
     fotos.forEach((f,i)=>{
       const t = el("button",{class:"t"+(i===photoIdx?" on":""),type:"button","aria-label":tx("Foto ","Photo ")+(i+1),onclick:()=>{photoIdx=i;drawSheet();}}, el("img",{src:src(f.thumb||f.full),alt:""}));
-      if(S.canEdit && fotos.length>1){
+      if(editaFotos && fotos.length>1){
         t.append(el("span",{class:"x",role:"button",tabindex:"0","aria-label":"Quitar foto",onclick:async ev=>{ ev.stopPropagation(); const nf=fotos.filter((_,j)=>j!==i); await S.db.doc("productos/"+p.id).update({fotos:nf}); deletePhotos([f]); toast("Foto quitada"); }},"×"));
       }
       th.append(t);
     });
-    if(fotos.length>1 || S.canEdit) gal.append(th);
-    if(S.canEdit && photoIdx>0) gal.append(el("button",{class:"btn",type:"button",onclick:async()=>{ const nf=[fotos[photoIdx],...fotos.filter((_,j)=>j!==photoIdx)]; await S.db.doc("productos/"+p.id).update({fotos:nf}); photoIdx=0; toast("Portada cambiada"); }},"Usar como portada"));
-    if(S.canEdit){
+    if(fotos.length>1 || editaFotos) gal.append(th);
+    if(editaFotos && photoIdx>0) gal.append(el("button",{class:"btn",type:"button",onclick:async()=>{ const nf=[fotos[photoIdx],...fotos.filter((_,j)=>j!==photoIdx)]; await S.db.doc("productos/"+p.id).update({fotos:nf}); photoIdx=0; toast("Portada cambiada"); }},"Usar como portada"));
+    if(editaFotos){
       const add = el("input",{type:"file",accept:"image/*",multiple:"",hidden:"",id:"addPh"});
       add.onchange = async ()=>{ const fs=[...add.files]; if(!fs.length) return; toast("Subiendo "+fs.length+" foto(s)…"); const nuevas=[]; for(const f of fs){ try{ nuevas.push(await processPhoto(f, modoGuardado()||"mejorar")); }catch(e){ toast(f.name+": "+errText(e)); } } const cur=(S.products.find(x=>x.id===p.id)||p).fotos||[]; if(nuevas.length){ await S.db.doc("productos/"+p.id).update({fotos:[...cur,...nuevas]}); toast("Fotos agregadas"); } };
       gal.append(add, el("button",{class:"btn",type:"button",onclick:()=>add.click()},"+ Agregar fotos"));
     }
     const side = el("div",{class:"side"});
-    if(S.canEdit){
+    if(S.canEdit && esCopia(p)) fichaCopia(p, side, keep);
+    else if(S.canEdit){
       const v = (id,def)=> keep[id]!==undefined ? keep[id] : def;
       side.append(
         el("label",{class:"f"},"Nombre", el("input",{id:"eName",value:v("eName",p.nombre||""),maxlength:"120"})),
@@ -781,13 +803,17 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         el("div",{class:"row2"},
           el("label",{class:"f"},"Categoría", el("input",{id:"eCat",list:"catList",value:v("eCat",p.categoria||""),placeholder:"Ropa, zapatos…"})),
           el("label",{class:"f"},"Para", (()=>{ const s=el("select",{id:"ePub"}); [["","—"],...PUBLICOS.map(x=>[x,x])].forEach(([k,l])=>s.append(el("option",{value:k},l))); s.value=v("ePub",p.publico||""); return s; })())),
-        (()=>{ const ta=el("textarea",{id:"eDesc",rows:"4",placeholder:"Talla, color, estado, si es original…"}); ta.value=v("eDesc",p.descripcion||""); return el("label",{class:"f"},"Descripción", ta); })()
+        (()=>{ const ta=el("textarea",{id:"eDesc",rows:"4",placeholder:"Talla, color, estado, si es original…"}); ta.value=v("eDesc",p.descripcion||""); return el("label",{class:"f"},"Descripción", ta); })(),
+        el("fieldset",{class:"share-set"}, el("legend",null,"Tiendas de confianza"),
+          el("label",{class:"chk"}, el("input",{type:"checkbox",id:"eShare",checked: v("eShare",!!p.compartido) ? "" : false}), "Compartir con mis tiendas de confianza"),
+          el("label",{class:"f"},`Precio para revendedoras (${simbolo()})`, el("input",{id:"ePrecioRev",inputmode:"decimal",value:v("ePrecioRev",p.precioReventa==null?"":String(p.precioReventa)),placeholder: p.precio!=null ? "Ej. "+redondeoRev(p.precio*0.85) : "Lo que te pagan por unidad"})),
+          el("span",{class:"note",style:"margin:0"},"Es lo que te pagan por cada unidad que vendan. Ellas le ponen su propio precio a sus clientes."))
       );
       const conf = el("span",{class:"confirm",hidden:""},"¿Borrar este producto?", el("button",{class:"btn danger",type:"button",onclick:async()=>{ await S.db.doc("productos/"+p.id).delete(); deletePhotos(fotos); closeSheet(); toast("Producto borrado"); }},"Sí, borrar"), el("button",{class:"btn",type:"button",onclick:()=>{conf.hidden=true;}},"No"));
       side.append(el("div",{class:"actions"},
         el("button",{class:"btn danger",type:"button",onclick:()=>{conf.hidden=false;}},"Borrar"),
         el("div",{style:"display:flex;gap:8px"}, el("button",{class:"btn",type:"button",onclick:closeSheet},"Cerrar"),
-          el("button",{class:"btn primary",type:"button",onclick:async()=>{ const patch={ nombre:$("eName").value.trim()||"Producto nuevo", marca:$("eMarca").value.trim(), stock:parseStock($("eStock").value), costo:parsePrice($("eCosto").value), talla:$("eTalla").value.trim(), condicion:$("eCond").value, precio:parsePrice($("ePrice").value), estado:$("eStatus").value, categoria:$("eCat").value.trim(), publico:$("ePub").value, descripcion:$("eDesc").value.trim() }; try{ await S.db.doc("productos/"+p.id).update(patch); toast("Guardado"); closeSheet(); }catch(e){ toast("No se pudo guardar. Revisa tu conexión e intenta de nuevo."); } }},"Guardar"))
+          el("button",{class:"btn primary",type:"button",onclick:async()=>{ const patch={ nombre:$("eName").value.trim()||"Producto nuevo", marca:$("eMarca").value.trim(), stock:parseStock($("eStock").value), costo:parsePrice($("eCosto").value), talla:$("eTalla").value.trim(), condicion:$("eCond").value, precio:parsePrice($("ePrice").value), estado:$("eStatus").value, categoria:$("eCat").value.trim(), publico:$("ePub").value, descripcion:$("eDesc").value.trim(), compartido:$("eShare").checked, precioReventa:parsePrice($("ePrecioRev").value) }; if(patch.compartido && patch.precioReventa==null){ if(patch.precio==null){ toast("Para compartirlo, ponle un precio para revendedoras"); return; } patch.precioReventa = patch.precio; } try{ await S.db.doc("productos/"+p.id).update(patch); toast("Guardado"); closeSheet(); }catch(e){ toast("No se pudo guardar. Revisa tu conexión e intenta de nuevo."); } }},"Guardar"))
       ), conf);
     } else {
       const st=p.estado||"disponible";
@@ -1009,6 +1035,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     if(document.activeElement!==$("setWa")) $("setWa").value = S.config.whatsapp||"";
     if(document.activeElement!==$("setRate")) $("setRate").value = S.config.tipoCambio!=null ? String(S.config.tipoCambio) : "";
     if(document.activeElement!==$("setDesc")) $("setDesc").value = S.config.descuentoContado ? String(S.config.descuentoContado) : "";
+    if(document.activeElement!==$("setDias")) $("setDias").value = S.config.diasSeparado ? String(S.config.diasSeparado) : "";
     if(document.activeElement!==$("setYapeNum")) $("setYapeNum").value = S.config.yapeNumero||"";
     if(document.activeElement!==$("setYapeName")) $("setYapeName").value = S.config.yapeNombre||"";
     if(yapeQrNuevo===undefined) pintarQrConfig(S.config.yapeQr||"");
@@ -1041,6 +1068,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       await S.db.doc("config/tienda").set({
         nombre:$("setName").value.trim(), whatsapp:$("setWa").value.trim(), tipoCambio: parsePrice($("setRate").value),
         descuentoContado: Math.min(30, Math.max(0, parseMargen($("setDesc").value) || 0)),
+        diasSeparado: Math.min(60, Math.max(1, parseStock($("setDias").value) || 7)),
         yapeNumero:$("setYapeNum").value.trim(), yapeNombre:$("setYapeName").value.trim(),
         yapeQr: yapeQrNuevo!==undefined ? yapeQrNuevo : (S.config.yapeQr||""),
         pais, moneda,
@@ -1166,6 +1194,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       for(const id of [...S.sel]) if(!S.products.some(p=>p.id===id)) S.sel.delete(id);
       if(!snap.metadata.fromCache){ let ch=false; for(const id of Object.keys(cart)) if(!S.products.some(p=>p.id===id)){ delete cart[id]; ch=true; } if(ch) saveCart(); }
       render(); if(openId) drawSheet();
+      // Vista previa del dictado: se actualiza con lo que completa la IA (sin interrumpir si está escribiendo)
+      if(typeof dictAbierto==="function" && dictAbierto() && D.paso==="previa" && !(document.activeElement && $("planOverlay").contains(document.activeElement) && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName))) pintarDict();
       if(cartOpen && !$("overlay").contains(document.activeElement)) drawCart();
       if(!S.canEdit) mensajeEstadoPublico(); else actualizarPlan();
     }, ()=>{ clearTimeout(slow); S.loaded=true; $("emptyTitle").textContent="No se pudo cargar la vitrina"; $("emptyText").textContent="Recarga la página en unos minutos."; render(); });
@@ -1192,10 +1222,10 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   // ----- Panel de la dueña -----
   let panelFiltro = "pendiente", tiendasCache = [];
   async function abrirPanel(){
-    show("vitrina", false); show("storeBanner", false); show("onboard", false); show("panel", true);
+    show("vitrina", false); show("storeBanner", false); show("onboard", false); show("confBox", false); show("panel", true);
     $("panelRows").textContent = ""; $("panelCount").textContent = "Cargando vitrinas…";
     try{ tiendasCache = await listarTiendas(); }catch(e){ $("panelCount").textContent = "No se pudieron cargar las vitrinas: " + ((e&&e.message)||""); return; }
-    pintarPanel();
+    pintarPanel(); cargarPanelConf();
   }
   function pintarPanel(){
     const cuenta = { todas: tiendasCache.length };
@@ -1252,7 +1282,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     box.append(info, el("button",{class:"btn"+(lleno||cerca?" tag":""),type:"button",onclick:abrirPlanes}, ilimitado ? "Ver planes" : "Mejorar plan"));
   }
   function abrirPlanes(){
-    const u = usoPlan(), ov=$("planOverlay"); ov.textContent=""; ov.hidden=false;
+    const u = usoPlan(), ov=$("planOverlay"); ov.textContent=""; ov.hidden=false; delete ov.dataset.conf;
     const cerrar = ()=>{ ov.hidden=true; ov.textContent=""; };
     ov.onclick = e=>{ if(e.target===ov) cerrar(); };
     const card = el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":"Planes"},
@@ -1308,15 +1338,581 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     b.onclick = async ()=>{ b.disabled=true; try{ const r = await conectarCobros(); location.href = r.url; }catch(e){ toast((e&&e.message)||"No se pudo abrir Stripe"); b.disabled=false; } };
   }
 
+  // ----- Dictado por voz -----
+  // La vendedora mira sus productos y los dicta, uno tras otro, diciendo "siguiente" entre cada uno.
+  // Cada producto se guarda al instante (borrador en este navegador). Luego la IA entiende el texto,
+  // ella elige las fotos en el mismo orden, ve una vista previa (productos ocultos) y recién publica.
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const SEPARADOR = /\b(?:siguiente|next(?: one)?)\b[\s.,;:!]*/i;
+  const D = { paso:"dictar", items:[], buffer:"", datos:[], fotos:[], ids:[], escuchando:false, interino:"" };
+  let rec = null;
+  const claveDict = () => "dictado-" + ((S.config && S.config.id) || "tienda");
+  function guardarDict(){ try{ localStorage.setItem(claveDict(), JSON.stringify({ items:D.items, buffer:D.buffer, ids:D.ids })); }catch(e){} }
+  function cargarDict(){ try{ const d = JSON.parse(localStorage.getItem(claveDict()) || "{}"); D.items = Array.isArray(d.items) ? d.items : []; D.buffer = d.buffer || ""; D.ids = Array.isArray(d.ids) ? d.ids : []; }catch(e){} }
+  const dictAbierto = () => !$("planOverlay").hidden && $("planOverlay").dataset.dict === "1";
+  function agregarTexto(t){
+    let resto = (D.buffer + " " + t).replace(/\s+/g," ");
+    const partes = resto.split(SEPARADOR);
+    resto = partes.pop();
+    for(const p of partes){ const x = p.trim().replace(/^[.,;:\s]+|[.,;:\s]+$/g,""); if(x) D.items.push(x); }
+    D.buffer = resto.trimStart();
+    guardarDict();
+  }
+  function cerrarProductoActual(){ agregarTexto(" siguiente "); }
+  function microfono(on){
+    if(!SR){ toast("Tu navegador no permite dictar aquí: escribe con el micrófono del teclado"); return; }
+    if(!on){ D.escuchando=false; D.interino=""; try{ rec && rec.stop(); }catch(e){} pintarDict(); return; }
+    rec = new SR(); rec.lang = esUS() ? "en-US" : "es-PE"; rec.continuous = true; rec.interimResults = true;
+    rec.onresult = e=>{
+      let fin = ""; D.interino = "";
+      for(let i=e.resultIndex; i<e.results.length; i++){ const t = e.results[i][0].transcript; if(e.results[i].isFinal) fin += t + " "; else D.interino += t; }
+      if(fin) agregarTexto(fin);
+      pintarVivo();
+    };
+    rec.onerror = e=>{ if(e.error==="not-allowed" || e.error==="service-not-allowed" || e.error==="audio-capture"){ D.escuchando=false; toast("Permite el micrófono para dictar, o escribe con el micrófono del teclado"); pintarDict(); } };
+    // El celular corta la escucha tras un silencio: si seguimos dictando, se vuelve a encender sola.
+    rec.onend = ()=>{ if(D.escuchando){ try{ rec.start(); }catch(e){ D.escuchando=false; pintarDict(); } } };
+    try{ rec.start(); D.escuchando = true; }catch(e){ toast("No se pudo usar el micrófono"); }
+    pintarDict();
+  }
+  function abrirDictado(){
+    cargarDict();
+    D.paso = D.ids.length && S.products.some(p=>D.ids.includes(p.id)) ? "previa" : "dictar";
+    const ov=$("planOverlay"); ov.hidden=false; ov.dataset.dict="1"; delete ov.dataset.conf;
+    ov.onclick = e=>{ if(e.target===ov) cerrarDictado(); };
+    pintarDict();
+  }
+  function cerrarDictado(){ microfono(false); D.fotos.forEach(f=>{ if(f && f.url) URL.revokeObjectURL(f.url); }); const ov=$("planOverlay"); ov.hidden=true; ov.textContent=""; delete ov.dataset.dict; }
+  function pintarVivo(){
+    const b = $("dictBuffer"), i = $("dictInterino");
+    if(b) b.textContent = D.buffer || (D.escuchando ? "Escuchando…" : "");
+    if(i) i.textContent = D.interino;
+    const l = $("dictLista"); if(l && l.childElementCount !== D.items.length) pintarDict();
+  }
+  function pintarDict(){
+    if(!dictAbierto()) return;
+    const ov=$("planOverlay"); ov.textContent="";
+    const titulos = { dictar:"Dictar productos", revisar:"Revisa lo que entendí", fotos:"Elige las fotos en el mismo orden", subiendo:"Preparando la vista previa", previa:"Vista previa antes de publicar" };
+    const card = el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":titulos[D.paso],style:"width:min(720px,100%)"},
+      el("div",{class:"cart-head"}, el("h2",null,titulos[D.paso]), el("button",{class:"btn",type:"button",onclick:cerrarDictado}, D.paso==="subiendo" ? "Ocultar" : "Cerrar")));
+    ({ dictar:pasoDictar, revisar:pasoRevisar, fotos:pasoFotos, subiendo:pasoSubiendo, previa:pasoPrevia })[D.paso](card);
+    ov.append(card);
+  }
+  function pasoDictar(card){
+    const mic = el("button",{class:"mic",type:"button","aria-label": D.escuchando ? "Pausar el dictado" : "Empezar a dictar", onclick:()=>microfono(!D.escuchando)}, D.escuchando ? "❚❚" : "🎙️");
+    card.append(
+      el("p",{class:"note",style:"margin:0"}, "Mira cada producto y dilo de corrido: qué es, marca, condición, precio y cuántos tienes. Al terminar uno, di ", el("strong",null,"“siguiente”"), ". Ej.: ", el("em",null,"“Cartera Coach negra, nueva con etiqueta, 85 soles, tengo 2… siguiente”"), "."),
+      el("div",{class:"dict-mic"+(D.escuchando?" on":"")}, mic,
+        el("div",{class:"dict-vivo"}, el("strong",null, D.escuchando ? "Te escucho" : (SR ? "Toca el micrófono para empezar" : "Escribe tus productos")),
+          el("span",{class:"en-curso",id:"dictBuffer"}, D.buffer || (D.escuchando ? "Escuchando…" : "")), el("span",{class:"interino",id:"dictInterino"}, D.interino)),
+        D.buffer.trim() ? el("button",{class:"btn",type:"button",onclick:()=>{ cerrarProductoActual(); pintarDict(); }},"Siguiente producto") : null));
+    // Escribir (o usar el micrófono del teclado del celular): sirve en cualquier navegador.
+    const ta = el("textarea",{rows:"2",placeholder: SR ? "O escríbelo aquí…" : "Escribe o usa el micrófono de tu teclado. Di “siguiente” entre productos…","aria-label":"Escribir producto"});
+    const add = el("button",{class:"btn",type:"button",onclick:()=>{ const t = ta.value.trim(); if(!t) return; agregarTexto(t + " siguiente "); ta.value=""; pintarDict(); }},"Agregar");
+    card.append(el("div",{style:"display:flex;gap:8px;align-items:end"}, el("label",{class:"f",style:"flex:1"},"Escribir", ta), add));
+    const lista = el("div",{class:"dict-list",id:"dictLista"});
+    D.items.forEach((t,i)=>{
+      const tx = el("textarea",{rows:"2","aria-label":"Producto "+(i+1)}); tx.value = t;
+      tx.onchange = ()=>{ D.items[i] = tx.value.trim(); guardarDict(); };
+      lista.append(el("div",{class:"dict-item"}, el("span",{class:"n"}, String(i+1)), tx,
+        el("button",{class:"btn",type:"button","aria-label":"Quitar producto "+(i+1),onclick:()=>{ D.items.splice(i,1); guardarDict(); pintarDict(); }},"✕")));
+    });
+    if(D.items.length) card.append(el("strong",null, D.items.length===1 ? "1 producto dictado" : `${D.items.length} productos dictados`), lista);
+    const seguir = el("button",{class:"btn primary",type:"button",onclick:async()=>{
+      if(D.buffer.trim()) cerrarProductoActual();
+      D.items = D.items.filter(Boolean);
+      if(!D.items.length){ toast("Dicta o escribe al menos un producto"); return; }
+      microfono(false); seguir.disabled = true; seguir.textContent = "Entendiendo…";
+      D.datos = await entenderDictado(D.items);
+      D.paso = "revisar"; pintarDict();
+    }}, "Continuar");
+    card.append(el("div",{class:"send"}, seguir,
+      D.items.length ? (()=>{ const b = el("button",{class:"btn",type:"button"},"Empezar de nuevo"); b.onclick = ()=>{ if(b.dataset.seguro){ D.items=[]; D.buffer=""; guardarDict(); pintarDict(); } else { b.dataset.seguro="1"; b.textContent="¿Borrar todo? Toca otra vez"; } }; return b; })() : null),
+      el("p",{class:"note",style:"margin:0"},"Lo que dictas queda guardado en este celular aunque cierres la ventana."));
+  }
+  // Marcas frecuentes (respaldo sin IA), con lo que suele escribir el reconocimiento de voz.
+  const MARCAS_VOZ = [[/\bcoach\b|\bcouch\b/i,"Coach"],[/\bgues+\b/i,"Guess"],[/\bmich?ael cors?\b|\bmaicol cors?\b|\bmichael kors\b/i,"Michael Kors"],[/\bnike\b|\bnaik\b/i,"Nike"],[/\badidas\b/i,"Adidas"],[/\bvictoria'?s secret\b/i,"Victoria's Secret"],[/\bbath (?:and|&|an) body works\b/i,"Bath & Body Works"],[/\btommy(?: hilfiger)?\b/i,"Tommy Hilfiger"],[/\bcalvin klein\b/i,"Calvin Klein"],[/\bralph lauren\b|\bpolo ralph\b/i,"Ralph Lauren"],[/\blevi'?s\b/i,"Levi's"],[/\bcarter'?s\b/i,"Carter's"],[/\bgap\b/i,"Gap"],[/\bzara\b/i,"Zara"],[/\bfossil\b/i,"Fossil"],[/\bpuma\b/i,"Puma"],[/\bunder armou?r\b/i,"Under Armour"],[/\bold navy\b/i,"Old Navy"],[/\bh ?& ?m\b/i,"H&M"],[/\bkate spade\b/i,"Kate Spade"],[/\bnew balance\b/i,"New Balance"],[/\bskechers\b/i,"Skechers"],[/\bcrocs\b/i,"Crocs"],[/\bdisney\b/i,"Disney"],[/\blego\b/i,"Lego"]];
+  // Respaldo sin IA: saca precio, cantidad, talla y condición con reglas simples.
+  function parsearLocal(t){
+    const s = " " + t + " ", lo = s.toLowerCase(), r = { nombre:"" };
+    const num = x => parseFloat(String(x).replace(",", "."));
+    let m;
+    if((m = lo.match(/(?:me cost[oó]|cost[oó]|la etiqueta dice|etiqueta de)\s*\$?\s*(\d+(?:[.,]\d+)?)/))) r.costo = num(m[1]);
+    if((m = lo.match(/s\/\.?\s*(\d+(?:[.,]\d+)?)/) || lo.match(/(\d+(?:[.,]\d+)?)\s*(soles?|lucas)\b/))){ r.precio = num(m[1]); r.moneda = "PEN"; }
+    else if((m = lo.match(/(?:a|en|precio)\s+(\d+(?:[.,]\d+)?)\s*(d[oó]lares|usd|bucks)\b/) || lo.match(/(\d+(?:[.,]\d+)?)\s*(d[oó]lares|usd|bucks)\b/))){ if(!r.costo || num(m[1])!==r.costo){ r.precio = num(m[1]); r.moneda = "USD"; } }
+    else if((m = lo.match(/\$\s*(\d+(?:[.,]\d+)?)/))){ r.precio = num(m[1]); }
+    if((m = lo.match(/(?:tengo|son|quedan|hay|me quedan)\s+(\d+)/) || lo.match(/(\d+)\s+(?:unidades|piezas|pares)/))) r.stock = parseInt(m[1],10);
+    if((m = lo.match(/talla\s+([a-z0-9][a-z0-9.\/-]{0,7})/))) r.talla = m[1].toUpperCase();
+    r.condicion = /con etiqueta/.test(lo) ? "nuevo_etiqueta" : /caja abierta/.test(lo) ? "caja_abierta" : /como nuev/.test(lo) ? "como_nuevo" : /usad/.test(lo) ? "usado" : /\bnuev[oa]s?\b/.test(lo) ? "nuevo" : "";
+    const marca = MARCAS_VOZ.find(([re])=>re.test(t)); if(marca) r.marca = marca[1];
+    // Nombre: lo dictado sin marca, precio, cantidades, talla ni condición; solo la primera frase.
+    let n = t.replace(/(?:me cost[oó]|cost[oó]|la etiqueta dice|etiqueta de)\s*\$?\s*\d+(?:[.,]\d+)?\s*(?:d[oó]lares|usd)?/gi," ")
+      .replace(/s\/\.?\s*\d+(?:[.,]\d+)?|\$\s*\d+(?:[.,]\d+)?|\b(?:a|en|precio)?\s*\d+(?:[.,]\d+)?\s*(?:soles?|lucas|d[oó]lares|usd|bucks)\b/gi," ")
+      .replace(/\b(?:tengo|son|quedan|hay|me quedan)\s+\d+\b|\b\d+\s+(?:unidades|piezas|pares)\b|\btalla\s+\S+/gi," ")
+      .replace(/\b(nuev[oa]s?|usad[oa]s?|con etiqueta|caja abierta|como nuev[oa])\b/gi," ");
+    if(marca) n = n.replace(marca[0], " ");
+    n = n.split(/[,.;]/).map(x=>x.replace(/\s+/g," ").trim()).find(Boolean) || "";
+    r.nombre = (n.charAt(0).toUpperCase() + n.slice(1)).slice(0,80) || "Producto nuevo";
+    return r;
+  }
+  async function entenderDictado(textos){
+    const moneda = enSoles() ? "PEN" : "USD";
+    let ia = [];
+    try{ ia = await interpretarDictado(textos, esUS() ? "en" : "es", moneda); }catch(e){ console.warn("Detalle técnico:", e); toast("La IA no respondió: completé lo que pude, revisa los datos"); }
+    return textos.map((t, i)=>{
+      const a = (Array.isArray(ia) && (ia.find(x=>x && Number(x.i)===i))) || {}, b = parsearLocal(t);
+      const d = { texto:t, nombre: a.nombre || b.nombre, marca: a.marca || b.marca || "", precio: a.precio ?? b.precio ?? null, moneda: a.moneda || b.moneda || null, costo: a.costo ?? b.costo ?? null,
+        stock: a.stock ?? b.stock ?? null, talla: a.talla || b.talla || "", condicion: CLAVES_COND.includes(a.condicion) ? a.condicion : (b.condicion || ""), categoria: CATS.includes(a.categoria) ? a.categoria : "", publico: PUBLICOS.includes(a.publico) ? a.publico : "", descripcion: a.descripcion || "" };
+      // Si dijo el precio en otra moneda que la de la tienda, se convierte con el tipo de cambio.
+      const tc = tipoCambio();
+      if(d.precio!=null && d.moneda && d.moneda!==moneda && tc){ d.precio = moneda==="PEN" ? Math.round(d.precio*tc) : Math.round(d.precio/tc*100)/100; }
+      return d;
+    });
+  }
+  function pasoRevisar(card){
+    card.append(el("p",{class:"note",style:"margin:0"},"Corrige lo que haga falta. En el siguiente paso eliges las fotos en el mismo orden en que dictaste."));
+    const tabla = el("div",{class:"dict-tabla"});
+    D.datos.forEach((d,i)=>{
+      const inp = (k, label, extra={}) => { const x = el("input",{value: d[k]==null ? "" : String(d[k]), ...extra}); x.onchange = ()=>{ d[k] = extra.inputmode==="decimal" ? parsePrice(x.value) : extra.inputmode==="numeric" ? parseStock(x.value) : x.value.trim(); }; return el("label",{class:"f"},label,x); };
+      const cond = el("select",null); opcionesCond("—").forEach(([k,l])=>cond.append(el("option",{value:k},l))); cond.value = d.condicion||""; cond.onchange = ()=>{ d.condicion = cond.value; };
+      tabla.append(el("div",{class:"dict-fila"},
+        el("strong",null, `${i+1}.`), el("span",{class:"orig"}, "“"+d.texto+"”"),
+        el("div",{class:"dict-campos"}, inp("nombre","Nombre",{maxlength:"80"}), inp("marca","Marca",{maxlength:"40",list:"marcaList"}), inp("precio",`Precio (${simbolo()})`,{inputmode:"decimal"}), inp("stock","Cantidad",{inputmode:"numeric",placeholder:"—"}), inp("talla","Talla",{maxlength:"12"}), el("label",{class:"f"},"Condición",cond))));
+    });
+    card.append(tabla, el("div",{class:"send"},
+      el("button",{class:"btn primary",type:"button",onclick:()=>{ D.fotos = []; D.paso="fotos"; pintarDict(); }},"Elegir las fotos"),
+      el("button",{class:"btn",type:"button",onclick:()=>{ D.paso="dictar"; pintarDict(); }},"Volver a dictar")));
+  }
+  function pasoFotos(card){
+    const input = el("input",{type:"file",accept:"image/*",multiple:"",hidden:""});
+    input.onchange = ()=>{
+      // Orden en que se tomaron (hora de la foto); si es igual, por nombre del archivo.
+      const files = [...input.files].filter(f=>f.type.startsWith("image/") || /\.(heic|heif)$/i.test(f.name)).sort((a,b)=>(a.lastModified-b.lastModified) || a.name.localeCompare(b.name, undefined, {numeric:true}));
+      D.fotos.forEach(f=>{ if(f && f.url) URL.revokeObjectURL(f.url); });
+      D.fotos = files.map(f=>({ file:f, url:URL.createObjectURL(f) }));
+      pintarDict();
+    };
+    const n = D.datos.length, m = D.fotos.length;
+    card.append(el("p",{class:"note",style:"margin:0"}, `Elige las ${n} fotos de estos productos, en el mismo orden en que los dictaste. Las ordenamos por la hora en que las tomaste. Si alguna quedó en otro lugar, muévela con las flechas.`),
+      el("div",{style:"display:flex;gap:8px;flex-wrap:wrap"}, el("button",{class:"btn primary",type:"button",onclick:()=>input.click()}, m ? "Elegir otras fotos" : `Elegir ${n} fotos`), input));
+    if(m && m!==n) card.append(el("p",{class:"note",style:"margin:0;color:var(--hold);font-weight:600"}, m<n ? `Dictaste ${n} productos y elegiste ${m} ${m===1?"foto":"fotos"}: ${n-m===1 ? "1 producto quedará" : (n-m)+" productos quedarán"} sin foto. Revisa que cada foto esté junto a su producto.` : `Elegiste ${m} fotos para ${n} ${n===1?"producto":"productos"}: ${m-n===1 ? "la última no se usará" : "las "+(m-n)+" últimas no se usarán"}. Revisa que cada foto esté junto a su producto.`));
+    const lista = el("div",{class:"rv-list"});
+    const mover = (i, j)=>{ if(j<0 || j>=Math.max(n,m)) return; const a = D.fotos[i], b = D.fotos[j]; D.fotos[i]=b; D.fotos[j]=a; pintarDict(); };
+    for(let i=0; i<Math.max(n, m); i++){
+      const d = D.datos[i], f = D.fotos[i];
+      lista.append(el("div",{class:"par-item"}, el("span",{class:"n"}, String(i+1)),
+        f ? el("img",{src:f.url,alt:"Foto "+(i+1)}) : el("span",{class:"noimg"},"Sin foto"),
+        el("span",{class:"t"}, d ? el("strong",null,d.nombre) : el("strong",{style:"color:var(--muted)"},"Foto de más (no se usará)"), d ? el("small",null,[d.marca, d.precio!=null ? money(d.precio) : "", condTxt(d.condicion)].filter(Boolean).join(" · ")) : null),
+        el("span",{class:"mov"},
+          el("button",{class:"btn",type:"button","aria-label":"Subir foto "+(i+1),disabled: i===0 ? "" : false,onclick:()=>mover(i,i-1)},"↑"),
+          el("button",{class:"btn",type:"button","aria-label":"Bajar foto "+(i+1),disabled: i>=Math.max(n,m)-1 ? "" : false,onclick:()=>mover(i,i+1)},"↓"))));
+    }
+    if(m) card.append(lista);
+    card.append(el("div",{class:"send"},
+      el("button",{class:"btn primary",type:"button",disabled: m ? false : "",onclick:prepararVistaPrevia},"Ver vista previa"),
+      el("button",{class:"btn",type:"button",onclick:()=>{ D.paso="revisar"; pintarDict(); }},"Volver")),
+      el("p",{class:"note",style:"margin:0"},"Todavía no se publica nada: primero verás cómo quedan."));
+  }
+  let avanceDict = { hechos:0, total:0, texto:"" };
+  function pasoSubiendo(card){
+    const bar = el("div",{class:"meter"}), i = el("i"); i.style.width = (avanceDict.total ? avanceDict.hechos/avanceDict.total*100 : 0) + "%"; bar.append(i);
+    card.append(el("p",{class:"note",style:"margin:0"}, avanceDict.texto || "Subiendo fotos…"), bar, el("span",{class:"note",style:"margin:0"}, `${avanceDict.hechos} de ${avanceDict.total}`));
+  }
+  async function prepararVistaPrevia(){
+    const n = D.datos.length, modo = modoGuardado() || "mejorar";
+    avanceDict = { hechos:0, total:n, texto:"Subiendo fotos y preparando tus productos (todavía ocultos)…" };
+    D.paso = "subiendo"; pintarDict();
+    const col = S.db.collection("productos"), base = Date.now(), ids = new Array(n), paraIA = [];
+    let k = 0, fallos = 0;
+    async function worker(){
+      while(k < n){
+        const i = k++, d = D.datos[i], f = D.fotos[i];
+        try{
+          let ph = null, blob = null;
+          if(f){ ph = await processPhoto(f.file, modo); blob = ph.full; delete ph._blob; }
+          const ref = col.doc();
+          await ref.set({ nombre: d.nombre || "Producto nuevo", marca: d.marca || "", precio: d.precio, stock: d.stock, costo: d.costo, talla: d.talla || "", condicion: d.condicion || "", categoria: d.categoria || "", publico: d.publico || "", descripcion: d.descripcion || "", estado:"oculto", fotos: ph ? [ph] : [], creado: base + (n-i) });
+          ids[i] = ref.id;
+          if(ph && S.ai) paraIA.push({ id:ref.id, blob, name:false, cat:!d.categoria, marca:!d.marca, cond:!d.condicion, desc:!d.descripcion, talla:!d.talla, pub:!d.publico, costo: d.costo==null, check: d.categoria || "" });
+        }catch(e){ fallos++; console.warn("Detalle técnico:", e); }
+        avanceDict.hechos++; if(D.paso==="subiendo") pintarDict();
+      }
+    }
+    await Promise.all(Array.from({length:Math.min(4,n)}, worker));
+    D.ids = ids.filter(Boolean); D.items = []; D.buffer = ""; guardarDict();
+    S.noCoinciden = new Set();
+    if(paraIA.length){ avanceDict.texto = "La IA está revisando las fotos…"; if(D.paso==="subiendo") pintarDict(); try{ await classify(paraIA); }catch(e){ console.warn("Detalle técnico:", e); } }
+    D.alertas = [...S.noCoinciden]; S.noCoinciden = null;
+    if(fallos) toast(`${fallos} producto(s) no se pudieron preparar. Revisa tu conexión.`);
+    D.paso = "previa";
+    if(dictAbierto()) pintarDict(); else { toast("Tu vista previa está lista"); abrirDictado(); }
+  }
+  function pasoPrevia(card){
+    const prods = D.ids.map(id=>S.products.find(p=>p.id===id)).filter(Boolean);
+    const pendientes = prods.filter(p=>p.estado==="oculto");
+    if(!prods.length){ card.append(el("p",{class:"note",style:"margin:0"},"Cargando tus productos…")); setTimeout(()=>{ if(dictAbierto() && D.paso==="previa") pintarDict(); }, 800); return; }
+    const alertas = new Set(D.alertas || []);
+    card.append(el("p",{class:"note",style:"margin:0"}, "Así los verán tus clientes. Todavía están ", el("strong",null,"ocultos"), ": corrige lo que haga falta y toca Publicar."));
+    if(prods.some(p=>alertas.has(p.id))) card.append(el("p",{class:"note",style:"margin:0;color:var(--hold);font-weight:600"},"⚠️ Revisa los marcados: la foto parece de otro tipo de producto que lo que dictaste. Cámbiala si no es la correcta."));
+    const grid = el("div",{class:"prev-grid"});
+    for(const p of prods){
+      const cover = p.fotos && p.fotos[0], alerta = alertas.has(p.id);
+      const nombre = el("input",{value:p.nombre||"","aria-label":"Nombre"});
+      const precio = el("input",{value:p.precio==null?"":String(p.precio),inputmode:"decimal",placeholder:"Precio "+simbolo(),"aria-label":"Precio"});
+      const cond = el("select",{"aria-label":"Condición"}); opcionesCond("Condición…").forEach(([k,l])=>cond.append(el("option",{value:k},l))); cond.value = p.condicion||"";
+      const guardar = async patch=>{ try{ await S.db.doc("productos/"+p.id).update(patch); }catch(e){ toast("No se pudo guardar. Intenta de nuevo."); } };
+      nombre.onchange = ()=>guardar({ nombre: nombre.value.trim() || "Producto nuevo" });
+      precio.onchange = ()=>guardar({ precio: parsePrice(precio.value) });
+      cond.onchange = ()=>guardar({ condicion: cond.value });
+      const nueva = el("input",{type:"file",accept:"image/*",hidden:""});
+      nueva.onchange = async ()=>{ const f = nueva.files[0]; if(!f) return; toast("Cambiando la foto…"); try{ const ph = await processPhoto(f, modoGuardado()||"mejorar"); delete ph._blob; await S.db.doc("productos/"+p.id).update({ fotos:[ph] }); deletePhotos(p.fotos||[]); D.alertas = (D.alertas||[]).filter(x=>x!==p.id); toast("Foto cambiada"); }catch(e){ toast("No se pudo cambiar la foto: " + errText(e)); } };
+      grid.append(el("div",{class:"prev-card"+(alerta?" alerta":"")},
+        el("div",{class:"ph"}, cover ? el("img",{src:src(cover.thumb||cover.full),alt:""}) : el("span",{class:"sinfoto"},"Sin foto: toca Cambiar foto"), el("span",{class:"price"+(p.precio==null?" none":"")}, p.precio==null ? "Consultar" : money(p.precio))),
+        el("div",{class:"body"},
+          alerta ? el("span",{class:"aviso"},"⚠️ ¿Esta foto es de este producto?") : null,
+          p.marca ? el("span",{class:"marca-tag"},p.marca) : null,
+          nombre, precio, cond,
+          p.estado!=="oculto" ? el("span",{class:"conf-tag"},"Publicado") : null,
+          el("div",{style:"display:flex;gap:6px;flex-wrap:wrap"},
+            el("button",{class:"btn",type:"button",onclick:()=>nueva.click()}, cover ? "Cambiar foto" : "Poner foto"), nueva,
+            el("button",{class:"btn danger",type:"button",onclick:async()=>{ try{ await S.db.doc("productos/"+p.id).delete(); deletePhotos(p.fotos||[]); D.ids = D.ids.filter(x=>x!==p.id); guardarDict(); pintarDict(); }catch(e){ toast("No se pudo quitar"); } }},"Quitar")))));
+    }
+    const publicar = el("button",{class:"btn primary",type:"button",disabled: pendientes.length ? false : ""}, pendientes.length ? `Publicar ${pendientes.length}` : "Todo publicado");
+    publicar.onclick = async ()=>{
+      const libres = usoPlan().libres, lista = pendientes.slice(0, libres===Infinity ? pendientes.length : libres);
+      if(!lista.length){ toast("Llegaste al límite de tu plan"); abrirPlanes(); return; }
+      publicar.disabled = true; publicar.textContent = "Publicando…";
+      const fails = await runPool(lista.map(p=>p.id), id=>S.db.doc("productos/"+id).update({ estado:"disponible" }));
+      const quedan = pendientes.length - lista.length + fails;
+      toast(quedan ? `Publicados ${lista.length-fails}. ${quedan} siguen ocultos${lista.length<pendientes.length ? " porque superan tu plan" : ""}.` : `¡Listo! ${lista.length} producto(s) publicados`);
+      if(!quedan){ D.ids = []; D.alertas = []; guardarDict(); cerrarDictado(); } else pintarDict();
+    };
+    card.append(grid, el("div",{class:"send"}, publicar, el("button",{class:"btn",type:"button",onclick:cerrarDictado},"Publicar después")),
+      el("p",{class:"note",style:"margin:0"},"Si publicas después, los encuentras ocultos en tu tienda; vuelve aquí con “Dictar productos”."));
+  }
+
+  // ----- Tiendas de confianza -----
+  // Una vendedora comparte productos con sus tiendas de confianza; la otra los agrega a su tienda (copias)
+  // y los vende como suyos. La foto y la cantidad salen del original; el precio lo pone la revendedora.
+  const esCopia = p => !!(p && p.origenId);
+  const infoCopia = p => (S.conf && S.conf.copias && S.conf.copias[p.id]) || null;
+  const sumaPend = l => (l||[]).filter(r=>r.estado==="debe").reduce((t,r)=>t+(Number(r.monto)||0),0);
+  // Separados: lo que una revendedora guardó para su clienta y todavía no confirma como venta.
+  const separadosMios = () => S.conf ? S.conf.meDeben.filter(r=>r.estado==="separado") : [];   // de mis productos
+  const misSeparados = () => S.conf ? S.conf.debo.filter(r=>r.estado==="separado") : [];       // los que separé yo
+  const vencido = r => r.hasta && r.hasta < Date.now();
+  const fechaCorta = ms => new Date(ms).toLocaleDateString("es-PE",{ day:"numeric", month:"short" });
+  let avisoWa = null;   // tras separar: enlace para avisar a la dueña por WhatsApp
+  // Precio para revendedoras: en soles se redondea al sol; en dólares, a centavos.
+  const redondeoRev = n => enSoles() ? Math.max(1, Math.round(n)) : Math.max(0.5, Math.round(n*100)/100);
+  function etiquetaConf(p){
+    if(esCopia(p)){
+      const i = infoCopia(p), sep = misSeparados().filter(r=>r.copiaId===p.id);
+      if(sep.length) return el("span",{class:"conf-tag"+(sep.some(vencido)?" off":"")}, `Separado (${sep.reduce((t,r)=>t+(r.q||1),0)})` + (sep.some(vencido) ? " · vencido" : ""));
+      if(i && !i.disponible) return el("span",{class:"conf-tag off"},"Ya no disponible");
+      return el("span",{class:"conf-tag"}, i ? "De " + i.tiendaNombre : "De confianza");
+    }
+    const sep = separadosMios().filter(r=>r.productoId===p.id);
+    if(sep.length) return el("span",{class:"conf-tag"+(sep.some(vencido)?" off":"")}, `Separado por ${sep[0].tiendaNombre}` + (sep.length>1 ? ` y ${sep.length-1} más` : "") + (sep.some(vencido) ? " · vencido" : ""));
+    return p.compartido ? el("span",{class:"conf-tag"},"Compartido") : null;
+  }
+  function msgConf(e){
+    const m = String((e && e.message) || "");
+    return !m || m.length > 160 || /lambda|exception|unauthor|timeout|network|graphql|dynamo/i.test(m) ? "No se pudo completar. Revisa tu conexión e intenta de nuevo." : m;
+  }
+  async function cargarConfianza(){
+    try{ S.conf = await confianza("listar"); }catch(e){ console.warn("Detalle técnico:", e); return; }
+    pintarConfBox(); render(); if(openId) drawSheet();
+    if(confAbierto()) pintarConfianza();
+  }
+  async function accionConf(btn, accion, datos, ok){
+    if(btn) btn.disabled = true;
+    try{
+      const r = await confianza(accion, datos);
+      if(ok) toast(typeof ok==="function" ? ok(r) : ok);
+      await cargarConfianza();
+      return r || {};
+    }catch(e){ console.warn("Detalle técnico:", e); toast(msgConf(e)); return null; }
+    finally{ if(btn) btn.disabled = false; }
+  }
+  function pintarConfBox(){
+    if(!S.canEdit){ show("confBox", false); return; }
+    show("confBox", true);
+    const c = S.conf; let txt = "Comparte productos con vendedoras de confianza y revende los suyos como tuyos.";
+    let urgente = false;
+    if(c){
+      const act = c.relaciones.filter(r=>r.estado==="aceptada").length, inv = c.relaciones.filter(r=>r.estado==="pendiente" && !r.invitaYo).length;
+      const nuevos = c.compartidos.filter(x=>!x.yaAgregado).length, meDeben = sumaPend(c.meDeben), debo = sumaPend(c.debo);
+      const partes = [];
+      if(inv){ partes.push(inv===1 ? "Tienes 1 invitación por responder" : `Tienes ${inv} invitaciones por responder`); urgente = true; }
+      if(act) partes.push(act===1 ? "1 tienda de confianza" : `${act} tiendas de confianza`);
+      if(nuevos) partes.push(nuevos===1 ? "1 producto para revender" : `${nuevos} productos para revender`);
+      const sep = separadosMios(), venc = sep.filter(vencido).length + misSeparados().filter(vencido).length;
+      if(sep.length) partes.push(sep.length===1 ? `${sep[0].tiendaNombre} separó 1 de tus productos` : `${sep.length} de tus productos están separados`);
+      if(venc){ partes.push(venc===1 ? "1 separado vencido" : `${venc} separados vencidos`); urgente = true; }
+      if(meDeben) partes.push(`te deben ${money(meDeben)}`);
+      if(debo) partes.push(`debes ${money(debo)}`);
+      if(partes.length) txt = partes.join(" · ");
+    }
+    $("confText").textContent = txt;
+    $("confBtn").className = "btn" + (urgente ? " tag" : "");
+    const hayInv = !!(c && c.relaciones.some(r=>r.estado==="pendiente" && !r.invitaYo));
+    $("confBtn").textContent = hayInv ? "Ver invitación" : urgente ? "Revisar" : "Abrir";
+    $("confBtn").onclick = ()=>abrirConfianza(hayInv ? "tiendas" : urgente ? "cuentas" : null);
+  }
+  let confTab = "tiendas";
+  const confAbierto = () => !$("planOverlay").hidden && $("planOverlay").dataset.conf === "1";
+  function abrirConfianza(tab){
+    if(tab) confTab = tab;
+    const ov=$("planOverlay"); ov.hidden=false; ov.dataset.conf="1";
+    ov.onclick = e=>{ if(e.target===ov) cerrarConfianza(); };
+    pintarConfianza();
+    if(!S.conf) cargarConfianza();
+  }
+  function cerrarConfianza(){ const ov=$("planOverlay"); ov.hidden=true; ov.textContent=""; delete ov.dataset.conf; }
+  function pintarConfianza(){
+    const ov=$("planOverlay"), c = S.conf; ov.textContent="";
+    const card = el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":"Tiendas de confianza",style:"width:min(680px,100%)"},
+      el("div",{class:"cart-head"}, el("h2",null,"Tiendas de confianza"), el("button",{class:"btn",type:"button",onclick:cerrarConfianza},"Cerrar")));
+    const pend = c ? c.relaciones.filter(r=>r.estado==="pendiente" && !r.invitaYo).length : 0;
+    const nuevos = c ? c.compartidos.filter(x=>!x.yaAgregado).length : 0;
+    const tabs = el("div",{class:"conf-tabs"});
+    [["tiendas","Tiendas",pend],["revender","Para revender",nuevos],["cuentas","Cuentas",0]].forEach(([k,l,n])=>
+      tabs.append(el("button",{class:"chip",type:"button","aria-pressed":String(confTab===k),onclick:()=>{ confTab=k; pintarConfianza(); }}, l, n ? el("span",{class:"cn"}," "+n) : null)));
+    card.append(tabs);
+    if(!c){ card.append(el("p",{class:"note",style:"margin:0"},"Cargando…")); ov.append(card); return; }
+    const sec = el("div",{class:"conf-sec"});
+    if(confTab==="tiendas") tabTiendas(sec, c); else if(confTab==="revender") tabRevender(sec, c); else tabCuentas(sec, c);
+    card.append(sec); ov.append(card);
+  }
+  function tabTiendas(sec, c){
+    const inp = el("input",{placeholder:"Enlace de su tienda, ej. lucia-store",autocapitalize:"off",spellcheck:"false","aria-label":"Enlace de la tienda que quieres invitar",style:"flex:1;min-width:180px"});
+    const b = el("button",{class:"btn primary",type:"button"},"Invitar");
+    b.onclick = ()=>{ const slug = inp.value.trim(); if(!slug){ toast("Escribe el enlace de su tienda"); inp.focus(); return; } accionConf(b,"invitar",{slug}, r=>r && r.estado==="aceptada" ? "¡Listo! Ya son tiendas de confianza" : "Invitación enviada. Le avisamos por correo."); };
+    inp.onkeydown = e=>{ if(e.key==="Enter"){ e.preventDefault(); b.click(); } };
+    sec.append(
+      el("p",{class:"note",style:"margin:0"},"Conéctate con vendedoras en quienes confías. Cada una elige qué productos comparte, y la otra los puede vender en su tienda como suyos, con su propio precio. Sus clientes nunca ven de qué tienda vienen."),
+      el("div",{style:"display:flex;gap:8px;flex-wrap:wrap"}, inp, b),
+      el("span",{class:"note",style:"margin:0"},"Pídele el enlace de su tienda (lo que va después de ?tienda=). Solo entre tiendas que usan la misma moneda."));
+    if(!c.relaciones.length) sec.append(el("p",{class:"note",style:"margin:0"},"Todavía no tienes tiendas de confianza."));
+    const grupos = [["Te invitaron", r=>r.estado==="pendiente" && !r.invitaYo],["Tus tiendas de confianza", r=>r.estado==="aceptada"],["Invitaciones que enviaste", r=>r.estado==="pendiente" && r.invitaYo]];
+    for(const [titulo, f] of grupos){
+      const lista = c.relaciones.filter(f); if(!lista.length) continue;
+      sec.append(el("strong",null,titulo));
+      for(const r of lista){
+        const acts = el("div",{style:"display:flex;gap:6px;flex-wrap:wrap;align-items:center"});
+        if(r.estado==="pendiente" && !r.invitaYo){
+          const a = el("button",{class:"btn primary",type:"button"},"Aceptar"); a.onclick = ()=>accionConf(a,"aceptar",{slug:r.tienda},"¡Listo! Ya son tiendas de confianza");
+          const n = el("button",{class:"btn",type:"button"},"Rechazar"); n.onclick = ()=>accionConf(n,"cortar",{slug:r.tienda},"Invitación rechazada");
+          acts.append(a, n);
+        } else if(r.estado==="pendiente"){
+          const n = el("button",{class:"btn",type:"button"},"Cancelar invitación"); n.onclick = ()=>accionConf(n,"cortar",{slug:r.tienda},"Invitación cancelada");
+          acts.append(el("span",{class:"note",style:"margin:0"},"Esperando que acepte"), n);
+        } else {
+          const si = el("button",{class:"btn danger",type:"button"},"Sí, dejar");
+          const conf = el("span",{class:"confirm",hidden:""},"Se quitarán de las dos tiendas los productos que revenden de la otra. ¿Seguir?", si, el("button",{class:"btn",type:"button",onclick:()=>{ conf.hidden=true; }},"No"));
+          si.onclick = async ()=>{ const res = await accionConf(si,"cortar",{slug:r.tienda},"Ya no son tiendas de confianza"); if(res) refrescarProductos(); };
+          acts.append(el("button",{class:"btn",type:"button",onclick:()=>{ conf.hidden=false; }},"Dejar de ser de confianza"), conf);
+        }
+        sec.append(el("div",{class:"conf-row"}, el("div",{class:"who"}, el("strong",null,r.nombre||r.tienda), el("small",null,"?tienda="+r.tienda)), acts));
+      }
+    }
+    sec.append(el("p",{class:"note",style:"margin:0"}, c.compartidosPorMi ? `Compartes ${c.compartidosPorMi} producto(s). ` : "Todavía no compartes productos. ", "Para compartir: toca ", el("strong",null,"Editar varios"), ", marca los productos y toca ", el("strong",null,"Compartir"), "."));
+  }
+  function tabRevender(sec, c){
+    if(!c.relaciones.some(r=>r.estado==="aceptada")){ sec.append(el("p",{class:"note",style:"margin:0"},"Primero conéctate con una tienda de confianza en la pestaña Tiendas.")); return; }
+    const lista = c.compartidos;
+    if(!lista.length){ sec.append(el("p",{class:"note",style:"margin:0"},"Tus tiendas de confianza todavía no comparten productos. Cuando lo hagan, aparecerán aquí.")); return; }
+    const elegidos = new Set(), cajas = [];
+    const listEl = el("div",{class:"rv-list"});
+    for(const x of lista){
+      const ya = !!x.yaAgregado;
+      const cb = el("input",{type:"checkbox","aria-label":"Elegir "+x.nombre, disabled: ya ? "" : false});
+      cb.onchange = ()=>{ cb.checked ? elegidos.add(x.id) : elegidos.delete(x.id); pie(); };
+      if(!ya) cajas.push([x, cb]);
+      const foto = x.fotosThumb && x.fotosThumb[0];
+      const extra = [x.tiendaNombre, typeof x.stock==="number" ? `${x.stock} disponibles` : "", x.estado==="apartado" ? "apartado" : "", ya ? "ya está en tu tienda" : ""].filter(Boolean).join(" · ");
+      listEl.append(el("label",{class:"rv-item"+(ya?" ya":"")}, cb,
+        foto ? el("img",{src:src(foto),alt:"",loading:"lazy"}) : el("span",{class:"noimg"}),
+        el("span",{class:"t"}, el("strong",null,x.nombre||"Producto"),
+          el("small",null,[x.marca, x.talla ? "Talla "+x.talla : "", condTxt(x.condicion)].filter(Boolean).join(" · ") || " "),
+          el("span",null, x.precioReventa!=null ? `Te cuesta ${money(x.precioReventa)}` : "Precio a consultar", el("small",null," · "+extra)))));
+    }
+    const margen = el("input",{inputmode:"decimal",value:"25",style:"width:80px","aria-label":"Tu ganancia en porcentaje"});
+    const ej = el("span",{class:"note",style:"margin:0"});
+    const add = el("button",{class:"btn primary",type:"button"},"Agregar a mi tienda");
+    const todos = el("button",{class:"btn",type:"button"},"Elegir todos");
+    todos.onclick = ()=>{ const marcar = cajas.some(([,cb])=>!cb.checked); cajas.forEach(([x,cb])=>{ cb.checked = marcar; marcar ? elegidos.add(x.id) : elegidos.delete(x.id); }); pie(); };
+    function pie(){
+      add.textContent = elegidos.size ? `Agregar ${elegidos.size} a mi tienda` : "Agregar a mi tienda"; add.disabled = !elegidos.size;
+      todos.textContent = cajas.length && cajas.every(([,cb])=>cb.checked) ? "Quitar todos" : "Elegir todos"; todos.hidden = !cajas.length;
+      const m = parseMargen(margen.value) ?? 0, x = lista.find(y=>elegidos.has(y.id) && y.precioReventa!=null) || lista.find(y=>y.precioReventa!=null);
+      ej.textContent = x ? `Ej.: te cuesta ${money(x.precioReventa)} y lo vendes a ${money(Math.max(1, Math.ceil(x.precioReventa*(1+m/100))))}. Luego puedes cambiar cada precio.` : "";
+    }
+    margen.oninput = pie;
+    add.onclick = async ()=>{
+      const libres = usoPlan().libres;
+      if(elegidos.size > libres){ toast(libres>0 ? `Tu plan permite ${libres} producto(s) más` : "Llegaste al límite de tu plan"); if(libres<=0) abrirPlanes(); return; }
+      const r = await accionConf(add,"agregar",{ ids:[...elegidos], margen: parseMargen(margen.value) ?? 0 }, r=>r && r.creados ? `${r.creados} producto(s) agregados a tu tienda` : "No se agregó ninguno: ya no están disponibles");
+      if(r) refrescarProductos();
+    };
+    sec.append(el("p",{class:"note",style:"margin:0"},"Elige qué productos quieres vender en tu tienda. Tus clientes los verán como tuyos, con tu WhatsApp y tus formas de pago. Cuando vendas uno, le pagas a la otra tienda lo que te cuesta."),
+      listEl,
+      el("div",{class:"rv-foot"}, el("label",{class:"f"},"Tu ganancia %", margen), el("div",{style:"flex:1;min-width:160px"}, ej), todos, add));
+    pie();
+  }
+  function tabCuentas(sec, c){
+    sec.append(el("div",{class:"sumas"},
+      el("div",null, el("small",null,"Te deben"), el("b",null, money(sumaPend(c.meDeben))), el("small",null,"Por tus productos que vendieron otras tiendas")),
+      el("div",null, el("small",null,"Debes"), el("b",null, money(sumaPend(c.debo))), el("small",null,"Por productos de otras tiendas que vendiste"))));
+    const VIA = { tarjeta:"pagó con tarjeta", yape:"pagó con Yape", manual:"venta registrada a mano" };
+    // Separados: arriba de todo, porque bloquean unidades hasta que se confirmen o se liberen.
+    const filaSep = (r, mia) => {
+      const acts = el("div",{style:"display:flex;gap:6px;align-items:center;flex-wrap:wrap"},
+        el("span",{class:"pill "+(vencido(r)?"cancelado":"por_confirmar")}, vencido(r) ? "Vencido" : "Separado"));
+      if(!mia){
+        const v = el("button",{class:"btn primary",type:"button"},"Se vendió"); v.onclick = ()=>accionConf(v,"confirmar",{ reventaId:r.id }, x=>`Venta confirmada. Le debes ${money(Number(x && x.monto)||0)} a ${r.tiendaNombre}.`);
+        const l = el("button",{class:"btn",type:"button"},"Liberar"); l.onclick = ()=>accionConf(l,"liberar",{ reventaId:r.id },"Liberado: vuelve a estar disponible");
+        acts.append(v, l);
+      } else if(vencido(r)){
+        const l = el("button",{class:"btn",type:"button"},"Liberar"); l.onclick = ()=>accionConf(l,"liberar",{ reventaId:r.id },"Liberado: vuelve a estar disponible");
+        acts.append(l);
+      }
+      return el("div",{class:"conf-row"},
+        el("div",{class:"who"}, el("strong",null,`${r.nombre||"Producto"}${r.q>1?" × "+r.q:""}`),
+          el("small",null,[mia ? `Lo separó ${r.tiendaNombre}` : `De ${r.tiendaNombre}`, r.cliente ? "para "+r.cliente : "", r.hasta ? (vencido(r) ? "venció el " : "hasta el ") + fechaCorta(r.hasta) : ""].filter(Boolean).join(" · "))),
+        el("strong",{style:"font-family:var(--mono);font-variant-numeric:tabular-nums"}, money(Number(r.monto)||0)), acts);
+    };
+    const sepMios = separadosMios(), misSep = misSeparados();
+    if(sepMios.length){ sec.append(el("strong",null,"Separaron de tus productos"), el("span",{class:"note",style:"margin:0"},`Nadie más los puede vender mientras estén separados. Si vence el plazo (${c.diasSeparado||7} días, lo cambias en Datos de la tienda), puedes liberarlos.`)); sepMios.forEach(r=>sec.append(filaSep(r, true))); }
+    if(misSep.length){ sec.append(el("strong",null,"Tus separados"), el("span",{class:"note",style:"margin:0"},"Cuando tu clienta pague, toca “Se vendió”. Si no compra, toca “Liberar”.")); misSep.forEach(r=>sec.append(filaSep(r, false))); }
+    const fila = (r, mia) => {
+      const acts = el("div",{style:"display:flex;gap:6px;align-items:center;flex-wrap:wrap"},
+        el("span",{class:"pill "+(r.estado==="pagado"?"pagado":"pendiente")}, r.estado==="pagado" ? "Pagado" : "Por pagar"));
+      if(mia){
+        const b = el("button",{class:"btn"+(r.estado==="pagado"?"":" primary"),type:"button"}, r.estado==="pagado" ? "Deshacer" : "Ya me pagó");
+        b.onclick = ()=>accionConf(b,"saldar",{ reventaId:r.id, estado: r.estado==="pagado" ? "debe" : "pagado" }, r.estado==="pagado" ? "Marcado como pendiente" : "Marcado como pagado");
+        acts.append(b);
+      }
+      return el("div",{class:"conf-row"},
+        el("div",{class:"who"}, el("strong",null,`${r.nombre||"Producto"}${r.q>1?" × "+r.q:""}`),
+          el("small",null,[mia ? `Lo vendió ${r.tiendaNombre}` : `De ${r.tiendaNombre}`, r.creado ? new Date(r.creado).toLocaleDateString("es-PE") : "", VIA[r.via]||""].filter(Boolean).join(" · "))),
+        el("strong",{style:"font-family:var(--mono);font-variant-numeric:tabular-nums"}, money(Number(r.monto)||0)), acts);
+    };
+    const cerradas = r => r.estado==="debe" || r.estado==="pagado";
+    c = { ...c, meDeben: c.meDeben.filter(cerradas), debo: c.debo.filter(cerradas) };
+    if(c.meDeben.length){ sec.append(el("strong",null,"Te deben"), el("span",{class:"note",style:"margin:0"},"Coordina la entrega del producto con la otra tienda. Cuando te pague, toca “Ya me pagó”.")); c.meDeben.forEach(r=>sec.append(fila(r, true))); }
+    if(c.debo.length){ sec.append(el("strong",null,"Debes")); c.debo.forEach(r=>sec.append(fila(r, false))); }
+    if(!c.meDeben.length && !c.debo.length && !sepMios.length && !misSep.length) sec.append(el("p",{class:"note",style:"margin:0"},"Aquí verás lo que te deben y lo que debes por los productos que se revenden. Por ahora no hay ventas."));
+  }
+  // Compartir varios productos a la vez (desde "Editar varios")
+  function abrirCompartir(ids){
+    const propios = ids.map(id=>S.products.find(x=>x.id===id)).filter(p=>p && !esCopia(p));
+    if(!propios.length){ toast("Solo puedes compartir tus propios productos"); return; }
+    const ov=$("planOverlay"); ov.textContent=""; ov.hidden=false; delete ov.dataset.conf;
+    const cerrar = ()=>{ ov.hidden=true; ov.textContent=""; };
+    ov.onclick = e=>{ if(e.target===ov) cerrar(); };
+    const desc = el("input",{inputmode:"decimal",value:"15",style:"width:80px","aria-label":"Descuento para revendedoras en porcentaje"});
+    const ej = el("span",{class:"note",style:"margin:0"});
+    const conPrecio = propios.filter(p=>p.precio!=null);
+    const pinta = ()=>{ const d = parseMargen(desc.value) ?? 0, x = conPrecio[0]; ej.textContent = x ? `Ej.: "${x.nombre}" lo vendes a ${money(x.precio)}; tus tiendas de confianza te pagan ${money(redondeoRev(x.precio*(1-Math.min(90,d)/100)))} por unidad.` : ""; };
+    desc.oninput = pinta;
+    const ok = el("button",{class:"btn primary",type:"button"}, `Compartir ${conPrecio.length}`);
+    ok.disabled = !conPrecio.length;
+    ok.onclick = async ()=>{
+      const d = Math.min(90, parseMargen(desc.value) ?? 0); ok.disabled = true;
+      const fails = await runPool(conPrecio.map(p=>p.id), id=>{ const p=S.products.find(x=>x.id===id); return S.db.doc("productos/"+id).update({ compartido:true, precioReventa: redondeoRev(p.precio*(1-d/100)) }); });
+      cerrar();
+      toast(fails ? `${conPrecio.length-fails} compartidos; ${fails} fallaron` : `${conPrecio.length} producto(s) compartidos con tus tiendas de confianza`);
+      if(S.conf && !S.conf.relaciones.some(r=>r.estado==="aceptada")) setTimeout(()=>toast("Aún no tienes tiendas de confianza: invítalas en Tiendas de confianza"), 3000);
+    };
+    ov.append(el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":"Compartir productos"},
+      el("div",{class:"cart-head"}, el("h2",null,"Compartir con tiendas de confianza"), el("button",{class:"btn",type:"button",onclick:cerrar},"Cerrar")),
+      el("p",{class:"note",style:"margin:0"},"Tus tiendas de confianza podrán agregarlos a su tienda y venderlos con su propio precio. Cuando vendan uno, te pagan el precio para revendedoras."),
+      el("label",{class:"f"},"Precio para revendedoras: % menos que tu precio", desc), ej,
+      propios.length > conPrecio.length ? el("span",{class:"note",style:"margin:0;color:var(--hold)"}, `${propios.length-conPrecio.length} producto(s) sin precio no se compartirán. Ponles precio primero.`) : null,
+      el("div",{class:"send"}, ok, el("button",{class:"btn",type:"button",onclick:cerrar},"Cancelar"))));
+    pinta();
+  }
+  // Ficha de un producto de confianza (vista de la revendedora)
+  function fichaCopia(p, side, keep){
+    const v = (id,def)=> keep[id]!==undefined ? keep[id] : def;
+    const i = infoCopia(p), off = !!(i && !i.disponible);
+    side.append(
+      el("div",{class:"conf-box"+(off?" off":"")},
+        el("strong",null, i ? `Producto de ${i.tiendaNombre}` : "Producto de una tienda de confianza"),
+        el("span",{class:"note",style:"margin:0"}, off ? "Ya no está disponible: la otra tienda lo vendió, lo ocultó o dejó de compartirlo. Tus clientes ya no lo ven." : "Tus clientes lo ven como tuyo. La foto y la cantidad las maneja la otra tienda."),
+        i && i.precioReventa!=null ? el("span",null, `Te cuesta ${money(i.precioReventa)}`, p.precio!=null ? ` · ganas ${money(p.precio - i.precioReventa)} por unidad` : "") : null,
+        i && typeof i.stock==="number" ? el("span",null, `${i.stock} disponible(s)`) : null),
+      el("label",{class:"f"},"Nombre", el("input",{id:"eName",value:v("eName",p.nombre||""),maxlength:"120"})),
+      el("div",{class:"row2"},
+        el("label",{class:"f"},`Tu precio (${simbolo()})`, el("input",{id:"ePrice",inputmode:"decimal",value:v("ePrice",p.precio==null?"":String(p.precio)),placeholder:"Consultar"})),
+        el("label",{class:"f"},"Estado", (()=>{ const sel=el("select",{id:"eStatus"}); [["disponible","Disponible"],["oculto","Oculto (no se muestra en tu tienda)"]].forEach(([k,l])=>sel.append(el("option",{value:k},l))); sel.value=v("eStatus",p.estado==="oculto"?"oculto":"disponible"); return sel; })())),
+      (()=>{ const ta=el("textarea",{id:"eDesc",rows:"3"}); ta.value=v("eDesc",p.descripcion||""); return el("label",{class:"f"},"Descripción", ta); })());
+    const q = el("input",{id:"eVentaQ",inputmode:"numeric",value:v("eVentaQ","1"),style:"width:72px"});
+    const vb = el("button",{class:"btn primary",type:"button",disabled: off ? "" : false},"Registrar venta");
+    vb.onclick = async ()=>{
+      const n = parseStock(q.value) || 1;
+      const r = await accionConf(vb,"vendi",{ copiaId:p.id, q:n }, r=>`Venta registrada. Le debes ${money(Number(r && r.monto)||0)} a ${i ? i.tiendaNombre : "la otra tienda"}.`);
+      if(r) closeSheet();
+    };
+    const quien = el("input",{id:"eSepPara",maxlength:"60",value:v("eSepPara",""),placeholder:"Opcional"});
+    const sb = el("button",{class:"btn",type:"button",disabled: off ? "" : false},"Separar");
+    sb.onclick = async ()=>{
+      const n = parseStock(q.value) || 1;
+      const r = await accionConf(sb,"separar",{ copiaId:p.id, q:n, cliente:quien.value.trim() }, r=>`Separado hasta el ${fechaCorta(r.hasta)}: ${r.duenaNombre || "la dueña"} ya no lo puede vender. Avísale por WhatsApp.`);
+      if(r){ avisoWa = r.whatsapp ? { copiaId:p.id, url:r.whatsapp, nombre:r.duenaNombre } : null; if(openId) drawSheet(); }
+    };
+    const sepAqui = misSeparados().filter(r=>r.copiaId===p.id);
+    side.append(el("fieldset",{class:"share-set"}, el("legend",null,"¿Lo vendiste o te lo pidieron separar?"),
+      el("div",{style:"display:flex;gap:8px;align-items:end;flex-wrap:wrap"}, el("label",{class:"f"},"Unidades", q), el("label",{class:"f",style:"flex:1;min-width:120px"},"Para quién", quien)),
+      el("div",{style:"display:flex;gap:8px;flex-wrap:wrap"}, vb, sb),
+      el("span",{class:"note",style:"margin:0"},"Registrar venta: ya te pagaron. Separar: tu clienta lo pidió y paga después; nadie más lo puede vender mientras tanto. Lo que tus clientes pagan en la web se registra solo."),
+      avisoWa && avisoWa.copiaId===p.id ? el("a",{class:"btn tag",href:avisoWa.url,target:"_blank",rel:"noopener",style:"text-decoration:none;justify-self:start"}, `Avisar a ${avisoWa.nombre || "la dueña"} por WhatsApp`) : null,
+      ...sepAqui.map(r=>{
+        const vv = el("button",{class:"btn primary",type:"button"},"Se vendió"); vv.onclick = ()=>accionConf(vv,"confirmar",{ reventaId:r.id }, x=>`Venta confirmada. Le debes ${money(Number(x && x.monto)||0)}.`);
+        const ll = el("button",{class:"btn",type:"button"},"Liberar"); ll.onclick = ()=>accionConf(ll,"liberar",{ reventaId:r.id },"Liberado");
+        return el("div",{class:"conf-row"+(vencido(r)?" off":"")}, el("div",{class:"who"}, el("strong",null,`Separado${r.q>1?" × "+r.q:""}${r.cliente?" para "+r.cliente:""}`), el("small",null,(vencido(r)?"Venció el ":"Hasta el ")+fechaCorta(r.hasta))), vv, ll);
+      })));
+    const conf = el("span",{class:"confirm",hidden:""},"¿Quitarlo de tu tienda?", el("button",{class:"btn danger",type:"button",onclick:async()=>{ try{ await S.db.doc("productos/"+p.id).delete(); closeSheet(); toast("Quitado de tu tienda"); cargarConfianza(); }catch(e){ toast("No se pudo quitar. Intenta de nuevo."); } }},"Sí, quitar"), el("button",{class:"btn",type:"button",onclick:()=>{conf.hidden=true;}},"No"));
+    side.append(el("div",{class:"actions"},
+      el("button",{class:"btn danger",type:"button",onclick:()=>{conf.hidden=false;}},"Quitar de mi tienda"),
+      el("div",{style:"display:flex;gap:8px"}, el("button",{class:"btn",type:"button",onclick:closeSheet},"Cerrar"),
+        el("button",{class:"btn primary",type:"button",onclick:async()=>{ const patch={ nombre:$("eName").value.trim()||"Producto", precio:parsePrice($("ePrice").value), estado:$("eStatus").value, descripcion:$("eDesc").value.trim() }; try{ await S.db.doc("productos/"+p.id).update(patch); toast("Guardado"); closeSheet(); }catch(e){ toast("No se pudo guardar. Revisa tu conexión e intenta de nuevo."); } }},"Guardar"))), conf);
+  }
+  // Panel de la dueña de Showroomcito: todas las relaciones de confianza
+  async function cargarPanelConf(){
+    const tb=$("panelConfRows"); tb.textContent="";
+    let r; try{ r = await confianza("admin_listar"); }catch(e){ console.warn("Detalle técnico:", e); $("panelConfCount").textContent = "no se pudo cargar"; return; }
+    const lista = (r.relaciones||[]).sort((a,b)=>String(b.creado||"").localeCompare(String(a.creado||"")));
+    $("panelConfCount").textContent = String(lista.length);
+    if(!lista.length){ tb.append(el("tr",null, el("td",{colspan:"5",style:"color:var(--muted)"},"Todavía no hay tiendas de confianza."))); return; }
+    const nombre = id => (tiendasCache.find(t=>t.id===id)||{}).nombre || id;
+    for(const x of lista){
+      const b = el("button",{class:"btn danger",type:"button"},"Cortar");
+      b.onclick = async ()=>{ b.disabled=true; try{ await confianza("admin_cortar",{ id:x.id }); toast("Relación cortada"); cargarPanelConf(); }catch(e){ toast("No se pudo cortar"); b.disabled=false; } };
+      tb.append(el("tr",null,
+        el("td",null, el("strong",null,nombre(x.tiendaA)), " ↔ ", el("strong",null,nombre(x.tiendaB))),
+        el("td",null, nombre(x.invita)),
+        el("td",null, el("span",{class:"pill "+(x.estado==="aceptada"?"aprobada":"pendiente")}, x.estado==="aceptada" ? "Aceptada" : "Pendiente")),
+        el("td",null, el("small",null, x.creado ? new Date(x.creado).toLocaleDateString("es-PE") : "")),
+        el("td",null, el("div",{class:"acts"}, b))));
+    }
+  }
+
   // ----- Pedidos pagados (vendedora) -----
   const PEDIDO_TXT = { pendiente:"Pago pendiente", por_confirmar:"Por confirmar", pagado:"Pagado", entregado:"Entregado", cancelado:"Cancelado" };
   const montoTxt = (n, moneda) => (moneda==="pen" ? "S/ " : "$") + (n/100).toLocaleString("es-PE",{minimumFractionDigits: n%100?2:0, maximumFractionDigits:2});
-  async function descontarStockLocal(items){
+  async function descontarStockLocal(items, pedidoId){
+    let deConfianza = false;
     for(const it of items){
       const prod = S.products.find(x=>x.id===it.id);
+      // De una tienda de confianza: se descuenta del original y se anota lo que le debes a la dueña.
+      if(prod && esCopia(prod)){ deConfianza = true; try{ await confianza("vendi", { copiaId:prod.id, q:Number(it.q)||1, via:"yape", pedidoId }); }catch(e){ console.warn("Detalle técnico:", e); } continue; }
       if(!prod || typeof prod.stock!=="number") continue;
       try{ await S.db.doc("productos/"+prod.id).update({ stock: Math.max(0, prod.stock - (Number(it.q)||1)) }); }catch(e){}
     }
+    if(deConfianza) cargarConfianza();
   }
   async function cargarPedidos(){
     let lista = [];
@@ -1333,7 +1929,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         try{
           await cambiarEstadoPedido(p.id, estado);
           // Yape confirmado: se descuentan las unidades (tarjeta lo hace el webhook).
-          if(estado==="pagado" && p.metodo==="yape") await descontarStockLocal(items);
+          if(estado==="pagado" && p.metodo==="yape") await descontarStockLocal(items, p.id);
           toast(msg); cargarPedidos();
         }catch(e){ toast("No se pudo actualizar"); }
       };
@@ -1482,6 +2078,22 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   $("asisCerrar").onclick = cerrarAsis;
   $("asisNuevo").onclick = ()=>{ asisLog = []; guardarAsis(); pintarAsis(); };
   $("asisForm").addEventListener("submit", e=>{ e.preventDefault(); enviarAsis($("asisInput").value); });
+  // Hablarle al asistente para actualizar la tienda ("bájale 10 soles a las carteras"). El texto queda
+  // en la caja para revisarlo; el asistente igual muestra los cambios y la vendedora los confirma.
+  let asisRec = null;
+  if(SR){
+    $("asisMic").hidden = false;
+    $("asisMic").onclick = ()=>{
+      if(asisRec){ try{ asisRec.stop(); }catch(e){} return; }
+      const inp = $("asisInput"), antes = inp.value ? inp.value.trim() + " " : "";
+      asisRec = new SR(); asisRec.lang = esUS() ? "en-US" : "es-PE"; asisRec.continuous = true; asisRec.interimResults = true;
+      let fin = "";
+      asisRec.onresult = e=>{ let inter = ""; for(let i=e.resultIndex;i<e.results.length;i++){ const t=e.results[i][0].transcript; if(e.results[i].isFinal) fin += t + " "; else inter += t; } inp.value = (antes + fin + inter).trimStart(); inp.dispatchEvent(new Event("input")); };
+      asisRec.onerror = e=>{ if(/not-allowed|service-not-allowed|audio-capture/.test(e.error)) toast("Permite el micrófono para hablarle al asistente"); };
+      asisRec.onend = ()=>{ asisRec = null; $("asisMic").classList.remove("on"); $("asisMic").setAttribute("aria-label","Hablar con el asistente"); inp.focus(); };
+      try{ asisRec.start(); $("asisMic").classList.add("on"); $("asisMic").setAttribute("aria-label","Dejar de escuchar"); }catch(e){ asisRec = null; toast("No se pudo usar el micrófono"); }
+    };
+  }
   $("asisInput").addEventListener("keydown", e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); enviarAsis($("asisInput").value); } });
   $("asisInput").addEventListener("input", e=>{ e.target.style.height = "auto"; e.target.style.height = Math.min(140, e.target.scrollHeight) + "px"; });
   document.addEventListener("keydown", e=>{ if(e.key==="Escape" && !$("asis").hidden) cerrarAsis(); });
@@ -1551,7 +2163,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     show("myStoreBtn", !!ses.superadmin);
     $("myStoreBtn").onclick = ()=>{ location.hash=""; location.reload(); };
     bannerVendedora(tienda);
-    S.config = tienda; actualizarPlan(); pintarCobros(); cargarPedidos();
+    S.config = tienda; actualizarPlan(); pintarCobros(); cargarPedidos(); pintarConfBox(); cargarConfianza();
     if(tienda.stripeAccountId && !tienda.cobrosActivos && !params.get("cobros")){
       estadoCobros().then(r=>{ if(r.cobrosActivos){ S.config = { ...S.config, cobrosActivos:true }; pintarCobros(); } }).catch(()=>{});
     }

@@ -82,7 +82,7 @@ export const handler = async (event: UrlEvent) => {
           const cambio = await marcarPedido(s.metadata.pedidoId, 'pagado', { email: s.customer_details?.email || undefined, telefono: s.customer_details?.phone || undefined });
           if (cambio) {
             const { Item } = await ddb.send(new GetCommand({ TableName: PEDIDO(), Key: { id: s.metadata.pedidoId } }));
-            await descontarStock(Item?.items);
+            await descontarStock(Item?.items, s.metadata.pedidoId);
             // Correo de confirmación al cliente y aviso a la vendedora (si falla, el pago igual queda registrado)
             const t = Item && await leerTienda(String(Item.tiendaId));
             if (t && Item) await avisarPedido(t as any, Item as any, s.customer_details?.email || undefined);

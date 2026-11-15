@@ -4,6 +4,7 @@ import { BatchGetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { PLANES, esPlan, paisDe } from '../shared/planes';
 import { ddb, PRODUCTO, PEDIDO, leerTienda, actualizarTienda, subDe, origenSeguro } from '../shared/tablas';
 import { avisarPedido } from '../shared/correo';
+import { resolverCopias } from '../shared/reventa';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
 
@@ -116,6 +117,8 @@ async function armarPedido(t: Record<string, any>, itemsJson: unknown, soloSoles
   // Los precios se leen de la base de datos, nunca del navegador.
   const r = await ddb.send(new BatchGetCommand({ RequestItems: { [PRODUCTO()]: { Keys: pedidos.map((p) => ({ id: p.id })) } } }));
   const productos = new Map((r.Responses?.[PRODUCTO()] || []).map((p) => [p.id, p]));
+  // Productos de tiendas de confianza: la disponibilidad y la cantidad son las del original.
+  const copias = await resolverCopias(t.id, [...productos.values()]);
 
   // Tiendas de EE. UU.: todo en dólares. Tiendas de Perú: en soles (precios ya en soles, o en dólares × tipo de cambio).
   const enSoles = paisDe(t) !== 'US' && t.moneda === 'PEN';
@@ -128,8 +131,11 @@ async function armarPedido(t: Record<string, any>, itemsJson: unknown, soloSoles
     if (!prod || prod.tiendaId !== t.id) fallo('Un producto del pedido ya no existe');
     if (prod!.estado === 'vendido' || prod!.estado === 'oculto') fallo(`"${prod!.nombre}" ya no está disponible`);
     if (typeof prod!.precio !== 'number') fallo(`"${prod!.nombre}" no tiene precio; consúltalo por WhatsApp`);
-    if (typeof prod!.stock === 'number' && p.q > prod!.stock) {
-      fallo(prod!.stock > 0 ? `Solo quedan ${prod!.stock} de "${prod!.nombre}"` : `"${prod!.nombre}" está agotado`);
+    const orig = prod!.origenId ? copias.get(String(prod!.id)) : undefined;
+    if (prod!.origenId && !orig) fallo(`"${prod!.nombre}" ya no está disponible`);
+    const stock = orig ? orig.stock : prod!.stock;
+    if (typeof stock === 'number' && p.q > stock) {
+      fallo(stock > 0 ? `Solo quedan ${stock} de "${prod!.nombre}"` : `"${prod!.nombre}" está agotado`);
     }
     // Monto en la unidad mínima: soles redondeados como en la tienda, o centavos de dólar.
     const factor = 1 - Math.min(30, Math.max(0, descuento)) / 100;

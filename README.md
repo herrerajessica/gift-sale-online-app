@@ -45,6 +45,31 @@ La idea central es **subir muchas fotos de una vez**. Al arrastrar el lote se pu
 - **Cantidad (stock):** opcional; vacío significa "sin control". El cliente ve "Quedan N" o "¡Última unidad!" cuando quedan 3 o menos, y "Agotado" en 0. No puede pedir más unidades de las disponibles: lo valida la pantalla y también el servidor.
 - **Descuento automático:** al pagar con tarjeta, el webhook descuenta las unidades una sola vez (aunque Stripe reenvíe el aviso). Al confirmar un Yape, se descuentan cuando la vendedora toca *Confirmar pago*. Los pedidos por WhatsApp se ajustan a mano.
 
+## Cargar productos por voz
+
+Pensado para quien tiene muchos productos y los va mirando uno por uno:
+
+1. **Dictar productos** › micrófono: se dice cada producto de corrido y luego **"siguiente"** (*"Cartera Coach negra, nueva con etiqueta, 85 soles, tengo 2… siguiente"*). Cada producto se guarda al instante en el celular; si el micrófono se corta por un silencio, se vuelve a encender. También se puede escribir (o usar el micrófono del teclado).
+2. **La IA entiende el texto** (consulta `interpretarDictado`, misma función `clasificar` con Nova): nombre, marca, precio (convierte soles/dólares con el tipo de cambio), costo, cantidad, talla, condición y categoría. Si la IA falla, reglas simples completan lo básico. Todo se puede corregir.
+3. **Fotos en el mismo orden**: se ordenan por la hora en que se tomaron; se ven junto a su dictado y se mueven con flechas. Avisa si hay más o menos fotos que productos.
+4. **Vista previa antes de publicar**: los productos se crean **ocultos**; la IA revisa cada foto y marca ⚠️ si parece de otro tipo de producto que lo dictado. Se corrige ahí mismo y recién se toca **Publicar** (respeta el límite del plan).
+5. Para **actualizar** la tienda por voz, el **Asistente** tiene micrófono: el texto queda en la caja para revisarlo y los cambios se confirman como siempre.
+
+El reconocimiento de voz lo hace el navegador del celular (sin costo); solo el texto viaja a la IA.
+
+## Tiendas de confianza
+
+Dos vendedoras se conectan (una invita con el enlace de la tienda de la otra y la otra acepta) y cada una puede revender los productos que la otra comparte, **como si fueran suyos**: el cliente ve el nombre, el WhatsApp y los pagos de la revendedora, nunca la tienda de origen.
+
+- **Compartir:** *Editar varios* › *Compartir*, con un % menos que tu precio (el **precio para revendedoras**). También desde la ficha de cada producto.
+- **Revender:** *Tiendas de confianza* › *Para revender*: eliges productos y tu % de ganancia; se crea una copia en tu tienda (función `confianza`).
+- **Foto, cantidad y disponibilidad** siempre salen del original (el catálogo y los pagos lo verifican en el servidor). Si la dueña lo vende, lo oculta o deja de compartirlo, desaparece de la otra tienda.
+- **Ventas:** con tarjeta se registran solas (webhook); con Yape al confirmar el pago; por WhatsApp con *Registrar venta*. Baja la cantidad del original, se anota la deuda (tabla `Reventa`) y la dueña recibe un correo.
+- **Cuentas:** cobra la revendedora y le paga a la dueña por fuera (Yape, efectivo); la dueña lo marca como pagado.
+- **Separados:** si la clienta de la revendedora pide que se lo guarden, la revendedora toca **Separar**: las unidades se bloquean en el original (nadie más lo puede vender), la dueña lo ve en su panel ("Separado por…"), recibe correo y la revendedora puede avisarle por WhatsApp con el mensaje listo. Luego **Se vendió** (pasa a la cuenta) o **Liberar** (vuelve a estar disponible). Cada dueña fija en *Datos de la tienda* cuántos días dura un separado (por defecto 7); al vencer, ella también puede liberarlo.
+- Solo entre tiendas con la misma moneda. Al cortar la relación se quitan los productos revendidos de ambas tiendas.
+- La dueña de Showroomcito ve y puede cortar todas las relaciones desde su panel.
+
 ## Planes y pagos
 
 | Plan | Productos visibles | Precio |
@@ -81,8 +106,8 @@ Tarjeta de prueba: `4242 4242 4242 4242`, cualquier fecha futura y cualquier CVC
 1. Crea una cuenta gratis en [resend.com](https://resend.com) (unos 3,000 correos al mes).
 2. En **API Keys**, crea una clave (`re_...`).
 3. En Amplify › Hosting › **Secrets**, crea `RESEND_API_KEY` con esa clave y vuelve a desplegar. Si no quieres correos, guárdalo con el valor `no`.
-4. Para la demo, el remitente es `onboarding@resend.dev`: con él, Resend **solo entrega a tu propio correo** (el de tu cuenta de Resend). Úsalo como correo del cliente y de la tienda en las pruebas.
-5. Para enviar a cualquier persona, verifica tu dominio en Resend (› *Domains*) y cambia `CORREO_REMITENTE` en `amplify/functions/pagos/resource.ts` y `amplify/functions/stripe-webhook/resource.ts`, por ejemplo `Showroomcito <pedidos@showroomcito.com>`.
+4. El dominio **showroomcito.com** está verificado en Resend (región us-east-1, configurado con *Auto configure* de Cloudflare): DKIM en `resend._domainkey`, envío en `send` y `rsend`, y DMARC en `_dmarc`. No chocan con el correo de Zoho (MX y SPF en la raíz del dominio).
+5. Remitente: `CORREO_REMITENTE = Showroomcito <pedidos@showroomcito.com>` en las funciones `pagos`, `stripe-webhook` y `confianza`. La clave de Resend debe tener permiso **Sending access** solo para showroomcito.com.
 
 El correo confirma el pedido, pero no reemplaza la boleta o factura electrónica de SUNAT.
 

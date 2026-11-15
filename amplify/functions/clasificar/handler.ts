@@ -1,7 +1,6 @@
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 // Converse API: el mismo código sirve para Amazon Nova y para Claude; solo cambia MODEL_ID.
 import { BedrockRuntimeClient, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
-import type { Schema } from '../../data/resource';
 
 const s3 = new S3Client({});
 const bedrock = new BedrockRuntimeClient({});
@@ -59,7 +58,70 @@ function limpiar(arr: unknown, n: number): Resultado[] {
     .filter((r) => r.i >= 0 && r.i < n);
 }
 
-export const handler: Schema['clasificarFotos']['functionHandler'] = async (event) => {
+// ---------- Dictado por voz ----------
+const MAX_TEXTOS = 40;
+type Dictado = { i: number; nombre?: string; marca?: string; precio?: number; moneda?: string; costo?: number; stock?: number; talla?: string; condicion?: string; categoria?: string; publico?: string; descripcion?: string };
+
+function promptDictado(textos: string[], ingles: boolean, moneda: string): string {
+  return `Eres el asistente de una vendedora ${ingles ? 'de Estados Unidos' : 'en Perú'}. Ella fue mirando sus productos y dictó por voz un texto por producto (puede tener errores del reconocimiento de voz). Los precios de su tienda están en ${moneda === 'PEN' ? 'soles' : 'dólares'}.
+Para cada texto responde un objeto con:
+- "i": el número del texto
+- "nombre": nombre corto de venta ${ingles ? 'EN INGLÉS' : 'en español'}, de 2 a 6 palabras (tipo, estilo, color), sin la marca ni el precio
+- "marca": la marca si la dijo, con su ortografía correcta (ej. "gues" → "Guess", "maicol cors" → "Michael Kors", "bat an bodi" → "Bath & Body Works"); si no, ""
+- "precio": el precio de venta que dijo, como número; si no dijo precio, null
+- "moneda": "PEN" si dijo soles, "USD" si dijo dólares, null si no dijo la moneda
+- "costo": lo que le costó en dólares si lo dijo ("me costó 20 dólares", "la etiqueta dice 19.99"), como número; si no, null
+- "stock": cuántas unidades tiene si lo dijo ("tengo 3", "son 2", "quedan 5"), como número entero; si no, null
+- "talla": la talla si la dijo; si no, ""
+- "condicion": exactamente una de: ${CONDICIONES.join(', ')} según lo que dijo (nueva con etiqueta, nueva, caja abierta, como nueva, usada); si no lo dijo, ""
+- "categoria": exactamente una de: ${CATEGORIAS.join(', ')}
+- "publico": exactamente uno de: ${PUBLICOS.join(', ')} (Unisex si no se sabe)
+- "descripcion": 1 o 2 frases cortas para vender, ${ingles ? 'EN INGLÉS' : 'en español'}, solo con lo que ella dijo. No inventes nada.
+Textos:
+${textos.map((t, i) => `${i}: ${t}`).join('\n')}
+Responde solo con un arreglo JSON con un objeto por texto, en el mismo orden.`;
+}
+
+function limpiarDictado(arr: unknown, n: number): Dictado[] {
+  if (!Array.isArray(arr)) return [];
+  const num = (v: unknown, max: number) => (typeof v === 'number' && v > 0 && v < max ? Math.round(v * 100) / 100 : undefined);
+  const txt = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : undefined);
+  return arr
+    .filter((r): r is Dictado => !!r && typeof r === 'object' && Number.isInteger(Number((r as Dictado).i)))
+    .map((r) => ({
+      i: Number(r.i),
+      nombre: txt(r.nombre, 80), marca: txt(r.marca, 40), talla: txt(r.talla, 12), descripcion: txt(r.descripcion, 300),
+      precio: num(r.precio, 100000), moneda: r.moneda === 'PEN' || r.moneda === 'USD' ? r.moneda : undefined,
+      costo: num(r.costo, 10000), stock: typeof r.stock === 'number' && r.stock >= 0 && r.stock < 100000 ? Math.floor(r.stock) : undefined,
+      condicion: CONDICIONES.includes(String(r.condicion)) ? String(r.condicion) : undefined,
+      categoria: CATEGORIAS.includes(String(r.categoria)) ? String(r.categoria) : undefined,
+      publico: PUBLICOS.includes(String(r.publico)) ? String(r.publico) : undefined,
+    }))
+    .filter((r) => r.i >= 0 && r.i < n);
+}
+
+function leerArreglo(texto: string): unknown {
+  const inicio = texto.indexOf('['), fin = texto.lastIndexOf(']');
+  try { return JSON.parse(texto.slice(inicio, fin + 1)); } catch { return []; }
+}
+
+async function interpretarDictado(args: { textos?: (string | null)[] | null; idioma?: string | null; moneda?: string | null }) {
+  const textos = (args.textos ?? []).filter((t): t is string => !!t && !!t.trim()).map((t) => t.trim().slice(0, 600)).slice(0, MAX_TEXTOS);
+  if (!textos.length) return JSON.stringify([]);
+  const res = await bedrock.send(new ConverseCommand({
+    modelId: process.env.MODEL_ID,
+    messages: [{ role: 'user', content: [{ text: promptDictado(textos, args.idioma === 'en', args.moneda === 'PEN' ? 'PEN' : 'USD') }] }],
+    inferenceConfig: { maxTokens: 4096, temperature: 0 },
+  }));
+  const texto: string = (res.output?.message?.content ?? []).map((c: { text?: string }) => c.text ?? '').join('');
+  return JSON.stringify(limpiarDictado(leerArreglo(texto), textos.length));
+}
+
+// ---------- Fotos ----------
+type EventoIA = { fieldName?: string; arguments: { paths?: (string | null)[] | null; idioma?: string | null; textos?: (string | null)[] | null; moneda?: string | null } };
+
+export const handler = async (event: EventoIA) => {
+  if (event.fieldName === 'interpretarDictado') return interpretarDictado(event.arguments);
   const paths = (event.arguments.paths ?? []).filter((p): p is string => !!p).slice(0, MAX_FOTOS);
   if (!paths.length) return JSON.stringify([]);
 
@@ -76,9 +138,6 @@ export const handler: Schema['clasificarFotos']['functionHandler'] = async (even
     inferenceConfig: { maxTokens: 2048, temperature: 0 },
   }));
 
-  const texto: string = (res.output?.message?.content ?? []).map((c) => c.text ?? '').join('');
-  const inicio = texto.indexOf('['), fin = texto.lastIndexOf(']');
-  let parsed: unknown = [];
-  try { parsed = JSON.parse(texto.slice(inicio, fin + 1)); } catch { parsed = []; }
-  return JSON.stringify(limpiar(parsed, paths.length));
+  const texto: string = (res.output?.message?.content ?? []).map((c: { text?: string }) => c.text ?? '').join('');
+  return JSON.stringify(limpiar(leerArreglo(texto), paths.length));
 };

@@ -124,6 +124,11 @@ const toProducto = (it) => ({
   descripcion: it.descripcion || '',
   estado: it.estado || 'disponible',
   creado: it.creado || 0,
+  // Tiendas de confianza
+  compartido: !!it.compartido,
+  precioReventa: typeof it.precioReventa === 'number' ? it.precioReventa : null,
+  origenId: it.origenId || '',
+  origenTienda: it.origenTienda || '',
   fotos: (it.fotosFull || []).map((full, i) => ({ full, thumb: (it.fotosThumb || [])[i] || full })),
 });
 
@@ -153,15 +158,25 @@ const productoRef = (id) => ({
 const aDocs = (items) => items.map(toProducto).sort((a, b) => b.creado - a.creado)
   .map((p) => ({ id: p.id, data: () => { const { id, ...resto } = p; return resto; } }));
 
+let reiniciarVendedora = null;
+/** Vuelve a leer los productos de la vendedora (lo que crea o borra el servidor no llega solo). */
+export function refrescarProductos() { if (reiniciarVendedora) reiniciarVendedora(); }
+
 function suscribirProductos(next, err) {
   if (MODO === 'vendedora') {
-    const sub = client.models.Producto.observeQuery({
-      filter: { tiendaId: { eq: TIENDA } }, authMode: 'userPool',
-    }).subscribe({
-      next: ({ items, isSynced }) => next({ docs: aDocs(items), metadata: { fromCache: !isSynced } }),
-      error: (e) => { if (err) err(e); },
-    });
-    return () => sub.unsubscribe();
+    let sub = null;
+    const abrir = () => {
+      if (sub) sub.unsubscribe();
+      sub = client.models.Producto.observeQuery({
+        filter: { tiendaId: { eq: TIENDA } }, authMode: 'userPool',
+      }).subscribe({
+        next: ({ items, isSynced }) => next({ docs: aDocs(items), metadata: { fromCache: !isSynced } }),
+        error: (e) => { if (err) err(e); },
+      });
+    };
+    abrir();
+    reiniciarVendedora = abrir;
+    return () => { reiniciarVendedora = null; if (sub) sub.unsubscribe(); };
   }
   // Público: carga el catálogo y lo refresca cada minuto mientras la página esté visible.
   let parado = false;
@@ -196,6 +211,7 @@ function configRef() {
         nombre: d.nombre || TIENDA, whatsapp: d.whatsapp || '', tipoCambio: d.tipoCambio ?? null,
         yapeNumero: d.yapeNumero || '', yapeNombre: d.yapeNombre || '', yapeQr: d.yapeQr || '',
         descuentoContado: typeof d.descuentoContado === 'number' ? d.descuentoContado : 0,
+        ...(Number.isInteger(d.diasSeparado) ? { diasSeparado: d.diasSeparado } : {}),
         ...(d.pais === 'US' || d.pais === 'PE' ? { pais: d.pais } : {}),
         ...(d.moneda === 'USD' || d.moneda === 'PEN' ? { moneda: d.moneda } : {}),
       };
@@ -252,6 +268,13 @@ export const ai = {
   },
 };
 
+// Dictado por voz: un texto por producto → datos del producto (IA de la función "clasificar").
+export async function interpretarDictado(textos, idioma = 'es', moneda = 'USD') {
+  const r = await client.queries.interpretarDictado({ textos, idioma, moneda }, { authMode: 'userPool' });
+  const d = check(r);
+  return typeof d === 'string' ? JSON.parse(d) : (d || []);
+}
+
 // ---------- Planes y pagos (Stripe) ----------
 // Debe coincidir con amplify/functions/shared/planes.ts
 export const PLANES = [
@@ -286,6 +309,8 @@ export const pagarPlan = (plan) => llamar('pagarPlan', { tiendaId: TIENDA, plan,
 export const cancelarPlan = () => llamar('cancelarPlan', { tiendaId: TIENDA }, 'userPool');
 export const conectarCobros = () => llamar('conectarCobros', { tiendaId: TIENDA, origen: origen() }, 'userPool');
 export const estadoCobros = () => llamar('estadoCobros', { tiendaId: TIENDA }, 'userPool');
+// Tiendas de confianza: listar, invitar, aceptar, cortar, agregar, vendi, saldar (y admin_listar / admin_cortar).
+export const confianza = (accion, datos = {}) => llamar('confianza', { tiendaId: TIENDA || '-', accion, datos: JSON.stringify(datos) }, 'userPool');
 export const pedidoYape = (items, nombre, nota, operacion, email) =>
   llamar('pedidoYape', { tiendaId: TIENDA, items: JSON.stringify(items), nombre, nota, operacion, email: email || null }, AUTH);
 export const pagarPedido = (items, nombre, nota) =>

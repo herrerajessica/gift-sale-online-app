@@ -2,6 +2,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import type { Schema } from '../../data/resource';
 import { PLANES, planVigente } from '../shared/planes';
+import { resolverCopias } from '../shared/reventa';
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const MAX_PRODUCTOS = 5000;
@@ -33,6 +34,7 @@ export const handler: Schema['catalogo']['functionHandler'] = async (event) => {
   }
 
   const productos: Record<string, unknown>[] = [];
+  const crudos: Record<string, any>[] = [];
   let ExclusiveStartKey: Record<string, unknown> | undefined;
   do {
     const r = await ddb.send(new QueryCommand({
@@ -44,16 +46,29 @@ export const handler: Schema['catalogo']['functionHandler'] = async (event) => {
     }));
     for (const p of r.Items || []) {
       if (p.estado === 'oculto') continue; // ocultos: solo los ve la vendedora
-      productos.push({
-        id: p.id, nombre: p.nombre, marca: p.marca || '', precio: p.precio ?? null,
-        stock: typeof p.stock === 'number' ? p.stock : null, talla: p.talla || '', condicion: p.condicion || '', categoria: p.categoria || '',
-        // "costo" nunca se devuelve: es dato privado de la vendedora.
-        publico: p.publico || '', descripcion: p.descripcion || '', estado: p.estado || 'disponible',
-        fotosFull: p.fotosFull || [], fotosThumb: p.fotosThumb || [], creado: p.creado || 0,
-      });
+      crudos.push(p);
     }
     ExclusiveStartKey = r.LastEvaluatedKey;
-  } while (ExclusiveStartKey && productos.length < MAX_PRODUCTOS);
+  } while (ExclusiveStartKey && crudos.length < MAX_PRODUCTOS);
+
+  // Productos de tiendas de confianza: fotos, cantidad y disponibilidad salen del original.
+  // Si el original ya no se puede revender, no se muestra. El cliente nunca ve de qué tienda viene.
+  const copias = await resolverCopias(slug, crudos);
+  for (const c of crudos) {
+    let p = c;
+    if (c.origenId) {
+      const o = copias.get(String(c.id));
+      if (!o) continue;
+      p = { ...c, stock: o.stock, fotosFull: o.fotosFull, fotosThumb: o.fotosThumb };
+    }
+    productos.push({
+      id: p.id, nombre: p.nombre, marca: p.marca || '', precio: p.precio ?? null,
+      stock: typeof p.stock === 'number' ? p.stock : null, talla: p.talla || '', condicion: p.condicion || '', categoria: p.categoria || '',
+      // "costo", "precioReventa" y el origen nunca se devuelven: son datos privados de las vendedoras.
+      publico: p.publico || '', descripcion: p.descripcion || '', estado: p.estado || 'disponible',
+      fotosFull: p.fotosFull || [], fotosThumb: p.fotosThumb || [], creado: p.creado || 0,
+    });
+  }
 
   const plan = planVigente(t);
   const limite = PLANES[plan].limite;
