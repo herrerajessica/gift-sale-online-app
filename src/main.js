@@ -1215,6 +1215,9 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   $("fileInput").onchange = e=>handleFiles(e.target.files);
   const setMode = m=>{ S.mode=m; $("modeEach").setAttribute("aria-pressed",String(m==="each")); $("modeGroup").setAttribute("aria-pressed",String(m==="group")); };
   $("modeEach").onclick=()=>setMode("each"); $("modeGroup").onclick=()=>setMode("group");
+  // Tarjetas "¿Cómo quieres subir tus productos?": eligen el modo y abren las fotos
+  $("formaFotos").onclick = ()=>{ setMode("each"); $("fileInput").click(); };
+  $("formaVarias").onclick = ()=>{ setMode("group"); $("fileInput").click(); };
   const drop=$("drop");
   ["dragenter","dragover"].forEach(t=>drop.addEventListener(t,e=>{e.preventDefault();drop.classList.add("over");}));
   ["dragleave","drop"].forEach(t=>drop.addEventListener(t,e=>{e.preventDefault();drop.classList.remove("over");}));

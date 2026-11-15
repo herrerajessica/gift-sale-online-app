@@ -10,12 +10,12 @@ test.describe('REQ-027 Panel de la vendedora por pestañas', () => {
   test('CP-067 Se ven las 5 pestañas y abre en Productos @REQ-027', async ({ page }) => {
     for (const n of PESTANAS) await expect(page.getByRole('tab', { name: new RegExp(n) })).toBeVisible();
     await expect(page.getByRole('tab', { name: /Productos/ })).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByRole('heading', { name: 'Arrastra aquí todas las fotos' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Cómo quieres subir tus productos/ })).toBeVisible();
     await expect(page.locator('#storeBanner')).toBeVisible();
   });
 
   test('CP-068 Cada pestaña muestra solo lo suyo @REQ-027', async ({ page }) => {
-    const subir = page.getByRole('heading', { name: 'Arrastra aquí todas las fotos' });
+    const subir = page.getByRole('heading', { name: /Cómo quieres subir tus productos/ });
     await irPestana(page, /Pedidos/);
     await expect(page.locator('#pedidosBox, #pedidosVacio').filter({ visible: true })).toHaveCount(1);
     await expect(subir).toBeHidden();
