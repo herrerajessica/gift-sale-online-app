@@ -174,7 +174,7 @@ docs/matriz-trazabilidad.csv   REQ ↔ caso manual ↔ script ↔ aprobación QA
 docs/prompt-codex.md           Prompt listo para Codex
 tests/                         Playwright (Page Object Model en tests/pages)
 scripts/check-traceability.js  Valida que cada caso automatizable tenga test (y aprobación con --require-approval)
-.github/workflows/qa-review.yml  Corre en cada Pull Request
+.github/workflows/qa-review.yml  Corre en cada Pull Request a main, después de cada cambio en pruebas, todas las noches y a mano
 buildspec.yml                  CodeBuild: ejecuta y publica reportes en S3
 ```
 
@@ -188,6 +188,14 @@ Variables para las pruebas (GitHub › Settings › Secrets and variables › Ac
 | `TEST_PENDING_STORE` | variable | enlace de una vitrina pendiente |
 | `TEST_STORE_COBROS` | variable | enlace de una vitrina aprobada con pagos con tarjeta activos |
 | `TEST_STORE_YAPE` | variable | enlace de una vitrina aprobada con Yape configurado |
+| `TEST_USER_B` / `TEST_PASSWORD_B` | secret | segunda vendedora (tiendas de confianza) |
+| `TEST_STORE_B` | variable | enlace de la tienda de la segunda vendedora (en soles) |
+
+En pruebas: `BASE_URL_QA=https://pruebas.showroomcito.com`, `TEST_STORE=showroomvip`, `TEST_STORE_YAPE=showroomvip`, `TEST_STORE_B=jessicaventasusa`. La cuenta `TEST_USER` es SUPERADMIN en el pool de pruebas (para el panel de la dueña).
+
+**Correr a mano:** GitHub › Actions › QA Review › Run workflow (rama `pruebas`). El reporte queda en *Artifacts › playwright-report*.
+
+**Revisar las pruebas sin internet:** con `PREVIEW_FILE=file:///ruta/vitrina-vista-previa.html` las pruebas de `tests/support/app.ts` abren la vista previa (datos de ejemplo) en lugar de la página real.
 
 Las pruebas que necesitan una variable que no esté definida se marcan como omitidas en lugar de fallar.
 
