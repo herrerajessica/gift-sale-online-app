@@ -1297,7 +1297,10 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   // ----- Panel de la dueña -----
   let panelFiltro = "pendiente", tiendasCache = [];
   async function abrirPanel(){
-    show("vitrina", false); show("storeBanner", false); show("onboard", false); show("confBox", false); show("panel", true);
+    // El panel de la dueña muestra solo la administración: se ocultan los recuadros de su propia tienda.
+    show("vitrina", false); show("storeBanner", false); show("onboard", false); show("confBox", false);
+    show("planBox", false); show("cobrosBox", false); show("pedidosBox", false); show("settings", false); show("asisBtn", false);
+    show("panel", true);
     $("panelRows").textContent = ""; $("panelCount").textContent = "Cargando vitrinas…";
     try{ tiendasCache = await listarTiendas(); }catch(e){ $("panelCount").textContent = "No se pudieron cargar las vitrinas: " + ((e&&e.message)||""); return; }
     pintarPanel(); cargarPanelConf();
@@ -1338,7 +1341,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     return { plan, usados, libres: plan.limite==null ? Infinity : Math.max(0, plan.limite - usados) };
   }
   function actualizarPlan(){
-    const box=$("planBox"); if(!S.canEdit){ box.hidden=true; return; }
+    const box=$("planBox"); if(!S.canEdit || !$("panel").hidden){ box.hidden=true; return; }
     const u = usoPlan(), ilimitado = u.plan.limite==null;
     const pct = ilimitado ? 0 : Math.min(100, Math.round(u.usados / u.plan.limite * 100));
     const lleno = !ilimitado && u.usados >= u.plan.limite, cerca = !lleno && pct >= 80;
@@ -1403,7 +1406,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
 
   // ----- Cobros con tarjeta de la vendedora (Stripe Connect) -----
   function pintarCobros(){
-    if(!S.canEdit){ show("cobrosBox", false); return; }
+    if(!S.canEdit || !$("panel").hidden){ show("cobrosBox", false); return; }
     const activos = !!(S.config && S.config.cobrosActivos), empezado = !!(S.config && S.config.stripeAccountId);
     show("cobrosBox", true);
     const pill=$("cobrosPill"); pill.className="pill "+(activos?"activos":"inactivos"); pill.textContent = activos ? "Pagos con tarjeta activos" : "Pagos con tarjeta";
@@ -1711,7 +1714,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     finally{ if(btn) btn.disabled = false; }
   }
   function pintarConfBox(){
-    if(!S.canEdit){ show("confBox", false); return; }
+    if(!S.canEdit || !$("panel").hidden){ show("confBox", false); return; }
     show("confBox", true);
     const c = S.conf; let txt = "Comparte productos con vendedoras de confianza y revende los suyos como tuyos.";
     let urgente = false;
@@ -1992,7 +1995,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   async function cargarPedidos(){
     let lista = [];
     try{ lista = await listarPedidos(); }catch(e){ return; }
-    show("pedidosBox", lista.length > 0);
+    show("pedidosBox", lista.length > 0 && $("panel").hidden);
     const pagados = lista.filter(p=>p.estado==="pagado").length, porConfirmar = lista.filter(p=>p.estado==="por_confirmar").length;
     $("pedidosCount").textContent = [porConfirmar ? `${porConfirmar} por confirmar` : "", pagados ? `${pagados} por entregar` : ""].filter(Boolean).join(" · ") || `${lista.length}`;
     if(porConfirmar) $("pedidosBox").open = true;
