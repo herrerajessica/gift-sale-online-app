@@ -37,6 +37,10 @@ const schema = a.schema({
       diasSeparado: a.integer(),
       // Enlace del grupo de WhatsApp de ventas (https://chat.whatsapp.com/...): la tienda muestra "Únete a mi grupo"
       grupoWhatsapp: a.string(),
+      // Asistente para clientes en la tienda ("regalos para niño de 5 años"). Vacío = activado; false = apagado.
+      chatClientes: a.boolean(),
+      clienteDia: a.string().authorization(soloLecturaDueña),
+      clienteUsos: a.integer().authorization(soloLecturaDueña),
       // País de la tienda: PE (soles, Yape, tienda en español) o US (solo dólares, tienda del cliente en inglés)
       pais: a.enum(['PE', 'US']),
       // Moneda de los precios: PEN (soles, tiendas de Perú) o USD. Sin valor = USD (tiendas antiguas).
@@ -163,6 +167,14 @@ const schema = a.schema({
   catalogo: a
     .query()
     .arguments({ slug: a.string().required() })
+    .returns(a.string())
+    .handler(a.handler.function(catalogo))
+    .authorization((allow) => [allow.guest(), allow.authenticated()]),
+
+  // Asistente de compras para los clientes de una tienda: recomienda solo productos de esa tienda.
+  preguntarTienda: a
+    .query()
+    .arguments({ slug: a.string().required(), mensajes: a.string().required() })
     .returns(a.string())
     .handler(a.handler.function(catalogo))
     .authorization((allow) => [allow.guest(), allow.authenticated()]),

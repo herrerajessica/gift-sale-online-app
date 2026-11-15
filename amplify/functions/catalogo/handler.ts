@@ -1,7 +1,7 @@
 import { ofertaActiva } from '../shared/oferta';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
-import type { Schema } from '../../data/resource';
+import { preguntarTienda } from './cliente';
 import { PLANES, planVigente } from '../shared/planes';
 import { resolverCopias } from '../shared/reventa';
 
@@ -17,12 +17,25 @@ type Identidad = { sub?: string; groups?: string[] | null } | null | undefined;
  * El límite del plan se aplica aquí, en el servidor: solo se muestran los
  * productos más recientes que permite el plan vigente.
  */
-export const handler: Schema['catalogo']['functionHandler'] = async (event) => {
+type Evento = { fieldName?: string; info?: { fieldName?: string }; arguments: { slug?: string; mensajes?: string }; identity?: unknown };
+
+export const handler = async (event: Evento) => {
+  const campo = event.fieldName || (event.info && event.info.fieldName);
+  if (campo === 'preguntarTienda') {
+    // El asistente de clientes usa exactamente lo que el cliente ve en la tienda (sin la vista previa de la dueña).
+    const { res, t } = await armarCatalogo({ ...event, identity: null });
+    return preguntarTienda(res, t, String(event.arguments.mensajes || ''));
+  }
+  return JSON.stringify((await armarCatalogo(event)).res);
+};
+
+/** Devuelve lo que ve el cliente (res) y, si existe, la tienda tal cual está guardada (t). */
+async function armarCatalogo(event: Evento): Promise<{ res: Record<string, unknown>; t?: Record<string, any> }> {
   const slug = String(event.arguments.slug || '').trim().toLowerCase();
-  if (!/^[a-z0-9-]{3,40}$/.test(slug)) return JSON.stringify({ estado: 'no_existe' });
+  if (!/^[a-z0-9-]{3,40}$/.test(slug)) return { res: { estado: 'no_existe' } };
 
   const { Item: t } = await ddb.send(new GetCommand({ TableName: process.env.TIENDA_TABLE, Key: { id: slug } }));
-  if (!t) return JSON.stringify({ estado: 'no_existe' });
+  if (!t) return { res: { estado: 'no_existe' } };
 
   const ident = event.identity as Identidad;
   const sub = ident && ident.sub;
@@ -31,7 +44,7 @@ export const handler: Schema['catalogo']['functionHandler'] = async (event) => {
   const estado = t.estado || 'pendiente';
 
   if (estado !== 'aprobada' && !esDuena && !esSuper) {
-    return JSON.stringify({ estado, tienda: { id: t.id, nombre: t.nombre } });
+    return { res: { estado, tienda: { id: t.id, nombre: t.nombre } }, t };
   }
 
   const productos: Record<string, unknown>[] = [];
@@ -79,14 +92,14 @@ export const handler: Schema['catalogo']['functionHandler'] = async (event) => {
   const fueraDelPlan = limite == null ? 0 : Math.max(0, productos.length - limite);
   const visibles = limite == null ? productos : productos.slice(0, limite);
 
-  return JSON.stringify({
+  return { t, res: {
     estado,
     vistaPrevia: estado !== 'aprobada',
     tienda: { id: t.id, nombre: t.nombre, pais: t.pais === 'US' ? 'US' : 'PE', moneda: t.pais !== 'US' && t.moneda === 'PEN' ? 'PEN' : 'USD', whatsapp: t.whatsapp || '', tipoCambio: t.tipoCambio ?? null, cobrosActivos: !!t.cobrosActivos,
       descuentoContado: typeof t.descuentoContado === 'number' ? t.descuentoContado : 0,
-      yapeNumero: t.yapeNumero || '', yapeNombre: t.yapeNombre || '', yapeQr: t.yapeQr || '', grupoWhatsapp: t.grupoWhatsapp || '' },
+      yapeNumero: t.yapeNumero || '', yapeNombre: t.yapeNombre || '', yapeQr: t.yapeQr || '', grupoWhatsapp: t.grupoWhatsapp || '', chatClientes: t.chatClientes !== false },
     productos: visibles,
     // Solo la dueña ve cuántos productos quedaron fuera por el límite del plan.
     ...(esDuena || esSuper ? { fueraDelPlan } : {}),
-  });
-};
+  } };
+}

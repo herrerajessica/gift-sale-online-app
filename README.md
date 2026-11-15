@@ -45,6 +45,14 @@ La idea central es **subir muchas fotos de una vez**. Al arrastrar el lote se pu
 - **Cantidad (stock):** opcional; vacío significa "sin control". El cliente ve "Quedan N" o "¡Última unidad!" cuando quedan 3 o menos, y "Agotado" en 0. No puede pedir más unidades de las disponibles: lo valida la pantalla y también el servidor.
 - **Descuento automático:** al pagar con tarjeta, el webhook descuenta las unidades una sola vez (aunque Stripe reenvíe el aviso). Al confirmar un Yape, se descuentan cuando la vendedora toca *Confirmar pago*. Los pedidos por WhatsApp se ajustan a mano.
 
+## Asistente de compras para clientes
+
+En la tienda pública, el botón **¿Buscas algo?** abre un chat donde el cliente pregunta ("regalos para niño de 5 años", "¿qué ofertas hay?", "algo para mamá menos de S/ 100"). La consulta `preguntarTienda` (función `catalogo`, archivo `catalogo/cliente.ts`) arma la misma lista que ve el cliente (sin ocultos, vendidos ni agotados, sin costos ni origen) y le pide a Nova 2 Lite una respuesta corta con hasta 6 códigos. La tienda muestra tarjetas con foto, código y precio; al tocar una se abre el producto para agregarlo al pedido. El cierre sigue siendo por WhatsApp, Yape o tarjeta.
+
+- Límite por tienda y por día según el plan: Free 20, Básico 100, Pro 300, Plus 1000 preguntas (`clienteDia` / `clienteUsos`). Al llegar al límite invita a escribir por WhatsApp.
+- La vendedora lo apaga en Datos de la tienda (`Tienda.chatClientes = false`).
+- Tienda de EE. UU.: responde en inglés. El cliente también puede dictar con el micrófono.
+
 ## Órdenes rápidas (voz o texto, como con Alexa)
 
 En el asistente, frases cortas con palabras clave se entienden **al instante y sin IA** (no gastan usos del plan). Siempre se muestra la tarjeta con los cambios y la vendedora toca **Aplicar**. El código está en `src/comandos.js` (se puede probar solo, sin la página).

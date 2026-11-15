@@ -19,6 +19,7 @@ export async function abrirTienda(page: Page, slug: string) {
   // En la vista previa los códigos se ponen cuando la vendedora abre su tienda (igual que en la real).
   if (PREVIEW) { await page.goto(`${PREVIEW}#demo-vendedora`); await expect(page.locator('#grid .card .cod-tag').first()).toBeVisible(); }
   await page.goto(PREVIEW ? `${PREVIEW}#demo-cliente` : `/?tienda=${encodeURIComponent(slug)}`);
+  if (PREVIEW) { await page.waitForLoadState('load'); await page.waitForTimeout(800); }   // la vista previa se recarga sola al cambiar de pantalla
   await expect(page.locator('#grid .card').first()).toBeVisible();
 }
 

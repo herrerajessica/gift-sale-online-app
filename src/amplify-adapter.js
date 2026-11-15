@@ -109,6 +109,13 @@ export async function cargarCatalogo() {
 }
 export const estadoCatalogo = () => catalogoActual;
 
+/** Asistente de compras del cliente: devuelve { texto, codigos } (solo productos de esta tienda). */
+export async function preguntarTienda(mensajes) {
+  const r = await client.queries.preguntarTienda({ slug: TIENDA, mensajes: JSON.stringify(mensajes) }, { authMode: AUTH });
+  const d = check(r);
+  return typeof d === 'string' ? JSON.parse(d) : d;
+}
+
 // ---------- Productos ----------
 const toProducto = (it) => ({
   id: it.id,
@@ -220,6 +227,7 @@ function configRef() {
         descuentoContado: typeof d.descuentoContado === 'number' ? d.descuentoContado : 0,
         ...(Number.isInteger(d.diasSeparado) ? { diasSeparado: d.diasSeparado } : {}),
         ...(typeof d.grupoWhatsapp === 'string' ? { grupoWhatsapp: d.grupoWhatsapp } : {}),
+        ...(typeof d.chatClientes === 'boolean' ? { chatClientes: d.chatClientes } : {}),
         ...(d.pais === 'US' || d.pais === 'PE' ? { pais: d.pais } : {}),
         ...(d.moneda === 'USD' || d.moneda === 'PEN' ? { moneda: d.moneda } : {}),
       };
