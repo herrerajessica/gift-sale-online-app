@@ -8,6 +8,7 @@ import {
 } from './amplify-adapter.js';
 import { interpretarComando } from './comandos.js';
 import { qrCanvas } from './qr.js';
+import { escucha, vocabulario, corregir, codigosDichos } from './voz.js';
 import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, marcaDeTexto, MARCAS } from './rubros.js';
 
 // Lógica de Showroomcito (misma que la versión de Claude).
@@ -1744,7 +1745,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   }
   async function enviarCli(texto){
     texto = String(texto||"").trim(); if(!texto || cliOcupado) return;
-    if(cliRec){ const r = cliRec; cliRec = null; r.onresult = null; r.onend = null; try{ r.stop(); }catch(e){} $("cliMic").classList.remove("on"); }
+    if(cliRec){ const r = cliRec; cliRec = null; r.pausar(); $("cliMic").classList.remove("on"); }
     cliLog.push({ role:"user", text:texto }); cliOcupado = true; guardarCli(); pintarCli();
     const inp = $("cliInput"); inp.blur(); inp.value = ""; $("cliEnviar").disabled = true;
     try{
@@ -1982,7 +1983,22 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   // Cada producto se guarda al instante (borrador en este navegador). Luego la IA entiende el texto,
   // ella elige las fotos en el mismo orden, ve una vista previa (productos ocultos) y recién publica.
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const SEPARADOR = /\b(?:siguiente|next(?: one)?)\b[\s.,;:!]*/i;
+  // "siguiente" y lo que suele entender el navegador en su lugar
+  const SEPARADOR = /\b(?:siguientes?|siguiente producto|otro producto|pr[oó]ximo producto|next(?: one| item)?)\b[\s.,;:!]*/i;
+  // Vocabulario para ayudar al reconocimiento: marcas conocidas y de la tienda, tipos de producto y palabras de sus productos
+  let vocabCache = null, vocabClave = "";
+  function vocabTienda(){
+    const prods = S.products || [], clave = prods.length + "|" + rubroActual();
+    if(vocabCache && vocabClave === clave) return vocabCache;
+    const marcasTienda = [...new Set(prods.map(p=>p.marca).filter(Boolean))];
+    const palabras = new Map();
+    prods.forEach(p=>String(p.nombre||"").split(/[^A-Za-zÁÉÍÓÚÑáéíóúñ]+/).forEach(w=>{ if(w.length>=4) palabras.set(w.toLowerCase(), w.toLowerCase()); }));
+    vocabCache = vocabulario([
+      ...MARCAS.map(txt=>({ txt, tipo:"marca" })), ...marcasTienda.map(txt=>({ txt, tipo:"marca" })),
+      { txt: esUS() ? "next" : "siguiente", tipo:"clave" },
+      ...TIPOS.map(t=>t[0]), ...TIPOS.flatMap(t=>t[3].split("|")), ...palabras.values()]);
+    vocabClave = clave; return vocabCache;
+  }
   const D = { paso:"dictar", items:[], buffer:"", datos:[], fotos:[], ids:[], escuchando:false, interino:"" };
   let rec = null;
   const claveDict = () => "dictado-" + ((S.config && S.config.id) || "tienda");
@@ -1998,21 +2014,23 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     guardarDict();
   }
   function cerrarProductoActual(){ agregarTexto(" siguiente "); }
+  // Escucha reforzada (src/voz.js): se vuelve a encender sola tras los silencios, no repite frases,
+  // se pausa si se apaga la pantalla y corrige marcas y palabras con el vocabulario de la tienda.
   function microfono(on){
     if(!SR){ toast("Tu navegador no permite dictar aquí: escribe con el micrófono del teclado"); return; }
-    if(!on){ D.escuchando=false; D.interino=""; try{ rec && rec.stop(); }catch(e){} pintarDict(); return; }
-    rec = new SR(); rec.lang = esUS() ? "en-US" : "es-PE"; rec.continuous = true; rec.interimResults = true;
-    rec.onresult = e=>{
-      let fin = ""; D.interino = "";
-      for(let i=e.resultIndex; i<e.results.length; i++){ const t = e.results[i][0].transcript; if(e.results[i].isFinal) fin += t + " "; else D.interino += t; }
-      if(fin) agregarTexto(fin);
-      pintarVivo();
-    };
-    rec.onerror = e=>{ if(e.error==="not-allowed" || e.error==="service-not-allowed" || e.error==="audio-capture"){ D.escuchando=false; toast("Permite el micrófono para dictar, o escribe con el micrófono del teclado"); pintarDict(); } };
-    // El celular corta la escucha tras un silencio: si seguimos dictando, se vuelve a encender sola.
-    rec.onend = ()=>{ if(D.escuchando){ try{ rec.start(); }catch(e){ D.escuchando=false; pintarDict(); } } };
-    try{ rec.start(); D.escuchando = true; }catch(e){ toast("No se pudo usar el micrófono"); }
-    pintarDict();
+    if(!on){ D.pausaSola = false; if(rec) rec.pausar(); D.escuchando=false; D.interino=""; pintarDict(); return; }
+    if(rec) rec.pausar();
+    rec = escucha(SR, { lang: esUS() ? "en-US" : "es-PE", vocab: vocabTienda(),
+      alTexto: t=>{ agregarTexto(t); pintarVivo(); },
+      alInterino: t=>{ D.interino = t; pintarVivo(); },
+      alEstado: (estado, det)=>{
+        if(estado==="escuchando"){ D.escuchando = true; D.pausaSola = false; }
+        else if(estado==="silencio"){ D.escuchando = false; D.pausaSola = true; toast("Me pausé porque no te escuché. Toca el micrófono para seguir donde te quedaste"); }
+        else if(estado==="error"){ D.escuchando = false; toast(/not-allowed|audio-capture/.test(det||"") ? "Permite el micrófono para dictar, o escribe con el micrófono del teclado" : "No se pudo usar el micrófono"); }
+        else if(estado==="pausa"){ D.escuchando = false; }
+        if(dictAbierto()) pintarDict();
+      } });
+    rec.iniciar();
   }
   function abrirDictado(){
     cargarDict();
@@ -2026,7 +2044,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const b = $("dictBuffer"), i = $("dictInterino");
     if(b) b.textContent = D.buffer || (D.escuchando ? "Escuchando…" : "");
     if(i) i.textContent = D.interino;
-    const l = $("dictLista"); if(l && l.childElementCount !== D.items.length) pintarDict();
+    // Producto nuevo cerrado con "siguiente": se vuelve a dibujar la lista (también la primera vez, cuando aún no existe)
+    const l = $("dictLista"); if((l ? l.childElementCount : 0) !== D.items.length) pintarDict();
   }
   function pintarDict(){
     if(!dictAbierto()) return;
@@ -2038,16 +2057,17 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     ov.append(card);
   }
   function pasoDictar(card){
-    const mic = el("button",{class:"mic",type:"button","aria-label": D.escuchando ? "Pausar el dictado" : "Empezar a dictar", onclick:()=>microfono(!D.escuchando)}, D.escuchando ? "❚❚" : "🎙️");
+    const enCurso = !!(D.buffer.trim() || D.items.length);
+    const mic = el("button",{class:"mic",type:"button","aria-label": D.escuchando ? "Pausar el dictado" : enCurso ? "Seguir dictando" : "Empezar a dictar", onclick:()=>microfono(!D.escuchando)}, D.escuchando ? "❚❚" : "🎙️");
     card.append(
       el("p",{class:"note",style:"margin:0"}, "Mira cada producto y dilo de corrido: qué es, marca, condición, precio y cuántos tienes. Al terminar uno, di ", el("strong",null,"“siguiente”"), ". Ej.: ", el("em",null,"“Cartera Coach negra, nueva con etiqueta, 85 soles, tengo 2… siguiente”"), "."),
       el("div",{class:"dict-mic"+(D.escuchando?" on":"")}, mic,
-        el("div",{class:"dict-vivo"}, el("strong",null, D.escuchando ? "Te escucho" : (SR ? "Toca el micrófono para empezar" : "Escribe tus productos")),
+        el("div",{class:"dict-vivo"}, el("strong",null, D.escuchando ? "Te escucho" : !SR ? "Escribe tus productos" : D.pausaSola ? "En pausa (no te escuché). Toca el micrófono para seguir" : enCurso ? "En pausa. Toca el micrófono para seguir donde te quedaste" : "Toca el micrófono para empezar"),
           el("span",{class:"en-curso",id:"dictBuffer"}, D.buffer || (D.escuchando ? "Escuchando…" : "")), el("span",{class:"interino",id:"dictInterino"}, D.interino)),
         D.buffer.trim() ? el("button",{class:"btn",type:"button",onclick:()=>{ cerrarProductoActual(); pintarDict(); }},"Siguiente producto") : null));
     // Escribir (o usar el micrófono del teclado del celular): sirve en cualquier navegador.
     const ta = el("textarea",{rows:"2",placeholder: SR ? "O escríbelo aquí…" : "Escribe o usa el micrófono de tu teclado. Di “siguiente” entre productos…","aria-label":"Escribir producto"});
-    const add = el("button",{class:"btn",type:"button",onclick:()=>{ const t = ta.value.trim(); if(!t) return; agregarTexto(t + " siguiente "); ta.value=""; pintarDict(); }},"Agregar");
+    const add = el("button",{class:"btn",type:"button",onclick:()=>{ const t = corregir(ta.value.trim(), vocabTienda()); if(!t) return; agregarTexto(t + " siguiente "); ta.value=""; pintarDict(); }},"Agregar");
     card.append(el("div",{style:"display:flex;gap:8px;align-items:end"}, el("label",{class:"f",style:"flex:1"},"Escribir", ta), add));
     const lista = el("div",{class:"dict-list",id:"dictLista"});
     D.items.forEach((t,i)=>{
@@ -2806,7 +2826,7 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
   // Vacía la caja al enviar. Antes se apaga el micrófono (si no, sigue escribiendo lo que escuchó) y se
   // suelta el foco: el dictado del teclado del celular vuelve a pegar el texto si la caja sigue activa.
   function limpiarAsisInput(enviado){
-    if(asisRec){ const r = asisRec; asisRec = null; r.onresult = null; r.onend = null; try{ r.stop(); }catch(e){} $("asisMic").classList.remove("on"); $("asisMic").setAttribute("aria-label","Hablar con el asistente"); }
+    if(asisRec){ const r = asisRec; asisRec = null; r.pausar(); $("asisMic").classList.remove("on"); $("asisMic").setAttribute("aria-label","Hablar con el asistente"); }
     const inp = $("asisInput"); inp.blur(); inp.value = ""; inp.dispatchEvent(new Event("input"));
     setTimeout(()=>{ if(inp.value.trim() === enviado){ inp.value = ""; inp.dispatchEvent(new Event("input")); } }, 150);
   }
@@ -2849,25 +2869,32 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
   if(SR){
     $("asisMic").hidden = false;
     $("asisMic").onclick = ()=>{
-      if(asisRec){ try{ asisRec.stop(); }catch(e){} return; }
+      if(asisRec){ const r = asisRec; asisRec = null; r.pausar(); return; }
       const inp = $("asisInput"), antes = inp.value ? inp.value.trim() + " " : "";
-      asisRec = new SR(); asisRec.lang = esUS() ? "en-US" : "es-PE"; asisRec.continuous = true; asisRec.interimResults = true;
+      // Los códigos dichos ("rop cero cero tres") se escriben como en la tienda (ROP-003)
+      const prefijos = [...new Set((S.products||[]).map(p=>(codigoDe(p)||"").split("-")[0]).filter(Boolean))];
       let fin = "";
-      asisRec.onresult = e=>{ let inter = ""; for(let i=e.resultIndex;i<e.results.length;i++){ const t=e.results[i][0].transcript; if(e.results[i].isFinal) fin += t + " "; else inter += t; } inp.value = (antes + fin + inter).trimStart(); inp.dispatchEvent(new Event("input")); };
-      asisRec.onerror = e=>{ if(/not-allowed|service-not-allowed|audio-capture/.test(e.error)) toast("Permite el micrófono para hablarle al asistente"); };
-      asisRec.onend = ()=>{ asisRec = null; $("asisMic").classList.remove("on"); $("asisMic").setAttribute("aria-label","Hablar con el asistente"); inp.focus(); };
-      try{ asisRec.start(); $("asisMic").classList.add("on"); $("asisMic").setAttribute("aria-label","Dejar de escuchar"); }catch(e){ asisRec = null; toast("No se pudo usar el micrófono"); }
+      const poner = inter=>{ inp.value = (antes + codigosDichos(fin + inter, prefijos)).trimStart(); inp.dispatchEvent(new Event("input")); };
+      const r = escucha(SR, { lang: esUS() ? "en-US" : "es-PE", vocab: vocabTienda(),
+        alTexto: t=>{ fin += t; poner(""); }, alInterino: t=>poner(t),
+        alEstado: (estado, det)=>{
+          if(estado==="error" && /not-allowed|audio-capture/.test(det||"")) toast("Permite el micrófono para hablarle al asistente");
+          if(estado==="escuchando"){ $("asisMic").classList.add("on"); $("asisMic").setAttribute("aria-label","Dejar de escuchar"); }
+          else { if(asisRec === r) asisRec = null; $("asisMic").classList.remove("on"); $("asisMic").setAttribute("aria-label","Hablar con el asistente"); if(estado!=="pausa") inp.focus(); }
+        } });
+      asisRec = r; if(!r.iniciar()) asisRec = null;
     };
   }
   $("asisInput").addEventListener("keydown", e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); enviarAsis($("asisInput").value); } });
   if(SR){
     $("cliMic").hidden = false;
     $("cliMic").onclick = ()=>{
-      if(cliRec){ try{ cliRec.stop(); }catch(e){} return; }
-      const inp = $("cliInput"); cliRec = new SR(); cliRec.lang = esUS() ? "en-US" : "es-PE"; cliRec.interimResults = true;
-      cliRec.onresult = e=>{ let t = ""; for(let i=0;i<e.results.length;i++) t += e.results[i][0].transcript; inp.value = t; };
-      cliRec.onend = ()=>{ cliRec = null; $("cliMic").classList.remove("on"); inp.focus(); };
-      try{ cliRec.start(); $("cliMic").classList.add("on"); }catch(e){ cliRec = null; }
+      if(cliRec){ const r = cliRec; cliRec = null; r.pausar(); return; }
+      const inp = $("cliInput"); let fin = "";
+      const r = escucha(SR, { lang: EN() ? "en-US" : "es-PE", vocab: vocabTienda(), unaFrase: true,
+        alTexto: t=>{ fin += t; inp.value = fin.trim(); }, alInterino: t=>{ inp.value = (fin + t).trim(); },
+        alEstado: estado=>{ if(estado==="escuchando") $("cliMic").classList.add("on"); else { if(cliRec === r) cliRec = null; $("cliMic").classList.remove("on"); if(estado!=="pausa") inp.focus(); } } });
+      cliRec = r; if(!r.iniciar()) cliRec = null;
     };
   }
   $("asisInput").addEventListener("input", e=>{ e.target.style.height = "auto"; e.target.style.height = Math.min(140, e.target.scrollHeight) + "px"; });

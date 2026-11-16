@@ -143,6 +143,15 @@ Pensado para quien tiene muchos productos y los va mirando uno por uno:
 
 El reconocimiento de voz lo hace el navegador del celular (sin costo); solo el texto viaja a la IA.
 
+### Voz reforzada (sin servicios de pago)
+
+La voz la pasa a texto el navegador (gratis). `src/voz.js` la hace más confiable:
+- **No se corta**: si el navegador deja de escuchar por un silencio, vuelve a encenderse solo. Si se corta muchas veces seguidas sin oír nada, se pausa y avisa. Al apagar la pantalla se pausa y al volver sigue.
+- **Pausar y seguir**: el botón ❚❚ pausa; "Seguir dictando" continúa en el mismo producto.
+- **No repite**: descarta la frase que Android manda dos veces y, cuando la manda acumulada, se queda solo con lo nuevo.
+- **Vocabulario**: el navegador da hasta 5 versiones de lo que oyó y se elige la que tiene más palabras conocidas; luego se corrige por sonido con las marcas conocidas (`MARCAS`), las marcas y palabras de los productos de la tienda, los tipos de producto y "siguiente" ("maicol cors" → Michael Kors, "esquechers" → Skechers, "levis" → Levi's). Las palabras comunes y los números no se tocan.
+- **Códigos dichos** al asistente: "ropa cero cero tres" → ROP-003 (solo con los prefijos que existen en la tienda).
+
 ## Tiendas de confianza
 
 Dos vendedoras se conectan (una invita con el enlace de la tienda de la otra y la otra acepta) y cada una puede revender los productos que la otra comparte, **como si fueran suyos**: el cliente ve el nombre, el WhatsApp y los pagos de la revendedora, nunca la tienda de origen.
