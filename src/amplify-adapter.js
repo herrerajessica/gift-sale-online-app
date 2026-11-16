@@ -110,8 +110,8 @@ export async function cargarCatalogo() {
 export const estadoCatalogo = () => catalogoActual;
 
 /** Asistente de compras del cliente: devuelve { texto, codigos } (solo productos de esta tienda). */
-export async function preguntarTienda(mensajes) {
-  const r = await client.queries.preguntarTienda({ slug: TIENDA, mensajes: JSON.stringify(mensajes) }, { authMode: AUTH });
+export async function preguntarTienda(mensajes, idioma) {
+  const r = await client.queries.preguntarTienda({ slug: TIENDA, mensajes: JSON.stringify(mensajes), ...(idioma ? { idioma } : {}) }, { authMode: AUTH });
   const d = check(r);
   return typeof d === 'string' ? JSON.parse(d) : d;
 }
@@ -130,6 +130,9 @@ const toProducto = (it) => ({
   huella: it.huella || '',
   categoria: it.categoria || '',
   tipo: it.tipo || '',
+  trNombre: it.trNombre || '',
+  trDescripcion: it.trDescripcion || '',
+  trFuente: it.trFuente || '',
   publico: it.publico || '',
   descripcion: it.descripcion || '',
   estado: it.estado || 'disponible',
@@ -232,6 +235,7 @@ function configRef() {
         ...(typeof d.rubro === 'string' && d.rubro ? { rubro: d.rubro } : {}),
         ...(typeof d.portada === 'string' ? { portada: d.portada } : {}),
         ...(typeof d.descripcionTienda === 'string' ? { descripcionTienda: d.descripcionTienda.slice(0, 300) } : {}),
+        ...(typeof d.trDescripcionTienda === 'string' ? { trDescripcionTienda: d.trDescripcionTienda.slice(0, 400) } : {}),
         ...(d.pais === 'US' || d.pais === 'PE' ? { pais: d.pais } : {}),
         ...(d.moneda === 'USD' || d.moneda === 'PEN' ? { moneda: d.moneda } : {}),
       };
@@ -291,6 +295,13 @@ export const ai = {
 // Dictado por voz: un texto por producto → datos del producto (IA de la función "clasificar").
 export async function interpretarDictado(textos, idioma = 'es', moneda = 'USD', rubro = 'moda') {
   const r = await client.queries.interpretarDictado({ textos, idioma, moneda, rubro }, { authMode: 'userPool' });
+  const d = check(r);
+  return typeof d === 'string' ? JSON.parse(d) : (d || []);
+}
+
+/** Traduce textos de productos al idioma "a" ('en' o 'es'). Devuelve un arreglo del mismo largo (o vacío si falla). */
+export async function traducirTextos(textos, a) {
+  const r = await client.queries.traducirTextos({ textos, a }, { authMode: 'userPool' });
   const d = check(r);
   return typeof d === 'string' ? JSON.parse(d) : (d || []);
 }

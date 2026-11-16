@@ -49,6 +49,14 @@ La idea central es **subir muchas fotos de una vez**. Al arrastrar el lote se pu
 
 En Datos de la tienda › **Tu página de venta**: foto de portada (`Tienda.portada`, se achica a 1600 px) y descripción de hasta 300 letras (`Tienda.descripcionTienda`). El cliente ve arriba de la tienda la foto con el nombre, la descripción y cuántos productos hay. Sin foto, la cabecera usa los colores de Showroomcito; sin foto ni descripción, no se muestra.
 
+## Tienda en dos idiomas (ES | EN)
+
+- El cliente ve un botón **English / Español** arriba de la tienda. Se recuerda en su navegador (`localStorage` "vitrina-idioma"); también se puede abrir con `?lang=en` o `?lang=es`. Sin elegir, la tienda sale en el idioma de su país (Perú = español, EE. UU. = inglés).
+- La vendedora siempre ve su panel en español y escribe en su idioma. Mientras tiene abierta su tienda, la app traduce sola con IA (Nova, query `traducirTextos`) el nombre y la descripción de cada producto nuevo o cambiado y los guarda en `Producto.trNombre`, `trDescripcion` (`trFuente` = huella del texto original, para no traducir dos veces). La descripción de la tienda se traduce al guardar Datos de la tienda (`Tienda.trDescripcionTienda`).
+- Si todavía no hay traducción, el cliente ve el texto original.
+- El mensaje de WhatsApp del pedido le llega a la vendedora en el idioma de su tienda, aunque el cliente compre en el otro.
+- El asistente de compras responde en el idioma que eligió el cliente (`preguntarTienda(…, idioma)`).
+
 ## Catálogo por rubro (tipo de producto y marcas)
 
 Al crear la tienda, en la misma pantalla, la vendedora toca **¿Qué vendes?**: Ropa y moda (marcado por defecto), Zapatos, Carteras y accesorios, Belleza y perfumes, Relojes y joyería o De todo un poco (`Tienda.rubro`; se cambia en Datos de la tienda; vacío = moda).

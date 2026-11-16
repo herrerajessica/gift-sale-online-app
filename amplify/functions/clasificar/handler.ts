@@ -125,11 +125,35 @@ async function interpretarDictado(args: { textos?: (string | null)[] | null; idi
   return JSON.stringify(limpiarDictado(leerArreglo(texto), textos.length));
 }
 
+// ---------- Traducción de productos (tienda en dos idiomas) ----------
+async function traducirTextos(args: { textos?: (string | null)[] | null; a?: string | null }) {
+  const textos = (args.textos ?? []).map((t) => String(t ?? '').slice(0, 600)).slice(0, 60);
+  if (!textos.some((t) => t.trim())) return JSON.stringify(textos.map(() => ''));
+  const idioma = args.a === 'es' ? 'español (de Perú)' : 'inglés (de EE. UU.)';
+  const prompt = `Traduce al ${idioma} estos textos de productos de una tienda de ropa y accesorios. Son nombres cortos y descripciones de venta.
+- Mantén igual las marcas, tallas, códigos, números y precios.
+- Nombres: cortos y naturales, como en una tienda (ej. "Cartera negra con cadena" → "Black chain-strap handbag").
+- Si un texto está vacío, devuelve "".
+Responde SOLO con un arreglo JSON de ${textos.length} textos, en el mismo orden.
+Textos:
+${JSON.stringify(textos)}`;
+  const res = await bedrock.send(new ConverseCommand({
+    modelId: process.env.MODEL_ID,
+    messages: [{ role: 'user', content: [{ text: prompt }] }],
+    inferenceConfig: { maxTokens: 4096, temperature: 0 },
+  }));
+  const texto: string = (res.output?.message?.content ?? []).map((c: { text?: string }) => c.text ?? '').join('');
+  const arr = leerArreglo(texto);
+  const salida = Array.isArray(arr) && arr.length === textos.length ? arr.map((x, i) => (textos[i].trim() ? String(x ?? '').slice(0, 600) : '')) : [];
+  return JSON.stringify(salida);
+}
+
 // ---------- Fotos ----------
 type EventoIA = { fieldName?: string; arguments: { paths?: (string | null)[] | null; idioma?: string | null; textos?: (string | null)[] | null; moneda?: string | null; rubro?: string | null } };
 
 export const handler = async (event: EventoIA) => {
   if (event.fieldName === 'interpretarDictado') return interpretarDictado(event.arguments);
+  if (event.fieldName === 'traducirTextos') return traducirTextos(event.arguments as { textos?: (string | null)[] | null; a?: string | null });
   const paths = (event.arguments.paths ?? []).filter((p): p is string => !!p).slice(0, MAX_FOTOS);
   if (!paths.length) return JSON.stringify([]);
 

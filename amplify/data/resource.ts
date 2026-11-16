@@ -42,6 +42,7 @@ const schema = a.schema({
       // Página de la tienda: foto de portada (ruta en S3) y una descripción corta
       portada: a.string(),
       descripcionTienda: a.string(),
+      trDescripcionTienda: a.string(),
       // Asistente para clientes en la tienda ("regalos para niño de 5 años"). Vacío = activado; false = apagado.
       chatClientes: a.boolean(),
       clienteDia: a.string().authorization(soloLecturaDueña),
@@ -85,6 +86,11 @@ const schema = a.schema({
       categoria: a.string(),
       // Tipo de producto dentro de la categoría (Vestido, Falda, Zapatillas…): ver src/rubros.js
       tipo: a.string(),
+      // Traducción automática al otro idioma (inglés si la tienda es de Perú, español si es de EE. UU.).
+      // trFuente = de qué nombre/descripción se tradujo: si cambian, se vuelve a traducir.
+      trNombre: a.string(),
+      trDescripcion: a.string(),
+      trFuente: a.string(),
       publico: a.string(),
       descripcion: a.string(),
       estado: a.enum(['disponible', 'apartado', 'vendido', 'oculto']),
@@ -181,7 +187,7 @@ const schema = a.schema({
   // Asistente de compras para los clientes de una tienda: recomienda solo productos de esa tienda.
   preguntarTienda: a
     .query()
-    .arguments({ slug: a.string().required(), mensajes: a.string().required() })
+    .arguments({ slug: a.string().required(), mensajes: a.string().required(), idioma: a.string() })
     .returns(a.string())
     .handler(a.handler.function(catalogo))
     .authorization((allow) => [allow.guest(), allow.authenticated()]),
@@ -189,6 +195,14 @@ const schema = a.schema({
   clasificarFotos: a
     .query()
     .arguments({ paths: a.string().array().required(), idioma: a.string(), rubro: a.string() })
+    .returns(a.string())
+    .handler(a.handler.function(clasificar))
+    .authorization((allow) => [allow.authenticated()]),
+
+  // Traduce nombres y descripciones de productos (para la tienda en dos idiomas)
+  traducirTextos: a
+    .query()
+    .arguments({ textos: a.string().array().required(), a: a.string().required() })
     .returns(a.string())
     .handler(a.handler.function(clasificar))
     .authorization((allow) => [allow.authenticated()]),
