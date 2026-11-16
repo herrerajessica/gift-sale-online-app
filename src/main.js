@@ -4,9 +4,11 @@ import {
   signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn, resetPassword, confirmResetPassword, updatePassword,
   googleDisponible, entrarConGoogle, alVolverDeGoogle,
   PLANES, planVigente, tieneFondoIA, pagarPlan, quitarFondo, asistente, interpretarDictado, cancelarPlan, conectarCobros, estadoCobros, pagarPedido, pedidoYape,
-  miTiendaActual, listarPedidos, cambiarEstadoPedido, cambiarPlanTienda, confianza, refrescarProductos, preguntarTienda,
+  miTiendaActual, listarPedidos, cambiarEstadoPedido, cambiarPlanTienda, confianza, refrescarProductos, preguntarTienda, traducirTextos, clienteCuenta, listarClientes,
 } from './amplify-adapter.js';
 import { interpretarComando } from './comandos.js';
+import { qrCanvas } from './qr.js';
+import { escucha, vocabulario, corregir, codigosDichos } from './voz.js';
 import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, marcaDeTexto, MARCAS } from './rubros.js';
 
 // Lógica de Showroomcito (misma que la versión de Claude).
@@ -25,7 +27,15 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
   const money = n => (typeof n === "number" && isFinite(n)) ? (enSoles() ? "S/ " + n.toLocaleString("es-PE",{minimumFractionDigits: n%1?2:0, maximumFractionDigits:2}) : usd(n)) : "";
   // País de la tienda: "US" = solo dólares y tienda del cliente en inglés; "PE" (o vacío) = soles, Yape y español.
   const esUS = () => !!S.config && S.config.pais === "US";
-  const EN = () => esUS() && !S.canEdit;           // el cliente de una tienda de EE. UU. ve todo en inglés
+  // Idioma que ve el cliente: el que eligió con el botón ES | EN, o el de la tienda (EE. UU. = inglés)
+  const IDIOMA_KEY = "vitrina-idioma";
+  S.idioma = (()=>{ const u = new URLSearchParams(location.search).get("lang"); if(u==="es"||u==="en") return u; try{ const v = localStorage.getItem(IDIOMA_KEY); return v==="es"||v==="en" ? v : ""; }catch(e){ return ""; } })();
+  const idiomaBase = () => esUS() ? "en" : "es";
+  const EN = () => !S.canEdit && (S.idioma ? S.idioma === "en" : esUS());
+  // Nombre y descripción en el idioma que ve el cliente (traducción automática si existe)
+  const traducido = p => !S.canEdit && (EN() ? "en" : "es") !== idiomaBase();
+  const nom = p => (traducido(p) && p.trNombre) || p.nombre || "";
+  const descr = p => (traducido(p) && p.trDescripcion) || p.descripcion || "";
   const tx = (es, en) => EN() ? en : es;
   const CAT_EN = { "Ropa":"Clothing", "Zapatos":"Shoes", "Carteras y bolsos":"Bags", "Accesorios":"Accessories", "Relojes y joyería":"Watches & jewelry", "Perfumes y belleza":"Beauty & fragrance", "Electrónica":"Electronics", "Hogar":"Home", "Juguetes":"Toys", "Otros":"Other" };
   const PUB_EN = { "Mujer":"Women", "Hombre":"Men", "Niños":"Kids", "Unisex":"Unisex" };
@@ -607,10 +617,20 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   function setProg(d,t,msg){ $("progBar").style.width = (t? d/t*100:0)+"%"; $("progCount").textContent = d+" / "+t; if(msg) $("progText").textContent = msg; }
 
   // ---------- Render ----------
-  function filtered(){
+  // Ordenar: más nuevos (como vienen) o por precio de hoy (con oferta); los "a consultar" al final
+  const ORDEN_KEY = "vitrina-orden";
+  S.orden = (()=>{ try{ return localStorage.getItem(ORDEN_KEY) || "nuevos"; }catch(e){ return "nuevos"; } })();
+  function ordenar(lista){
+    if(S.orden !== "barato" && S.orden !== "caro") return lista;
+    const sig = S.orden === "barato" ? 1 : -1;
+    return [...lista].sort((a,b)=>{ const pa = precioHoy(a), pb = precioHoy(b);
+      if(pa==null && pb==null) return 0; if(pa==null) return 1; if(pb==null) return -1; return sig * (pa - pb); });
+  }
+  function filtered(){ return ordenar(filtrar()); }
+  function filtrar(){
     const q = S.q.toLowerCase(), cod = normCodigo(S.q);
     if(cod) return S.products.filter(p => normCodigo(codigoDe(p)) === cod);
-    return S.products.filter(p => (!S.cat || p.categoria===S.cat) && (!S.pub || p.publico===S.pub || (S.pub!=="Niños" && p.publico==="Unisex")) && (!q || ((p.codigo||"")+" "+(p.codigo||"").replace("-","")+" "+(p.tipo||"")+" "+p.nombre+" "+(p.marca||"")+" "+(p.talla?"talla size "+p.talla:"")+" "+(p.categoria||"")+" "+catTxt(p.categoria||"")+" "+(p.publico||"")+" "+pubTxt(p.publico||"")+" "+condTxt(p.condicion)+" "+(p.descripcion||"")).toLowerCase().includes(q)));
+    return S.products.filter(p => (!S.cat || p.categoria===S.cat) && (!S.pub || p.publico===S.pub || (S.pub!=="Niños" && p.publico==="Unisex")) && (!q || ((p.codigo||"")+" "+(p.codigo||"").replace("-","")+" "+(p.tipo||"")+" "+p.nombre+" "+(p.trNombre||"")+" "+(p.trDescripcion||"")+" "+(p.marca||"")+" "+(p.talla?"talla size "+p.talla:"")+" "+(p.categoria||"")+" "+catTxt(p.categoria||"")+" "+(p.publico||"")+" "+pubTxt(p.publico||"")+" "+condTxt(p.condicion)+" "+(p.descripcion||"")).toLowerCase().includes(q)));
   }
   function renderCats(){
     const counts = {}; S.products.forEach(p=>{ if(p.categoria) counts[p.categoria]=(counts[p.categoria]||0)+1; });
@@ -643,7 +663,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       const cover = p.fotos && p.fotos[0];
       const st = p.estado||"disponible";
       const card = el("div",{class:"card "+st+(p.stock===0?" agotado":"")+(S.sel.has(p.id)?" sel":"")});
-      const open = el("button",{class:"open",type:"button","aria-label":(S.selecting?"Seleccionar ":tx("Ver ","View "))+(p.nombre||tx("producto","product")),onclick:()=>{ if(S.selecting){ toggleSel(p.id); } else openProduct(p.id); }});
+      const open = el("button",{class:"open",type:"button","aria-label":(S.selecting?"Seleccionar ":tx("Ver ","View "))+(nom(p)||tx("producto","product")),onclick:()=>{ if(S.selecting){ toggleSel(p.id); } else openProduct(p.id); }});
       const ph = el("div",{class:"ph"});
       if(cover) ph.append(el("img",{src:src(cover.thumb||cover.full),alt:"",loading:"lazy",decoding:"async",onerror:function(){this.remove();}}));
       const of = oferta(p), pv = precioHoy(p);
@@ -657,13 +677,13 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       // Producto de una tienda de confianza: la cantidad es la del original.
       const ic = S.canEdit && esCopia(p) ? infoCopia(p) : null;
       const ps = ic ? { ...p, stock: ic.stock } : p;
-      open.append(ph, el("div",{class:"info",style:"padding-bottom:0"}, contado!=null ? el("span",{class:"contado"}, `S/ ${contado.toLocaleString("es-PE")} con Yape o efectivo`) : null, (p.marca || p.codigo) ? el("span",{class:"tags-row"}, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, codTag(p)) : null, el("span",{class:"name"},p.nombre||tx("Sin nombre","Untitled")), of ? el("span",{class:"oferta-hasta"}, textoOferta(of)) : null, p.condicion ? el("span",{class:"cond-tag cond-"+p.condicion}, condTxt(p.condicion)) : null, S.canEdit ? etiquetaConf(p) : null, el("span",{class:"meta"}, el("span",null,[catTxt(p.categoria), p.talla ? tx("Talla ","Size ")+p.talla : ""].filter(Boolean).join(" · ")), el("span",null,pubTxt(p.publico||""))), S.canEdit && p.costo!=null && !esCopia(p) ? el("span",{class:"costo"}, `Costo ${usd(p.costo)}`+(p.precio!=null && costoMon(p.costo) ? ` · margen ${Math.round((p.precio/costoMon(p.costo)-1)*100)} %` : "")) : null, ic && ic.precioReventa!=null ? el("span",{class:"costo"}, `Te cuesta ${money(ic.precioReventa)}` + (p.precio!=null ? ` · ganas ${money(p.precio - ic.precioReventa)}` : "")) : null, stockTxt(ps) ? el("span",{class:"stockpill"+(S.canEdit && ps.stock>3?" ok":"")}, stockTxt(ps)) : null));
+      open.append(ph, el("div",{class:"info",style:"padding-bottom:0"}, contado!=null ? el("span",{class:"contado"}, `S/ ${contado.toLocaleString("es-PE")} ` + tx("con Yape o efectivo","with Yape or cash")) : null, (p.marca || p.codigo) ? el("span",{class:"tags-row"}, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, codTag(p)) : null, el("span",{class:"name"},nom(p)||tx("Sin nombre","Untitled")), of ? el("span",{class:"oferta-hasta"}, textoOferta(of)) : null, p.condicion ? el("span",{class:"cond-tag cond-"+p.condicion}, condTxt(p.condicion)) : null, S.canEdit ? etiquetaConf(p) : null, el("span",{class:"meta"}, el("span",null,[catTxt(p.categoria), p.talla ? tx("Talla ","Size ")+p.talla : ""].filter(Boolean).join(" · ")), el("span",null,pubTxt(p.publico||""))), S.canEdit && p.costo!=null && !esCopia(p) ? el("span",{class:"costo"}, `Costo ${usd(p.costo)}`+(p.precio!=null && costoMon(p.costo) ? ` · margen ${Math.round((p.precio/costoMon(p.costo)-1)*100)} %` : "")) : null, ic && ic.precioReventa!=null ? el("span",{class:"costo"}, `Te cuesta ${money(ic.precioReventa)}` + (p.precio!=null ? ` · ganas ${money(p.precio - ic.precioReventa)}` : "")) : null, stockTxt(ps) ? el("span",{class:"stockpill"+(S.canEdit && ps.stock>3?" ok":"")}, stockTxt(ps)) : null));
       card.append(open);
       if(!S.selecting) card.append(el("div",{class:"info",style:"padding-top:0"}, addButton(p)));
       grid.append(card);
     }
     const n = S.products.length;
-    if(S.canEdit) marcarTab("productos", n, false);
+    if(S.canEdit) marcarTab("productos", n, false); else pintarPortada();
     $("count").textContent = n ? (list.length===n ? tx(`${n} productos`,`${n} products`) : tx(`${list.length} de ${n} productos`,`${list.length} of ${n} products`)) : "";
     const empty=$("empty");
     if(S.loaded && !n){ empty.hidden=false; $("emptyTitle").textContent = S.canEdit ? "Tu vitrina está vacía" : tx("Pronto habrá productos aquí","Products coming soon"); $("emptyText").textContent = S.canEdit ? "Arrastra todas tus fotos al recuadro de arriba. Cada foto se convierte en un producto listo para vender, y después le pones nombre y precio." : tx("Esta tienda todavía no ha publicado productos. Vuelve en un rato.","This store hasn't published any products yet. Check back soon."); }
@@ -681,7 +701,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     pintarAsisSel();
     $("bulk").hidden = !S.selecting;
     $("bulkCount").textContent = S.sel.size + (S.sel.size===1?" seleccionado":" seleccionados");
-    $("bulkApply").disabled = $("bulkDel").disabled = $("bulkAI").disabled = $("bulkShare").disabled = $("bulkUnshare").disabled = !S.sel.size;
+    $("bulkApply").disabled = $("bulkDel").disabled = $("bulkAI").disabled = $("bulkShare").disabled = $("bulkMover").disabled = $("bulkUnshare").disabled = !S.sel.size;
   }
   $("selectBtn").onclick = ()=>{ S.selecting=true; S.sel.clear(); render(); $("bulk").scrollIntoView({block:"nearest"}); };
   $("bulkDone").onclick = ()=>{ S.selecting=false; S.sel.clear(); $("bulkConfirm").hidden=true; render(); };
@@ -716,6 +736,28 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   $("bulkAI").onclick = ()=>classifySelected();
   $("bulkShare").onclick = ()=>abrirCompartir([...S.sel]);
   $("bulkGrupo").onclick = ()=>abrirMensajeGrupo([...S.sel]);
+  // Mover a otra categoría (o tipo) con botones grandes, sin escribir
+  $("bulkMover").onclick = ()=>{
+    const ids = [...S.sel]; if(!ids.length){ toast("Toca los productos que quieres mover"); return; }
+    const ov=$("planOverlay"); ov.textContent=""; ov.hidden=false; delete ov.dataset.conf; delete ov.dataset.dict;
+    const cerrar = ()=>{ ov.hidden=true; ov.textContent=""; };
+    ov.onclick = e=>{ if(e.target===ov) cerrar(); };
+    const mover = async (cambio, nombre)=>{
+      cerrar();
+      const fails = await runPool(ids, id=>S.db.doc("productos/"+id).update(cambio));
+      toast(fails ? `Se movieron ${ids.length-fails}; ${fails} no se pudieron mover` : `${ids.length} producto${ids.length===1?"":"s"} movido${ids.length===1?"":"s"} a ${nombre}`);
+    };
+    const usadas = [...new Set(S.products.map(p=>p.categoria).filter(Boolean))];
+    const cats = [...new Set([...CATS.filter(c=>c!=="Otros"), ...usadas, "Otros"])];
+    const tipos = tiposDe(rubroActual());
+    const card = el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":"Mover a",style:"width:min(620px,100%)"},
+      el("div",{class:"cart-head"}, el("h2",null,`Mover ${ids.length} producto${ids.length===1?"":"s"} a…`), el("button",{class:"btn",type:"button",onclick:cerrar},"Cancelar")),
+      el("strong",null,"Categoría"),
+      el("div",{class:"mover-grid"}, ...cats.map(c=>el("button",{type:"button",class:"mover-op",onclick:()=>mover({ categoria:c }, c)}, catTxt(c)))),
+      el("details",null, el("summary",null,"O elige el tipo exacto (Vestido, Falda, Zapatillas…)"),
+        el("div",{class:"mover-grid",style:"margin-top:8px"}, ...tipos.map(([t,c])=>el("button",{type:"button",class:"mover-op",onclick:()=>mover({ tipo:t, categoria:c }, t)}, t)))));
+    ov.append(card);
+  };
   $("grupoBtn").onclick = ()=>abrirMensajeGrupo(S.selecting ? [...S.sel] : []);
   $("bulkUnshare").onclick = async ()=>{
     const ids = [...S.sel].filter(id=>{ const p=S.products.find(x=>x.id===id); return p && p.compartido && !esCopia(p); });
@@ -859,8 +901,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   let openId=null, photoIdx=0;
   function openProduct(id){ openId=id; photoIdx=0; drawSheet(); $("overlay").hidden=false; }
   function closeSheet(){ openId=null; $("overlay").hidden=true; $("overlay").textContent=""; if(!$("cli").hidden) pintarCli(); }
-  $("overlay").addEventListener("click", e=>{ if(e.target.id==="overlay") (cartOpen?closeCart:closeSheet)(); });
-  document.addEventListener("keydown", e=>{ if(e.key==="Escape"){ if(cartOpen) closeCart(); else if(openId) closeSheet(); } });
+  $("overlay").addEventListener("click", e=>{ if(e.target.id==="overlay") (cartOpen||cuentaOpen?closeCart:closeSheet)(); });
+  document.addEventListener("keydown", e=>{ if(e.key==="Escape"){ if(cartOpen||cuentaOpen) closeCart(); else if(openId) closeSheet(); } });
   function drawSheet(){
     const p = S.products.find(x=>x.id===openId); const ov=$("overlay");
     if(!p){ closeSheet(); return; }
@@ -869,7 +911,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const editaFotos = S.canEdit && !esCopia(p);   // las fotos de un producto de confianza las maneja la otra tienda
     ov.textContent="";
     const gal = el("div",{class:"gal"});
-    if(fotos[photoIdx]) gal.append(el("img",{class:"main",src:src(fotos[photoIdx].full),alt:p.nombre||""}));
+    if(fotos[photoIdx]) gal.append(el("img",{class:"main",src:src(fotos[photoIdx].full),alt:nom(p)}));
     const th = el("div",{class:"thumbs"});
     fotos.forEach((f,i)=>{
       const t = el("button",{class:"t"+(i===photoIdx?" on":""),type:"button","aria-label":tx("Foto ","Photo ")+(i+1),onclick:()=>{photoIdx=i;drawSheet();}}, el("img",{src:src(f.thumb||f.full),alt:""}));
@@ -926,16 +968,16 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       ), conf);
     } else {
       const st=p.estado||"disponible";
-      side.append((p.marca || p.codigo) ? el("span",{class:"tags-row"}, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, p.codigo ? el("span",{class:"cod-tag"}, tx("Código ","Code ")+p.codigo) : null) : null, el("h2",null,p.nombre||tx("Producto","Product")),
-        el("div",{class:"bigprice"+(oferta(p)?" oferta":"")}, precioHoy(p)==null?tx("Precio a consultar","Price on request"):money(precioHoy(p)), oferta(p) ? el("s",null, money(oferta(p).antes)) : null, precioHoy(p)!=null && soles(precioHoy(p)) ? el("span",{class:"bigsol"}, soles(precioHoy(p)) + " con tarjeta") : null),
+      side.append((p.marca || p.codigo) ? el("span",{class:"tags-row"}, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, p.codigo ? el("span",{class:"cod-tag"}, tx("Código ","Code ")+p.codigo) : null) : null, el("h2",null,nom(p)||tx("Producto","Product")),
+        el("div",{class:"bigprice"+(oferta(p)?" oferta":"")}, precioHoy(p)==null?tx("Precio a consultar","Price on request"):money(precioHoy(p)), oferta(p) ? el("s",null, money(oferta(p).antes)) : null, precioHoy(p)!=null && soles(precioHoy(p)) ? el("span",{class:"bigsol"}, soles(precioHoy(p)) + tx(" con tarjeta"," by card")) : null),
         oferta(p) ? el("span",{class:"oferta-hasta",style:"font-size:14px"}, `-${oferta(p).pct} % · ` + textoOferta(oferta(p))) : null,
-        precioHoy(p)!=null && solesContado(precioHoy(p))!=null ? el("span",{class:"contado",style:"font-size:15px"}, `S/ ${solesContado(precioHoy(p)).toLocaleString("es-PE")} pagando con Yape o efectivo (${descuento()} % menos)`) : null,
+        precioHoy(p)!=null && solesContado(precioHoy(p))!=null ? el("span",{class:"contado",style:"font-size:15px"}, `S/ ${solesContado(precioHoy(p)).toLocaleString("es-PE")} ` + tx(`pagando con Yape o efectivo (${descuento()} % menos)`,`paying with Yape or cash (${descuento()}% off)`)) : null,
         st!=="disponible" ? el("span",{class:"status "+st,style:"position:static;justify-self:start"}, st==="vendido"?tx("Vendido","Sold"):tx("Apartado","On hold")) : p.stock===0 ? el("span",{class:"status agotado",style:"position:static;justify-self:start"},tx("Agotado","Sold out")) : null,
         p.condicion ? el("span",{class:"cond-tag cond-"+p.condicion,style:"justify-self:start"}, condTxt(p.condicion)) : null,
         p.talla ? el("span",null, el("strong",null,tx("Talla: ","Size: ")), p.talla) : null,
         stockTxt(p) ? el("span",{class:"stockpill"}, stockTxt(p)) : null,
         (p.categoria||p.publico) ? el("span",{class:"note",style:"margin:0"}, [catTxt(p.categoria),pubTxt(p.publico)].filter(Boolean).join(" · ")) : null,
-        p.descripcion ? el("p",{class:"desc"}, p.descripcion) : null);
+        descr(p) ? el("p",{class:"desc"}, descr(p)) : null);
       if(!agotado(p)){
         const b = addButton(p, true); b.classList.add("btn"); b.style.cssText="justify-self:start;padding:10px 16px;font-size:15px";
         side.append(b);
@@ -943,7 +985,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       }
       side.append(el("button",{class:"btn",type:"button",style:"justify-self:start",onclick:closeSheet},tx("Seguir viendo","Keep browsing")));
     }
-    ov.append(el("div",{class:"sheet",role:"dialog","aria-modal":"true","aria-label":p.nombre||tx("Producto","Product")}, gal, side));
+    ov.append(el("div",{class:"sheet",role:"dialog","aria-modal":"true","aria-label":nom(p)||tx("Producto","Product")}, gal, side));
   }
 
   // ---------- Pedido por WhatsApp ----------
@@ -971,7 +1013,9 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     $("cartLbl").textContent = tx("Mi pedido","My order");
   }
   $("cartbar").onclick = ()=>openCart();
-  function buildMessage(){
+  // El pedido le llega a la vendedora en el idioma de su tienda, aunque el cliente vea la tienda en el otro
+  function buildMessage(){ const antes = S.idioma; S.idioma = idiomaBase(); try{ return armarMensaje(); } finally { S.idioma = antes; } }
+  function armarMensaje(){
     const lines = cartLines().filter(l=>!agotado(l.p));
     const {total, consultar} = cartTotals();
     let m = tx(`Hola${S.config.nombre?" "+S.config.nombre:""}, quiero hacer este pedido:\n\n`, `Hi${S.config.nombre?" "+S.config.nombre:""}, I'd like to order:\n\n`);
@@ -1004,7 +1048,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       ul.append(el("li",{class:"item"},
         cover ? el("img",{src:src(cover.thumb||cover.full),alt:""}) : el("span",{class:"noimg"}),
         el("div",{style:"min-width:0;display:grid;gap:2px"},
-          el("span",{class:"nm"},l.p.nombre||tx("Producto","Product")),
+          el("span",{class:"nm"},nom(l.p)||tx("Producto","Product")),
           el("span",{class:"pr"}, l.p.precio==null?tx("Precio a consultar","Price on request"):(l.q>1?`${money(l.p.precio)} × ${l.q} = ${dual(l.p.precio*l.q)}`:dual(l.p.precio))),
           sold ? el("span",{class:"warn"},tx("Ya no está disponible; no se incluirá en el pedido","No longer available; it won't be included")) : (typeof l.p.stock==="number" && l.q>l.p.stock) ? el("span",{class:"warn"},tx(`Solo quedan ${l.p.stock}`,`Only ${l.p.stock} left`)) : null),
         el("div",{style:"display:grid;gap:4px;justify-items:end"},
@@ -1022,9 +1066,9 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     if(totCont!=null){
       const totTarj = lines.filter(l=>!agotado(l.p) && l.p.precio!=null).reduce((t,l)=>t+Math.round(l.p.precio*l.q*rate()),0);
       box.append(el("div",{class:"totals2"},
-        el("div",{class:"fila"}, el("span",null,"Con tarjeta"), el("strong",null,`S/ ${totTarj.toLocaleString("es-PE")}`)),
-        el("div",{class:"fila contado"}, el("span",null,`Con Yape o efectivo (${descuento()} % menos)`), el("strong",null,`S/ ${totCont.toLocaleString("es-PE")}`)),
-        totTarj-totCont>0 ? el("span",{class:"note",style:"margin:0"}, `Ahorras S/ ${(totTarj-totCont).toLocaleString("es-PE")} pagando con Yape o efectivo.`) : null));
+        el("div",{class:"fila"}, el("span",null,tx("Con tarjeta","By card")), el("strong",null,`S/ ${totTarj.toLocaleString("es-PE")}`)),
+        el("div",{class:"fila contado"}, el("span",null,tx(`Con Yape o efectivo (${descuento()} % menos)`,`Yape or cash (${descuento()}% off)`)), el("strong",null,`S/ ${totCont.toLocaleString("es-PE")}`)),
+        totTarj-totCont>0 ? el("span",{class:"note",style:"margin:0"}, tx(`Ahorras S/ ${(totTarj-totCont).toLocaleString("es-PE")} pagando con Yape o efectivo.`,`You save S/ ${(totTarj-totCont).toLocaleString("es-PE")} paying with Yape or cash.`)) : null));
     }
     const nm = el("input",{id:"buyerName",maxlength:"60",placeholder:tx("Para saber quién escribe","So the store knows who you are"),value:buyer.nombre});
     const nt = el("textarea",{id:"buyerNote",rows:"2",placeholder:tx("Talla, color, entrega o recogida…","Size, color, delivery or pickup…")}); nt.value = buyer.nota;
@@ -1043,18 +1087,18 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       const sinPrecio = pagables.some(l=>l.p.precio==null);
       const payBtn = el("button",{class:"btn primary",type:"button",disabled:sinPrecio?"":false,onclick:async()=>{
         payBtn.disabled=true; payBtn.textContent=tx("Abriendo pago seguro…","Opening secure checkout…");
-        try{ const r = await pagarPedido(pagables.map(l=>({id:l.id,q:l.q})), buyer.nombre.trim(), buyer.nota.trim()); location.href = r.url; }
+        try{ const r = await pagarPedido(pagables.map(l=>({id:l.id,q:l.q})), buyer.nombre.trim(), buyer.nota.trim(), cuenta.perfil ? cuenta.perfil.email : ""); location.href = r.url; }
         catch(e){ toast((e&&e.message)||tx("No se pudo iniciar el pago","Couldn't start the payment")); payBtn.disabled=false; payBtn.textContent=tx("Pagar con tarjeta","Pay with card"); }
       }},tx("Pagar con tarjeta","Pay with card"));
-      send.append(payBtn, el("span",{class:"note",style:"margin:0;text-align:center"}, sinPrecio ? tx("Algunos productos no tienen precio: consúltalos por WhatsApp o quítalos para pagar con tarjeta.","Some items have no price: ask on WhatsApp or remove them to pay by card.") : descuento() ? "Pago seguro con Stripe, al precio normal con tarjeta." : tx("Pago seguro con Stripe. El total final se muestra en la página de pago.","Secure payment with Stripe. You'll see the final total on the checkout page.")));
+      send.append(payBtn, el("span",{class:"note",style:"margin:0;text-align:center"}, sinPrecio ? tx("Algunos productos no tienen precio: consúltalos por WhatsApp o quítalos para pagar con tarjeta.","Some items have no price: ask on WhatsApp or remove them to pay by card.") : descuento() ? tx("Pago seguro con Stripe, al precio normal con tarjeta.","Secure payment with Stripe, at the regular card price.") : tx("Pago seguro con Stripe. El total final se muestra en la página de pago.","Secure payment with Stripe. You'll see the final total on the checkout page.")));
     }
     if(S.config && !esUS() && (S.config.yapeNumero || S.config.yapeQr) && !S.canEdit){
       const pagables = lines.filter(l=>!agotado(l.p));
       const sinPrecio = pagables.some(l=>l.p.precio==null);
       const sinCambio = !rate();
-      const yBtn = el("button",{class:"btn yape",type:"button",disabled:(sinPrecio||sinCambio)?"":false,onclick:()=>mostrarYape(box, pagables)},"Pagar con Yape");
+      const yBtn = el("button",{class:"btn yape",type:"button",disabled:(sinPrecio||sinCambio)?"":false,onclick:()=>mostrarYape(box, pagables)},tx("Pagar con Yape","Pay with Yape"));
       send.append(yBtn);
-      if(sinPrecio) send.append(el("span",{class:"note",style:"margin:0;text-align:center"},"Algunos productos no tienen precio: consúltalos por WhatsApp o quítalos para pagar con Yape."));
+      if(sinPrecio) send.append(el("span",{class:"note",style:"margin:0;text-align:center"},tx("Algunos productos no tienen precio: consúltalos por WhatsApp o quítalos para pagar con Yape.","Some items have no price: ask on WhatsApp or remove them to pay with Yape.")));
     }
     if(wa){
       send.append(link, copyBtn, el("span",{class:"note",style:"margin:0;text-align:center"},tx("Se abre WhatsApp con tu pedido escrito; solo tocas enviar. Si no se abre, copia el mensaje y escríbelo al ","WhatsApp opens with your order already written; just tap send. If it doesn't open, copy the message and send it to "), el("span",{class:"copy"},S.config.whatsapp)));
@@ -1065,7 +1109,100 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       el("button",{class:"rm",type:"button",style:"justify-self:center",onclick:()=>{ cart={}; saveCart(); render(); closeCart(); toast(tx("Pedido vaciado","Order cleared")); }},tx("Vaciar pedido","Clear order")));
     ov.append(box);
   }
-  function closeCart(){ cartOpen=false; $("overlay").hidden=true; $("overlay").textContent=""; }
+  function closeCart(){ cartOpen=false; cuentaOpen=false; $("overlay").hidden=true; $("overlay").textContent=""; }
+
+  // ----- "Mis pedidos" del cliente: entra con un código que le llega al correo (sin contraseña) -----
+  const CUENTA_KEY = () => "cuenta:" + ((S.config && S.config.id) || "tienda");
+  let cuentaOpen = false;
+  const cuenta = { token:"", perfil:null, pedidos:null, paso:"correo", email:"", leida:"" };
+  // La sesión se guarda por tienda: se lee cuando ya se sabe qué tienda es
+  function leerCuenta(){
+    const id = S.config && S.config.id; if(!id || cuenta.leida === id) return; cuenta.leida = id;
+    try{ const c = JSON.parse(localStorage.getItem(CUENTA_KEY()) || "null"); if(c && c.token){ cuenta.token = c.token; cuenta.perfil = c.perfil || null; usarPerfil(); } }catch(e){}
+  }
+  function guardarCuenta(){ try{ if(cuenta.token) localStorage.setItem(CUENTA_KEY(), JSON.stringify({ token:cuenta.token, perfil:cuenta.perfil })); else localStorage.removeItem(CUENTA_KEY()); }catch(e){} pintarCuentaBtn(); }
+  function pintarCuentaBtn(){
+    const b = $("cuentaBtn"); if(!b) return;
+    if(!S.canEdit) leerCuenta();
+    b.hidden = S.canEdit || (estadoCatalogo()||{}).estado !== "aprobada";
+    const n = cuenta.perfil && cuenta.perfil.nombre ? cuenta.perfil.nombre.split(" ")[0] : "";
+    b.querySelector("span").textContent = n ? n : tx("Mis pedidos","My orders");
+    b.setAttribute("aria-label", tx("Mis pedidos","My orders"));
+  }
+  // Con la cuenta abierta, el cliente no vuelve a escribir su nombre ni su correo al pagar
+  function usarPerfil(){ const p = cuenta.perfil; if(!p) return; if(p.nombre && !buyer.nombre) buyer.nombre = p.nombre; if(p.email) buyer.email = p.email; saveCart(); }
+  const ESTADO_PEDIDO = () => ({ por_confirmar:tx("Por confirmar","Waiting confirmation"), pagado:tx("Pagado","Paid"), entregado:tx("Entregado","Delivered"), cancelado:tx("Cancelado","Cancelled") });
+  function openCuenta(){ openId=null; cartOpen=false; cuentaOpen=true; $("overlay").hidden=false; drawCuenta(); if(cuenta.token) cargarMisPedidos(); }
+  async function cargarMisPedidos(){
+    try{ const r = await clienteCuenta("misPedidos", { token: cuenta.token }); cuenta.perfil = r.perfil; cuenta.pedidos = r.pedidos || []; guardarCuenta(); usarPerfil(); }
+    catch(e){ if(/SESION/.test(String(e && e.message))){ cuenta.token = ""; cuenta.perfil = null; cuenta.paso = "correo"; guardarCuenta(); } else { cuenta.pedidos = cuenta.pedidos || []; toast(tx("No se pudieron cargar tus pedidos","Couldn't load your orders")); } }
+    if(cuentaOpen) drawCuenta();
+  }
+  function drawCuenta(){
+    const ov = $("overlay"); ov.textContent = "";
+    const box = el("div",{class:"cart cuenta",role:"dialog","aria-modal":"true","aria-label":tx("Mis pedidos","My orders")});
+    box.append(el("div",{class:"cart-head"}, el("h2",null,tx("Mis pedidos","My orders")), el("button",{class:"btn",type:"button",onclick:closeCart},tx("Cerrar","Close"))));
+    const err = el("p",{class:"err",role:"alert",hidden:""});
+    const mostrarError = e=>{ err.textContent = (e && e.message) || tx("Algo falló. Intenta de nuevo.","Something went wrong. Try again."); err.hidden = false; };
+    if(!cuenta.token){
+      if(cuenta.paso === "codigo"){
+        const cod = el("input",{id:"cuentaCodigo",inputmode:"numeric",autocomplete:"one-time-code",maxlength:"6",placeholder:"123456",class:"codigo-6"});
+        const entrarBtn = el("button",{class:"btn primary",type:"submit"},tx("Entrar","Sign in"));
+        const f = el("form",{class:"cuenta-form"},
+          el("p",{style:"margin:0"}, tx("Te enviamos un código de 6 números a ","We sent a 6-digit code to "), el("strong",null,cuenta.email), tx(". Revisa también la carpeta de spam.",". Check your spam folder too.")),
+          el("label",{class:"f"},tx("Código","Code"), cod), err, entrarBtn,
+          el("div",{class:"cuenta-links"},
+            el("button",{class:"linkish",type:"button",onclick:()=>{ cuenta.paso="correo"; drawCuenta(); }},tx("Cambiar correo","Change email")),
+            el("button",{class:"linkish",type:"button",onclick:async()=>{ try{ await clienteCuenta("pedirCodigo",{ email:cuenta.email, idioma: EN()?"en":"es" }); toast(tx("Te enviamos otro código","We sent you another code")); }catch(e){ mostrarError(e); } }},tx("Enviar otro código","Send another code"))));
+        f.onsubmit = async e=>{ e.preventDefault(); err.hidden = true;
+          if(cod.value.replace(/\D/g,"").length !== 6){ mostrarError({ message: tx("Escribe los 6 números del correo","Type the 6 digits from the email") }); return; }
+          entrarBtn.disabled = true; entrarBtn.textContent = tx("Entrando…","Signing in…");
+          try{ const r = await clienteCuenta("entrar",{ email:cuenta.email, codigo:cod.value, idioma: EN()?"en":"es" }); cuenta.token = r.token; cuenta.perfil = r.perfil; cuenta.pedidos = null; guardarCuenta(); usarPerfil(); drawCuenta(); cargarMisPedidos(); toast(tx("¡Listo! Ya entraste","You're in!")); }
+          catch(e2){ mostrarError(e2); entrarBtn.disabled = false; entrarBtn.textContent = tx("Entrar","Sign in"); } };
+        cod.addEventListener("input", ()=>{ cod.value = cod.value.replace(/\D/g,"").slice(0,6); if(cod.value.length===6) f.requestSubmit(); });
+        box.append(f); ov.append(box); setTimeout(()=>cod.focus(), 50); return;
+      }
+      const mail = el("input",{id:"cuentaEmail",type:"email",autocomplete:"email",maxlength:"254",placeholder:tx("tucorreo@ejemplo.com","you@example.com"),value:cuenta.email||buyer.email||""});
+      const pedir = el("button",{class:"btn primary",type:"submit"},tx("Enviarme el código","Send me the code"));
+      const f = el("form",{class:"cuenta-form"},
+        el("p",{style:"margin:0"}, tx("Mira tus pedidos de esta tienda y compra más rápido. Sin contraseña: te mandamos un código a tu correo.","See your orders from this store and check out faster. No password: we email you a code.")),
+        el("label",{class:"f"},tx("Tu correo","Your email"), mail), err, pedir);
+      f.onsubmit = async e=>{ e.preventDefault(); err.hidden = true;
+        const v = mail.value.trim().toLowerCase();
+        if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)){ mostrarError({ message: tx("Revisa tu correo: parece que falta algo","Check your email: something seems missing") }); mail.focus(); return; }
+        pedir.disabled = true; pedir.textContent = tx("Enviando…","Sending…");
+        try{ await clienteCuenta("pedirCodigo",{ email:v, idioma: EN()?"en":"es" }); cuenta.email = v; cuenta.paso = "codigo"; drawCuenta(); }
+        catch(e2){ mostrarError(e2); pedir.disabled = false; pedir.textContent = tx("Enviarme el código","Send me the code"); } };
+      box.append(f); ov.append(box); setTimeout(()=>mail.focus(), 50); return;
+    }
+    // Con sesión: sus pedidos y sus datos
+    const p = cuenta.perfil || {};
+    box.append(el("p",{style:"margin:0"}, tx("Hola","Hi") + (p.nombre ? " " + p.nombre : "") + " · ", el("small",{class:"note"}, p.email||"")));
+    const lista = el("div",{class:"mis-pedidos"});
+    if(cuenta.pedidos === null) lista.append(el("p",{class:"note",style:"margin:0"},tx("Cargando tus pedidos…","Loading your orders…")));
+    else if(!cuenta.pedidos.length) lista.append(el("p",{class:"note",style:"margin:0"},tx("Todavía no tienes pedidos con este correo. Cuando pagues aquí con tarjeta o Yape usando este correo, tus pedidos aparecerán solos. Los que pides solo por WhatsApp no se guardan aquí.","No orders with this email yet. When you pay here by card or Yape with this email, your orders show up here. Orders sent only on WhatsApp aren't saved here.")));
+    else for(const o of cuenta.pedidos){
+      let items = []; try{ items = JSON.parse(o.items||"[]"); }catch(e){}
+      lista.append(el("div",{class:"mi-pedido"},
+        el("div",{class:"mp-top"}, el("strong",null, tx("Pedido N.° ","Order #") + o.id), el("span",{class:"mp-estado est-"+o.estado}, ESTADO_PEDIDO()[o.estado]||o.estado)),
+        el("small",{class:"note"}, new Date(o.fecha).toLocaleDateString(EN()?"en-US":"es-PE",{dateStyle:"medium"}) + " · " + (o.metodo==="yape" ? "Yape" : tx("Tarjeta","Card"))),
+        el("span",null, items.map(i=>`${i.nombre}${i.q>1?" × "+i.q:""}`).join(", ")),
+        el("strong",null, (o.moneda==="pen"?"S/ ":"$") + (o.total/100).toLocaleString("es-PE",{maximumFractionDigits:2}))));
+    }
+    box.append(lista);
+    const nm = el("input",{id:"cuentaNombre",maxlength:"60",autocomplete:"name",value:p.nombre||""});
+    const tel = el("input",{id:"cuentaTel",maxlength:"30",inputmode:"tel",autocomplete:"tel",placeholder:tx("Para que la tienda te escriba","So the store can message you"),value:p.telefono||""});
+    const sigue = el("input",{type:"checkbox",id:"cuentaSigue"}); sigue.checked = !!p.sigue;
+    const guardar = el("button",{class:"btn",type:"button",onclick:async()=>{
+      guardar.disabled = true;
+      try{ const r = await clienteCuenta("guardarPerfil",{ token:cuenta.token, nombre:nm.value.trim(), telefono:tel.value.trim(), sigue:sigue.checked }); cuenta.perfil = r.perfil; guardarCuenta(); buyer.nombre = r.perfil.nombre || buyer.nombre; saveCart(); toast(tx("Datos guardados","Saved")); }
+      catch(e){ mostrarError(e); } finally{ guardar.disabled = false; } }},tx("Guardar mis datos","Save"));
+    box.append(el("details",{class:"cuenta-datos"}, el("summary",null,tx("Mis datos","My details")),
+      el("label",{class:"f"},tx("Tu nombre","Your name"), nm), el("label",{class:"f"},tx("Tu WhatsApp (opcional)","Your WhatsApp (optional)"), tel),
+      el("label",{class:"check"}, sigue, tx(" Quiero enterarme de ofertas y novedades de esta tienda"," Tell me about this store's deals and new arrivals")), err, guardar));
+    box.append(el("button",{class:"rm",type:"button",style:"justify-self:center",onclick:async()=>{ const t = cuenta.token; cuenta.token=""; cuenta.perfil=null; cuenta.pedidos=null; cuenta.paso="correo"; guardarCuenta(); drawCuenta(); try{ await clienteCuenta("salir",{ token:t }); }catch(e){} }},tx("Salir","Sign out")));
+    ov.append(box);
+  }
 
   // ----- Pago con Yape (QR) -----
   // El total en soles se muestra aquí, pero el servidor lo vuelve a calcular con los precios guardados.
@@ -1073,34 +1210,34 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   function mostrarYape(box, pagables){
     const total = solesDe(pagables);
     box.textContent = "";
-    const volver = el("button",{class:"btn",type:"button",onclick:drawCart},"Volver");
-    const nom = el("input",{id:"yapeNombreCliente",maxlength:"60",autocomplete:"name",placeholder:"Para que la tienda identifique tu pago",value:buyer.nombre});
-    const op = el("input",{id:"yapeOperacion",maxlength:"40",inputmode:"numeric",placeholder:"Aparece en tu constancia de Yape"});
-    const mail = el("input",{id:"yapeEmail",type:"email",maxlength:"254",autocomplete:"email",placeholder:"Te enviamos la confirmación",value:buyer.email||""});
+    const volver = el("button",{class:"btn",type:"button",onclick:drawCart},tx("Volver","Back"));
+    const nom = el("input",{id:"yapeNombreCliente",maxlength:"60",autocomplete:"name",placeholder:tx("Para que la tienda identifique tu pago","So the store can match your payment"),value:buyer.nombre});
+    const op = el("input",{id:"yapeOperacion",maxlength:"40",inputmode:"numeric",placeholder:tx("Aparece en tu constancia de Yape","It's on your Yape receipt")});
+    const mail = el("input",{id:"yapeEmail",type:"email",maxlength:"254",autocomplete:"email",placeholder:tx("Te enviamos la confirmación","We'll send you the confirmation"),value:buyer.email||""});
     const err = el("p",{class:"err",role:"alert",hidden:""});
-    const enviar = el("button",{class:"btn yape",type:"button"},"Ya pagué, enviar pedido");
+    const enviar = el("button",{class:"btn yape",type:"button"},tx("Ya pagué, enviar pedido","I paid, send my order"));
     const panel = el("div",{class:"yape-pay"},
-      S.config.yapeQr ? el("img",{src:src(S.config.yapeQr),alt:"Código QR de Yape de la tienda"}) : null,
-      el("span",null,"Yapea exactamente"),
+      S.config.yapeQr ? el("img",{src:src(S.config.yapeQr),alt:tx("Código QR de Yape de la tienda","Store's Yape QR code")}) : null,
+      el("span",null,tx("Yapea exactamente","Send exactly")),
       el("span",{class:"monto"},"S/ " + total.toLocaleString("es-PE")),
-      S.config.yapeNumero ? el("span",null,"al número ", el("span",{class:"num"}, S.config.yapeNumero)) : null,
-      S.config.yapeNombre ? el("span",{class:"note",style:"margin:0"},"a nombre de " + S.config.yapeNombre) : null);
+      S.config.yapeNumero ? el("span",null,tx("al número ","to the number "), el("span",{class:"num"}, S.config.yapeNumero)) : null,
+      S.config.yapeNombre ? el("span",{class:"note",style:"margin:0"},tx("a nombre de ","in the name of ") + S.config.yapeNombre) : null);
     box.append(
-      el("div",{class:"cart-head"}, el("h2",null,"Pagar con Yape"), volver),
-      el("p",{class:"note",style:"margin:0"},"1. Abre Yape y escanea el QR o yapea al número. 2. Vuelve aquí y envía tu pedido. La tienda confirmará tu pago."),
+      el("div",{class:"cart-head"}, el("h2",null,tx("Pagar con Yape","Pay with Yape")), volver),
+      el("p",{class:"note",style:"margin:0"},tx("1. Abre Yape y escanea el QR o yapea al número. 2. Vuelve aquí y envía tu pedido. La tienda confirmará tu pago.","1. Open Yape and scan the QR or send to the number. 2. Come back here and send your order. The store will confirm your payment.")),
       panel,
-      el("label",{class:"f"},"Tu nombre", nom),
-      el("label",{class:"f"},"Código de operación (opcional)", op),
-      el("label",{class:"f"},"Tu correo (opcional)", mail),
+      el("label",{class:"f"},tx("Tu nombre","Your name"), nom),
+      el("label",{class:"f"},tx("Código de operación (opcional)","Transaction code (optional)"), op),
+      el("label",{class:"f"},tx("Tu correo (opcional)","Your email (optional)"), mail),
       err, el("div",{class:"send"}, enviar));
     enviar.onclick = async ()=>{
       err.hidden = true;
       const nombre = nom.value.trim();
-      if(!nombre){ err.textContent="Escribe tu nombre para que la tienda reconozca tu pago"; err.hidden=false; nom.focus(); return; }
+      if(!nombre){ err.textContent=tx("Escribe tu nombre para que la tienda reconozca tu pago","Type your name so the store can match your payment"); err.hidden=false; nom.focus(); return; }
       const email = mail.value.trim();
-      if(email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ err.textContent="Revisa tu correo: parece que falta algo"; err.hidden=false; mail.focus(); return; }
+      if(email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ err.textContent=tx("Revisa tu correo: parece que falta algo","Check your email: something seems missing"); err.hidden=false; mail.focus(); return; }
       buyer.nombre = nombre; buyer.email = email; saveCart();
-      enviar.disabled = true; enviar.textContent = "Enviando…";
+      enviar.disabled = true; enviar.textContent = tx("Enviando…","Sending…");
       try{
         const r = await pedidoYape(pagables.map(l=>({id:l.id,q:l.q})), nombre, buyer.nota.trim(), op.value.trim(), email);
         const num = String(r.pedidoId||"").slice(0,8).toUpperCase();
@@ -1109,12 +1246,12 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         const msg = `Hola, acabo de yapear S/ ${(r.total/100).toLocaleString("es-PE")} por mi pedido N.° ${num}${op.value.trim()?` (operación ${op.value.trim()})`:""}. Mi nombre: ${nombre}.`;
         box.textContent = "";
         box.append(
-          el("div",{class:"cart-head"}, el("h2",null,"¡Pedido enviado!"), el("button",{class:"btn",type:"button",onclick:closeCart},"Cerrar")),
-          el("p",{style:"margin:0"}, `Tu pedido N.° ${num} quedó registrado. La tienda revisará tu Yape y te confirmará.` + (email ? ` Te enviamos la confirmación a ${email}.` : "")),
-          wa ? el("a",{class:"btn tag",href:`https://wa.me/${wa}?text=${encodeURIComponent(msg)}`,target:"_blank",rel:"noopener",style:"text-decoration:none;justify-content:center"},"Avisar por WhatsApp") : null);
+          el("div",{class:"cart-head"}, el("h2",null,tx("¡Pedido enviado!","Order sent!")), el("button",{class:"btn",type:"button",onclick:closeCart},tx("Cerrar","Close"))),
+          el("p",{style:"margin:0"}, tx(`Tu pedido N.° ${num} quedó registrado. La tienda revisará tu Yape y te confirmará.` + (email ? ` Te enviamos la confirmación a ${email}.` : ""), `Your order #${num} is registered. The store will check your Yape payment and confirm.` + (email ? ` We sent the confirmation to ${email}.` : ""))),
+          wa ? el("a",{class:"btn tag",href:`https://wa.me/${wa}?text=${encodeURIComponent(msg)}`,target:"_blank",rel:"noopener",style:"text-decoration:none;justify-content:center"},tx("Avisar por WhatsApp","Tell the store on WhatsApp")) : null);
       }catch(e){
-        err.textContent = (e && e.message) || "No se pudo enviar el pedido. Intenta de nuevo."; err.hidden = false;
-        enviar.disabled = false; enviar.textContent = "Ya pagué, enviar pedido";
+        err.textContent = (e && e.message) || tx("No se pudo enviar el pedido. Intenta de nuevo.","Couldn't send the order. Please try again."); err.hidden = false;
+        enviar.disabled = false; enviar.textContent = tx("Ya pagué, enviar pedido","I paid, send my order");
       }
     };
     nom.focus();
@@ -1132,8 +1269,13 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     if(wa) fl.href = `https://wa.me/${wa}?text=${encodeURIComponent(tx(`Hola${S.config.nombre?" "+S.config.nombre:""}, vi tu tienda online y tengo una consulta.`, `Hi${S.config.nombre?" "+S.config.nombre:""}, I saw your online store and have a question.`))}`;
     fl.setAttribute("aria-label", tx("Escríbenos por WhatsApp","Message us on WhatsApp")); fl.querySelector("span").textContent = tx("Escríbenos","Chat with us");
     // Tienda de EE. UU.: el sello "Traído de USA" no aplica; el cliente ve la tienda en inglés.
-    document.querySelector(".brand .stamp").hidden = esUS();
+    document.querySelector(".brand .stamp").hidden = esUS(); document.querySelector(".brand .stamp").textContent = tx("Traído de USA","Imported from USA");
+    { const o = $("orden").options; o[0].text = tx("Más nuevos","Newest"); o[1].text = tx("Precio: menor a mayor","Price: low to high"); o[2].text = tx("Precio: mayor a menor","Price: high to low"); $("orden").setAttribute("aria-label", tx("Ordenar productos","Sort products")); }
     document.documentElement.lang = EN() ? "en" : "es";
+    // Botón ES | EN: el cliente cambia el idioma de la tienda (la vendedora siempre ve su panel en español)
+    pintarCuentaBtn();
+    const lb = $("langBtn"); lb.hidden = S.canEdit; lb.textContent = EN() ? "Español" : "English";
+    lb.setAttribute("aria-label", EN() ? "Ver la tienda en español" : "See the store in English"); lb.lang = EN() ? "es" : "en";
     $("q").placeholder = tx("Buscar producto…","Search products…"); $("q").setAttribute("aria-label", tx("Buscar producto","Search products"));
     if(document.activeElement!==$("setPais")) $("setPais").value = esUS() ? "US" : "PE";
     document.querySelectorAll(".solo-pe").forEach(x=>{ x.hidden = esUS(); });
@@ -1149,6 +1291,9 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     if(document.activeElement!==$("setDias")) $("setDias").value = S.config.diasSeparado ? String(S.config.diasSeparado) : "";
     if(document.activeElement!==$("setGrupo")) $("setGrupo").value = S.config.grupoWhatsapp || "";
     $("setChatCli").checked = S.config.chatClientes !== false;
+    if(document.activeElement!==$("setDescTienda")){ $("setDescTienda").value = S.config.descripcionTienda || ""; $("setDescCuenta").textContent = `${$("setDescTienda").value.length} / 300`; }
+    if(portadaNueva===undefined) pintarPortadaConfig(S.config.portada||"");
+    pintarPortada();
     if(document.activeElement!==$("setRubro")){ const sr=$("setRubro"); if(!sr.options.length) RUBROS.forEach(r=>sr.append(el("option",{value:r.id},r.nombre))); sr.value = rubroActual(); }
     pintarCliBtn();
     // Botón "Únete a mi grupo" para los clientes
@@ -1160,6 +1305,14 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     if(yapeQrNuevo===undefined) pintarQrConfig(S.config.yapeQr||"");
     render(); if(openId) drawSheet();
   }
+  $("cuentaBtn").onclick = openCuenta;
+  $("langBtn").onclick = ()=>{
+    S.idioma = EN() ? "es" : "en";
+    try{ localStorage.setItem(IDIOMA_KEY, S.idioma); }catch(e){}
+    renderConfig(); if(cartOpen) drawCart(); if(cuentaOpen) drawCuenta(); if(!$("cli").hidden) pintarCli();
+    if(!S.canEdit) mensajeEstadoPublico(true);
+    toast(EN() ? "Store in English" : "Tienda en español");
+  };
   $("settingsBtn").onclick = ()=>{ if(document.querySelector("main").classList.contains("con-tabs")) irTab("datos"); else $("settings").hidden = !$("settings").hidden; };
   // Cambiar contraseña estando dentro (Datos de la tienda)
   $("verSetPass").onclick = ()=>{ const ver = $("setPassNueva").type==="password"; ["setPassActual","setPassNueva"].forEach(id=>{ $(id).type = ver ? "text" : "password"; }); $("verSetPass").setAttribute("aria-pressed", String(ver)); $("verSetPass").textContent = ver ? "🙈" : "👁"; };
@@ -1176,6 +1329,64 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     catch(e){ console.warn("Detalle técnico:", e); toast(e && e.name==="NotAuthorizedException" ? "La contraseña actual no es correcta" : e && /LimitExceeded|TooManyRequests/.test(e.name) ? "Muchos intentos seguidos. Espera unos minutos." : "No se pudo cambiar la contraseña. Si entras con Google, cámbiala desde tu cuenta de Google."); }
     finally{ b.disabled = false; }
   };
+  // ---------- Traducción automática (la tienda se ve en español e inglés) ----------
+  // La vendedora escribe en su idioma; aquí se guarda la traducción para los clientes que eligen el otro idioma.
+  const otroIdioma = pais => (pais ? pais==="US" : esUS()) ? "es" : "en";
+  const hashTxt = s => { let h = 5381; for(let i=0;i<s.length;i++) h = ((h<<5)+h+s.charCodeAt(i))|0; return (h>>>0).toString(36); };
+  const fuenteTr = p => hashTxt([p.nombre||"", p.descripcion||"", otroIdioma()].join("|"));
+  async function traducirDescTienda(desc, pais){
+    if(!desc) return "";
+    if(desc===(S.config.descripcionTienda||"") && S.config.trDescripcionTienda && pais===(S.config.pais||"PE")) return S.config.trDescripcionTienda;
+    try{ const r = await traducirTextos([desc], otroIdioma(pais)); return String((r && r[0]) || "").slice(0,400); }catch(e){ console.warn("No se pudo traducir la descripción:", e); return ""; }
+  }
+  const trEnCurso = new Set(); let trTimer = null, trFallos = 0;
+  function programarTraduccion(){ if(!S.canEdit || !S.db) return; clearTimeout(trTimer); trTimer = setTimeout(traducirPendientes, 4000); }
+  async function traducirPendientes(){
+    if(!S.canEdit || trFallos >= 3) return;
+    const faltan = S.products.filter(p => !esCopia(p) && (p.nombre||p.descripcion) && !trEnCurso.has(p.id) && p.trFuente !== fuenteTr(p)).slice(0, 15);
+    if(!faltan.length) return;
+    faltan.forEach(p=>trEnCurso.add(p.id));
+    try{
+      const textos = faltan.flatMap(p=>[p.nombre||"", (p.descripcion||"").slice(0,600)]);
+      const r = await traducirTextos(textos, otroIdioma());
+      if(!Array.isArray(r) || r.length !== textos.length) throw new Error("respuesta incompleta");
+      await runPool(faltan.map((p,i)=>({p,i})), ({p,i})=>S.db.doc("productos/"+p.id).update({ trNombre: String(r[2*i]||"").slice(0,120), trDescripcion: String(r[2*i+1]||"").slice(0,800), trFuente: fuenteTr(p) }));
+      trFallos = 0;
+    }catch(e){ trFallos++; console.warn("No se pudo traducir (se reintenta luego):", e); }
+    finally{ faltan.forEach(p=>trEnCurso.delete(p.id)); }
+    if(S.products.some(p=>!esCopia(p) && (p.nombre||p.descripcion) && !trEnCurso.has(p.id) && p.trFuente !== fuenteTr(p))) programarTraduccion();
+  }
+
+  // ---------- Página de venta: portada y descripción ----------
+  let portadaNueva;  // undefined = sin cambios; "" = quitar; ruta = nueva foto
+  function pintarPortadaConfig(path){
+    const prev = $("setPortadaPrev");
+    prev.style.backgroundImage = path ? `url("${src(path)}")` : ""; $("setPortadaVacia").hidden = !!path;
+    $("setPortadaDel").hidden = !path; $("setPortadaUp").textContent = path ? "Cambiar foto" : "Subir foto de portada";
+  }
+  $("setPortadaUp").onclick = ()=>$("setPortadaFile").click();
+  $("setPortadaDel").onclick = ()=>{ portadaNueva = ""; pintarPortadaConfig(""); };
+  $("setDescTienda").addEventListener("input", ()=>{ $("setDescCuenta").textContent = `${$("setDescTienda").value.length} / 300`; });
+  $("setPortadaFile").onchange = async e=>{
+    const f = e.target.files && e.target.files[0]; e.target.value = ""; if(!f) return;
+    $("setPortadaUp").disabled = true; $("setPortadaUp").textContent = "Subiendo…";
+    try{ const img = await decode(f); const c = lienzo(img, 1600); const blob = await aBlobLiviano(c, 1600, .84, 320); const r = await S.assets.upload(blob, {type:"image/jpeg"}); portadaNueva = r.id; pintarPortadaConfig(r.id); toast("Foto lista. Toca Guardar."); }
+    catch(err){ toast("No se pudo subir la foto: " + errText(err)); pintarPortadaConfig(S.config.portada||""); }
+    finally{ $("setPortadaUp").disabled = false; }
+  };
+  // Cabecera de la tienda para el cliente: foto, nombre, descripción y cuántos productos hay
+  function pintarPortada(){
+    const box = $("portadaTienda"); if(!box) return;
+    const foto = S.config && S.config.portada, desc = (traducido() && S.config && S.config.trDescripcionTienda) || (S.config && S.config.descripcionTienda) || "";
+    box.hidden = S.canEdit || !(foto || desc);
+    if(box.hidden) return;
+    box.classList.toggle("con-foto", !!foto);
+    box.style.backgroundImage = foto ? `url("${src(foto)}")` : "";
+    $("portadaNombre").textContent = S.config.nombre || "";
+    $("portadaDesc").textContent = desc; $("portadaDesc").hidden = !desc;
+    const n = S.products.filter(p=>p.estado!=="oculto").length;
+    $("portadaMeta").textContent = n ? tx(`${n} producto${n===1?"":"s"}`, `${n} item${n===1?"":"s"}`) : "";
+  }
   // QR de Yape: se sube al elegirlo y se guarda junto con los demás datos.
   function pintarQrConfig(path){
     const img=$("setYapeImg");
@@ -1207,6 +1418,9 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         grupoWhatsapp: grupoValido($("setGrupo").value) || "",
         chatClientes: $("setChatCli").checked,
         rubro: $("setRubro").value || "moda",
+        portada: portadaNueva!==undefined ? portadaNueva : (S.config.portada||""),
+        descripcionTienda: $("setDescTienda").value.trim().slice(0,300),
+        trDescripcionTienda: await traducirDescTienda($("setDescTienda").value.trim().slice(0,300), pais),
         yapeNumero:$("setYapeNum").value.trim(), yapeNombre:$("setYapeName").value.trim(),
         yapeQr: yapeQrNuevo!==undefined ? yapeQrNuevo : (S.config.yapeQr||""),
         pais, moneda,
@@ -1216,12 +1430,14 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         const fails = await runPool(conPrecio.map(p=>p.id), id=>{ const p = S.products.find(x=>x.id===id); const v = moneda==="PEN" ? Math.round(p.precio*tc) : Math.round(p.precio/tc*100)/100; return S.db.doc("productos/"+id).update({ precio: v }); });
         toast(fails ? `Datos guardados; ${fails} precios no se pudieron convertir` : `Datos guardados y ${conPrecio.length} precios convertidos a ${moneda==="PEN" ? "soles" : "dólares"}`);
       } else toast("Datos guardados");
-      yapeQrNuevo = undefined; if(!document.querySelector("main").classList.contains("con-tabs")) $("settings").hidden=true;
+      yapeQrNuevo = undefined; portadaNueva = undefined; if(!document.querySelector("main").classList.contains("con-tabs")) $("settings").hidden=true;
     }catch(e){ toast("No se pudo guardar. Intenta de nuevo."); }
   };
 
   // ---------- Controles ----------
   $("q").addEventListener("input", e=>{ S.q=e.target.value; render(); });
+  $("orden").value = S.orden;
+  $("orden").onchange = e=>{ S.orden = e.target.value; try{ localStorage.setItem(ORDEN_KEY, S.orden); }catch(err){} render(); };
   $("pickBtn").onclick = ()=>$("fileInput").click();
   $("fileInput").onchange = e=>handleFiles(e.target.files);
   const setMode = m=>{ S.mode=m; $("modeEach").setAttribute("aria-pressed",String(m==="each")); $("modeGroup").setAttribute("aria-pressed",String(m==="group")); };
@@ -1239,8 +1455,17 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
 
   // ---------- Conexión (AWS Amplify) ----------
   const params = new URLSearchParams(location.search);
-  const slugPublico = (params.get("tienda") || "").toLowerCase();
-  const enlaceDe = slug => location.origin + location.pathname + "?tienda=" + encodeURIComponent(slug);
+  // Enlace corto: showroomcito.com/maria-importados (necesita la regla de reescritura en Amplify, ver README)
+  const slugDeRuta = (/^\/([a-z0-9][a-z0-9-]{1,39})\/?$/i.exec(location.pathname) || [])[1] || "";
+  const slugPublico = (params.get("tienda") || slugDeRuta || "").toLowerCase();
+  // Se usa el enlace corto solo si la página responde en esa dirección (si falta la regla, sigue el enlace con ?tienda=)
+  let linkCorto = slugDeRuta ? true : null;
+  const enlaceDe = slug => linkCorto ? location.origin + "/" + encodeURIComponent(slug) : location.origin + "/?tienda=" + encodeURIComponent(slug);
+  async function probarLinkCorto(t){
+    if(linkCorto !== null) return;
+    try{ const r = await fetch("/" + encodeURIComponent(t.id), { cache:"no-store" }); linkCorto = r.ok && /text\/html/.test(r.headers.get("content-type")||""); }catch(e){ linkCorto = false; }
+    if(linkCorto) bannerVendedora(t);
+  }
   const show = (id, on) => { $(id).hidden = !on; };
   const ESTADO_TXT = { pendiente:"Pendiente de aprobación", aprobada:"Aprobada", suspendida:"Suspendida" };
 
@@ -1398,7 +1623,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       // Vista previa del dictado: se actualiza con lo que completa la IA (sin interrumpir si está escribiendo)
       if(typeof dictAbierto==="function" && dictAbierto() && D.paso==="previa" && !(document.activeElement && $("planOverlay").contains(document.activeElement) && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName))) pintarDict();
       if(cartOpen && !$("overlay").contains(document.activeElement)) drawCart();
-      if(!S.canEdit) mensajeEstadoPublico(); else { actualizarPlan(); if(!snap.metadata.fromCache){ asignarCodigos(); if(!S.timerCodigos) S.timerCodigos = setInterval(asignarCodigos, 60000); } }
+      if(!S.canEdit){ mensajeEstadoPublico(); pintarCuentaBtn(); } else { actualizarPlan(); if(!snap.metadata.fromCache){ asignarCodigos(); if(!S.timerCodigos) S.timerCodigos = setInterval(asignarCodigos, 60000); programarTraduccion(); if(!S.timerTr) S.timerTr = setInterval(()=>{ trFallos = 0; traducirPendientes(); }, 300000); } }
     }, ()=>{ clearTimeout(slow); S.loaded=true; $("emptyTitle").textContent="No se pudo cargar la vitrina"; $("emptyText").textContent="Recarga la página en unos minutos."; render(); });
     db.doc("config/tienda").onSnapshot(s=>{ S.config = s.exists ? s.data() : {}; renderConfig(); if(S.canEdit){ actualizarPlan(); pintarCobros(); } }, ()=>{});
   }
@@ -1417,7 +1642,53 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       : "Ya puedes subir tus productos. Los clientes la verán cuando la administración la apruebe.";
     $("bannerLink").textContent = enlaceDe(t.id);
     $("viewStore").href = enlaceDe(t.id);
+    probarLinkCorto(t);
+    $("shareStore").onclick = ()=>compartirTienda(t);
+    $("qrStore").onclick = ()=>abrirQR(t);
     $("copyLink").onclick = async ()=>{ try{ await navigator.clipboard.writeText(enlaceDe(t.id)); toast("Enlace copiado"); }catch(e){ const r=document.createRange(); r.selectNodeContents($("bannerLink")); const sl=getSelection(); sl.removeAllRanges(); sl.addRange(r); toast("Selecciona y copia el enlace"); } };
+  }
+
+  // ---------- Compartir la tienda: un toque (WhatsApp, Instagram…) y código QR para imprimir ----------
+  const textoCompartir = t => `¡Mira mi tienda ${t.nombre||""}! 🛍️ Novedades y ofertas aquí 👉 ${enlaceDe(t.id)}`;
+  async function compartirTienda(t){
+    const url = enlaceDe(t.id), texto = textoCompartir(t);
+    if(navigator.share){ try{ await navigator.share({ title: t.nombre || "Mi tienda", text: texto.replace(" " + url, ""), url }); return; }catch(e){ if(e && e.name==="AbortError") return; } }
+    window.open("https://wa.me/?text=" + encodeURIComponent(texto), "_blank", "noopener");
+  }
+  /** Tarjeta para imprimir o compartir: nombre de la tienda, el QR y el enlace. */
+  function tarjetaQR(t){
+    const W = 1080, H = 1350, c = document.createElement("canvas"); c.width = W; c.height = H;
+    const g = c.getContext("2d"), q = qrCanvas(enlaceDe(t.id), 760);
+    g.fillStyle = "#14213d"; g.fillRect(0, 0, W, H);
+    g.fillStyle = "#fff"; g.beginPath(); g.roundRect ? g.roundRect(70, 250, W-140, 900, 48) : g.rect(70, 250, W-140, 900); g.fill();
+    g.textAlign = "center"; g.fillStyle = "#fff";
+    let tam = 76; g.font = `800 ${tam}px Inter, system-ui, sans-serif`;
+    const nombre = t.nombre || "Mi tienda"; while(g.measureText(nombre).width > W-120 && tam > 36){ tam -= 4; g.font = `800 ${tam}px Inter, system-ui, sans-serif`; }
+    g.fillText(nombre, W/2, 140);
+    g.font = "500 40px Inter, system-ui, sans-serif"; g.fillStyle = "#ffcc29"; g.fillText("Escanéame y mira mi tienda", W/2, 205);
+    const lado = 760; g.drawImage(q, (W-lado)/2, 300, lado, lado);
+    g.fillStyle = "#14213d"; g.font = "600 34px ui-monospace, Menlo, monospace";
+    const corto = enlaceDe(t.id).replace(/^https?:\/\//, ""); g.fillText(corto.length > 44 ? corto.slice(0, 43) + "…" : corto, W/2, 1110);
+    g.fillStyle = "#c9d1e3"; g.font = "500 30px Inter, system-ui, sans-serif"; g.fillText("Apunta la cámara de tu celular al código", W/2, 1240);
+    return c;
+  }
+  function abrirQR(t){
+    const ov = $("overlay"); ov.textContent = ""; openId = null; cartOpen = false; cuentaOpen = true; ov.hidden = false;
+    const c = tarjetaQR(t); c.className = "qr-tarjeta"; c.setAttribute("role","img"); c.setAttribute("aria-label", "Código QR de tu tienda");
+    const nombreArchivo = "qr-" + t.id + ".png";
+    const bajar = el("a",{class:"btn primary",download:nombreArchivo,href:"#",style:"text-decoration:none;justify-content:center"},"Descargar imagen");
+    bajar.onclick = ()=>{ bajar.href = c.toDataURL("image/png"); };
+    const enviar = el("button",{class:"btn",type:"button",onclick:async()=>{
+      try{ const blob = await new Promise(r=>c.toBlob(r,"image/png")); const f = new File([blob], nombreArchivo, {type:"image/png"});
+        if(navigator.canShare && navigator.canShare({ files:[f] })){ await navigator.share({ files:[f], text: textoCompartir(t) }); return; } }catch(e){ if(e && e.name==="AbortError") return; }
+      bajar.click(); toast("Imagen descargada: envíala por WhatsApp o ponla en tu estado"); }},"Compartir imagen");
+    const imprimir = el("button",{class:"btn",type:"button",onclick:()=>{
+      const w = window.open("", "_blank"); if(!w){ toast("Permite las ventanas emergentes para imprimir"); return; }
+      w.document.write(`<!doctype html><title>QR ${t.nombre||""}</title><body style="margin:0;display:grid;place-items:center;min-height:100vh"><img src="${c.toDataURL("image/png")}" style="width:12cm;max-width:90vw" onload="setTimeout(()=>print(),200)"></body>`); w.document.close(); }},"Imprimir");
+    ov.append(el("div",{class:"cart qr-box",role:"dialog","aria-modal":"true","aria-label":"Código QR de tu tienda"},
+      el("div",{class:"cart-head"}, el("h2",null,"Código QR de tu tienda"), el("button",{class:"btn",type:"button",onclick:closeCart},"Cerrar")),
+      el("p",{class:"note",style:"margin:0"},"Imprímelo y pégalo en tu puesto, en tus bolsas o en una tarjeta. Tus clientes lo escanean con la cámara del celular y entran directo a tu tienda."),
+      c, el("div",{class:"send"}, bajar, enviar, imprimir)));
   }
 
   // ---------- Asistente de compras del cliente ----------
@@ -1437,13 +1708,13 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   function tarjetaCli(p){
     const of = oferta(p), cover = p.fotos && p.fotos[0], enPedido = !!cart[p.id], sold = agotado(p);
     // Agregar (o quitar) del pedido sin salir del chat
-    const agregar = el("button",{class:"cli-add"+(enPedido?" in":""),type:"button",disabled:sold?"":false,"aria-label":(enPedido?tx("Quitar del pedido: ","Remove from order: "):tx("Agregar al pedido: ","Add to order: "))+(p.nombre||""),
+    const agregar = el("button",{class:"cli-add"+(enPedido?" in":""),type:"button",disabled:sold?"":false,"aria-label":(enPedido?tx("Quitar del pedido: ","Remove from order: "):tx("Agregar al pedido: ","Add to order: "))+nom(p),
       onclick:()=>{ if(cart[p.id]) delete cart[p.id]; else { cart[p.id]=1; toast(tx("Agregado a tu pedido","Added to your order")); } saveCart(); render(); pintarCli(); }},
       sold ? tx("Agotado","Sold out") : enPedido ? tx("✓ Agregado","✓ Added") : tx("+ Agregar","+ Add"));
     return el("div",{class:"cli-prod"},
-      el("button",{class:"cli-ver",type:"button",onclick:()=>openProduct(p.id),"aria-label":tx("Ver ","View ")+(p.nombre||"")},
+      el("button",{class:"cli-ver",type:"button",onclick:()=>openProduct(p.id),"aria-label":tx("Ver ","View ")+nom(p)},
         cover ? el("img",{src:src(cover.thumb||cover.full),alt:"",loading:"lazy"}) : el("span",{class:"sinfoto"}),
-        el("span",null, el("b",null, p.nombre||""), el("small",null, [codigoDe(p), p.marca, p.talla ? tx("Talla ","Size ")+p.talla : ""].filter(Boolean).join(" · ")))),
+        el("span",null, el("b",null, nom(p)), el("small",null, [codigoDe(p), p.marca, p.talla ? tx("Talla ","Size ")+p.talla : ""].filter(Boolean).join(" · ")))),
       el("span",{class:"cli-der"}, el("span",{class:"pr"}, p.precio==null ? tx("Consultar","Ask") : money(p.precio), of ? el("s",null, money(of.antes)) : null), agregar));
   }
   function pintarCli(){
@@ -1474,11 +1745,11 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   }
   async function enviarCli(texto){
     texto = String(texto||"").trim(); if(!texto || cliOcupado) return;
-    if(cliRec){ const r = cliRec; cliRec = null; r.onresult = null; r.onend = null; try{ r.stop(); }catch(e){} $("cliMic").classList.remove("on"); }
+    if(cliRec){ const r = cliRec; cliRec = null; r.pausar(); $("cliMic").classList.remove("on"); }
     cliLog.push({ role:"user", text:texto }); cliOcupado = true; guardarCli(); pintarCli();
     const inp = $("cliInput"); inp.blur(); inp.value = ""; $("cliEnviar").disabled = true;
     try{
-      const r = await preguntarTienda(cliLog.filter(m=>m.role==="user"||m.role==="assistant").map(m=>({ role:m.role, text:m.text })));
+      const r = await preguntarTienda(cliLog.filter(m=>m.role==="user"||m.role==="assistant").map(m=>({ role:m.role, text:m.text })), EN() ? "en" : "es");
       cliLog.push({ role:"assistant", text: r.texto || "", codigos: Array.isArray(r.codigos) ? r.codigos : [] });
     }catch(e){
       cliLog.push({ role:"error", text: tx("No pude responder ahora. Intenta de nuevo o escríbenos por WhatsApp.","I couldn't answer right now. Try again or message us on WhatsApp.") });
@@ -1549,7 +1820,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   }
 
   // ---------- Pestañas de la vendedora ----------
-  const TABS = ["productos","pedidos","confianza","plan","datos"], TAB_KEY = "vitrina-tab";
+  const TABS = ["productos","pedidos","clientes","confianza","plan","datos"], TAB_KEY = "vitrina-tab";
   function irTab(tab, guardar = true){
     if(!TABS.includes(tab)) tab = "productos";
     const main = document.querySelector("main"); main.dataset.tab = tab;
@@ -1672,6 +1943,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         el("div",{class:"plan-price"}, pl.precio ? (esUS() ? `$${pl.precioUsd}` : `S/ ${pl.precio}`) : "Gratis", pl.precio ? el("small",null," /mes") : null),
         el("span",null, pl.limite==null ? "Productos ilimitados" : `Hasta ${pl.limite} productos`),
         el("span",null, "Fotos mejoradas automáticamente"),
+        pl.asis ? el("span",null, `Asistente: ${pl.asis} mensajes al día`) : null,
+        pl.cli ? el("span",null, `Chat para tus clientes: ${pl.cli} preguntas al día`) : null,
         pl.extra ? el("span",{class:"extra"}, "+ " + pl.extra) : null, btn));
     }
     card.append(grid, el("p",{class:"note",style:"margin:0"},`Pago mensual con tarjeta a través de Stripe${esUS() ? ", en dólares" : ", en soles"}. Puedes volver a Free cuando quieras.`));
@@ -1710,7 +1983,22 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   // Cada producto se guarda al instante (borrador en este navegador). Luego la IA entiende el texto,
   // ella elige las fotos en el mismo orden, ve una vista previa (productos ocultos) y recién publica.
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const SEPARADOR = /\b(?:siguiente|next(?: one)?)\b[\s.,;:!]*/i;
+  // "siguiente" y lo que suele entender el navegador en su lugar
+  const SEPARADOR = /\b(?:siguientes?|siguiente producto|otro producto|pr[oó]ximo producto|next(?: one| item)?)\b[\s.,;:!]*/i;
+  // Vocabulario para ayudar al reconocimiento: marcas conocidas y de la tienda, tipos de producto y palabras de sus productos
+  let vocabCache = null, vocabClave = "";
+  function vocabTienda(){
+    const prods = S.products || [], clave = prods.length + "|" + rubroActual();
+    if(vocabCache && vocabClave === clave) return vocabCache;
+    const marcasTienda = [...new Set(prods.map(p=>p.marca).filter(Boolean))];
+    const palabras = new Map();
+    prods.forEach(p=>String(p.nombre||"").split(/[^A-Za-zÁÉÍÓÚÑáéíóúñ]+/).forEach(w=>{ if(w.length>=4) palabras.set(w.toLowerCase(), w.toLowerCase()); }));
+    vocabCache = vocabulario([
+      ...MARCAS.map(txt=>({ txt, tipo:"marca" })), ...marcasTienda.map(txt=>({ txt, tipo:"marca" })),
+      { txt: esUS() ? "next" : "siguiente", tipo:"clave" },
+      ...TIPOS.map(t=>t[0]), ...TIPOS.flatMap(t=>t[3].split("|")), ...palabras.values()]);
+    vocabClave = clave; return vocabCache;
+  }
   const D = { paso:"dictar", items:[], buffer:"", datos:[], fotos:[], ids:[], escuchando:false, interino:"" };
   let rec = null;
   const claveDict = () => "dictado-" + ((S.config && S.config.id) || "tienda");
@@ -1726,21 +2014,23 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     guardarDict();
   }
   function cerrarProductoActual(){ agregarTexto(" siguiente "); }
+  // Escucha reforzada (src/voz.js): se vuelve a encender sola tras los silencios, no repite frases,
+  // se pausa si se apaga la pantalla y corrige marcas y palabras con el vocabulario de la tienda.
   function microfono(on){
     if(!SR){ toast("Tu navegador no permite dictar aquí: escribe con el micrófono del teclado"); return; }
-    if(!on){ D.escuchando=false; D.interino=""; try{ rec && rec.stop(); }catch(e){} pintarDict(); return; }
-    rec = new SR(); rec.lang = esUS() ? "en-US" : "es-PE"; rec.continuous = true; rec.interimResults = true;
-    rec.onresult = e=>{
-      let fin = ""; D.interino = "";
-      for(let i=e.resultIndex; i<e.results.length; i++){ const t = e.results[i][0].transcript; if(e.results[i].isFinal) fin += t + " "; else D.interino += t; }
-      if(fin) agregarTexto(fin);
-      pintarVivo();
-    };
-    rec.onerror = e=>{ if(e.error==="not-allowed" || e.error==="service-not-allowed" || e.error==="audio-capture"){ D.escuchando=false; toast("Permite el micrófono para dictar, o escribe con el micrófono del teclado"); pintarDict(); } };
-    // El celular corta la escucha tras un silencio: si seguimos dictando, se vuelve a encender sola.
-    rec.onend = ()=>{ if(D.escuchando){ try{ rec.start(); }catch(e){ D.escuchando=false; pintarDict(); } } };
-    try{ rec.start(); D.escuchando = true; }catch(e){ toast("No se pudo usar el micrófono"); }
-    pintarDict();
+    if(!on){ D.pausaSola = false; if(rec) rec.pausar(); D.escuchando=false; D.interino=""; pintarDict(); return; }
+    if(rec) rec.pausar();
+    rec = escucha(SR, { lang: esUS() ? "en-US" : "es-PE", vocab: vocabTienda(),
+      alTexto: t=>{ agregarTexto(t); pintarVivo(); },
+      alInterino: t=>{ D.interino = t; pintarVivo(); },
+      alEstado: (estado, det)=>{
+        if(estado==="escuchando"){ D.escuchando = true; D.pausaSola = false; }
+        else if(estado==="silencio"){ D.escuchando = false; D.pausaSola = true; toast("Me pausé porque no te escuché. Toca el micrófono para seguir donde te quedaste"); }
+        else if(estado==="error"){ D.escuchando = false; toast(/not-allowed|audio-capture/.test(det||"") ? "Permite el micrófono para dictar, o escribe con el micrófono del teclado" : "No se pudo usar el micrófono"); }
+        else if(estado==="pausa"){ D.escuchando = false; }
+        if(dictAbierto()) pintarDict();
+      } });
+    rec.iniciar();
   }
   function abrirDictado(){
     cargarDict();
@@ -1754,7 +2044,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const b = $("dictBuffer"), i = $("dictInterino");
     if(b) b.textContent = D.buffer || (D.escuchando ? "Escuchando…" : "");
     if(i) i.textContent = D.interino;
-    const l = $("dictLista"); if(l && l.childElementCount !== D.items.length) pintarDict();
+    // Producto nuevo cerrado con "siguiente": se vuelve a dibujar la lista (también la primera vez, cuando aún no existe)
+    const l = $("dictLista"); if((l ? l.childElementCount : 0) !== D.items.length) pintarDict();
   }
   function pintarDict(){
     if(!dictAbierto()) return;
@@ -1766,16 +2057,17 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     ov.append(card);
   }
   function pasoDictar(card){
-    const mic = el("button",{class:"mic",type:"button","aria-label": D.escuchando ? "Pausar el dictado" : "Empezar a dictar", onclick:()=>microfono(!D.escuchando)}, D.escuchando ? "❚❚" : "🎙️");
+    const enCurso = !!(D.buffer.trim() || D.items.length);
+    const mic = el("button",{class:"mic",type:"button","aria-label": D.escuchando ? "Pausar el dictado" : enCurso ? "Seguir dictando" : "Empezar a dictar", onclick:()=>microfono(!D.escuchando)}, D.escuchando ? "❚❚" : "🎙️");
     card.append(
       el("p",{class:"note",style:"margin:0"}, "Mira cada producto y dilo de corrido: qué es, marca, condición, precio y cuántos tienes. Al terminar uno, di ", el("strong",null,"“siguiente”"), ". Ej.: ", el("em",null,"“Cartera Coach negra, nueva con etiqueta, 85 soles, tengo 2… siguiente”"), "."),
       el("div",{class:"dict-mic"+(D.escuchando?" on":"")}, mic,
-        el("div",{class:"dict-vivo"}, el("strong",null, D.escuchando ? "Te escucho" : (SR ? "Toca el micrófono para empezar" : "Escribe tus productos")),
+        el("div",{class:"dict-vivo"}, el("strong",null, D.escuchando ? "Te escucho" : !SR ? "Escribe tus productos" : D.pausaSola ? "En pausa (no te escuché). Toca el micrófono para seguir" : enCurso ? "En pausa. Toca el micrófono para seguir donde te quedaste" : "Toca el micrófono para empezar"),
           el("span",{class:"en-curso",id:"dictBuffer"}, D.buffer || (D.escuchando ? "Escuchando…" : "")), el("span",{class:"interino",id:"dictInterino"}, D.interino)),
         D.buffer.trim() ? el("button",{class:"btn",type:"button",onclick:()=>{ cerrarProductoActual(); pintarDict(); }},"Siguiente producto") : null));
     // Escribir (o usar el micrófono del teclado del celular): sirve en cualquier navegador.
     const ta = el("textarea",{rows:"2",placeholder: SR ? "O escríbelo aquí…" : "Escribe o usa el micrófono de tu teclado. Di “siguiente” entre productos…","aria-label":"Escribir producto"});
-    const add = el("button",{class:"btn",type:"button",onclick:()=>{ const t = ta.value.trim(); if(!t) return; agregarTexto(t + " siguiente "); ta.value=""; pintarDict(); }},"Agregar");
+    const add = el("button",{class:"btn",type:"button",onclick:()=>{ const t = corregir(ta.value.trim(), vocabTienda()); if(!t) return; agregarTexto(t + " siguiente "); ta.value=""; pintarDict(); }},"Agregar");
     card.append(el("div",{style:"display:flex;gap:8px;align-items:end"}, el("label",{class:"f",style:"flex:1"},"Escribir", ta), add));
     const lista = el("div",{class:"dict-list",id:"dictLista"});
     D.items.forEach((t,i)=>{
@@ -2289,9 +2581,60 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     }
     if(deConfianza) cargarConfianza();
   }
+  // ---------- Mis clientes: se arma sola con los pedidos y con quienes entraron a "Mis pedidos" ----------
+  async function cargarClientes(pedidos){
+    let regs = []; try{ regs = await listarClientes(); }catch(e){ console.warn("Detalle técnico:", e); }
+    const norm = s=>String(s||"").trim().toLowerCase();
+    const mapa = new Map();
+    const de = k=>{ if(!mapa.has(k)) mapa.set(k, { nombre:"", email:"", telefono:"", pedidos:0, total:0, moneda:"", ultima:"", sigue:false, verificado:false }); return mapa.get(k); };
+    for(const p of pedidos || []){
+      if(p.estado==="pendiente" || p.estado==="cancelado") continue;
+      const k = norm(p.email) || norm(p.telefono) || ("n:"+norm(p.cliente)); if(k==="n:") continue;
+      const c = de(k); c.nombre = c.nombre || p.cliente || ""; c.email = c.email || norm(p.email); c.telefono = c.telefono || p.telefono || "";
+      c.pedidos++; c.total += p.total||0; c.moneda = p.moneda || c.moneda; if(String(p.createdAt) > c.ultima) c.ultima = String(p.createdAt);
+    }
+    for(const r of regs){
+      const k = norm(r.email); if(!k) continue;
+      if(!r.verificado && !mapa.has(k)) continue;   // pidió código pero nunca entró
+      const c = de(k); c.email = k; c.nombre = r.nombre || c.nombre; c.telefono = r.telefono || c.telefono; c.sigue = !!r.sigue; c.verificado = !!r.verificado;
+      if(!c.ultima) c.ultima = String(r.ultimaVez || r.createdAt || "");
+    }
+    S.clientes = [...mapa.values()].sort((a,b)=> b.ultima.localeCompare(a.ultima));
+    pintarClientes();
+  }
+  function pintarClientes(){
+    const lista = S.clientes || [], box = $("clientesLista"); if(!box) return;
+    marcarTab("clientes", lista.length, false);
+    const filtro = $("clientesFiltro").value, q = $("clientesQ").value.trim().toLowerCase();
+    const ver = lista.filter(c=> (filtro!=="sigue" || c.sigue) && (filtro!=="frecuentes" || c.pedidos>=2) && (!q || (c.nombre+" "+c.email+" "+c.telefono).toLowerCase().includes(q)));
+    const siguen = lista.filter(c=>c.sigue).length, frec = lista.filter(c=>c.pedidos>=2).length;
+    $("clientesResumen").textContent = lista.length ? [`${lista.length} ${lista.length===1?"cliente":"clientes"}`, frec ? `${frec} ${frec===1?"compra":"compran"} seguido` : "", siguen ? `${siguen} ${siguen===1?"quiere":"quieren"} ofertas` : ""].filter(Boolean).join(" · ") : "";
+    show("clientesVacio", !lista.length); show("clientesTools", lista.length > 0);
+    box.textContent = "";
+    for(const c of ver){
+      const wa = String(c.telefono||"").replace(/\D/g,"");
+      const waUrl = wa ? `https://wa.me/${wa.length===9 ? "51"+wa : wa}?text=${encodeURIComponent(`Hola${c.nombre?" "+c.nombre.split(" ")[0]:""}, te escribo de ${S.config.nombre||"la tienda"} 😊`)}` : "";
+      box.append(el("div",{class:"cliente-row"},
+        el("div",{class:"cl-who"}, el("strong",null, c.nombre || c.email || c.telefono),
+          el("small",null, [c.email, c.telefono].filter(Boolean).join(" · ")),
+          el("span",{class:"cl-tags"}, c.pedidos>=2 ? el("span",{class:"cl-tag frec"},"Compra seguido") : null, c.sigue ? el("span",{class:"cl-tag sigue"},"Quiere ofertas") : null, c.verificado ? el("span",{class:"cl-tag"},"Tiene cuenta") : null)),
+        el("div",{class:"cl-num"}, el("strong",null, c.pedidos ? `${c.pedidos} ${c.pedidos===1?"pedido":"pedidos"}` : "Sin pedidos aún"), c.pedidos ? el("small",null, montoTxt(c.total, c.moneda) + (c.ultima ? " · último " + new Date(c.ultima).toLocaleDateString("es-PE",{day:"numeric",month:"short"}) : "")) : null),
+        el("div",{class:"cl-acts"}, waUrl ? el("a",{class:"btn tag",href:waUrl,target:"_blank",rel:"noopener",style:"text-decoration:none"},"WhatsApp") : null,
+          c.email ? el("a",{class:"btn",href:"mailto:"+c.email,style:"text-decoration:none"},"Correo") : null)));
+    }
+    if(lista.length && !ver.length) box.append(el("p",{class:"note"},"Nadie coincide con ese filtro."));
+  }
+  $("clientesFiltro").onchange = pintarClientes; $("clientesQ").addEventListener("input", pintarClientes);
+  $("clientesCopiar").onclick = async ()=>{
+    const correos = (S.clientes||[]).filter(c=>c.sigue && c.email).map(c=>c.email);
+    if(!correos.length){ toast("Todavía nadie marcó que quiere ofertas"); return; }
+    try{ await navigator.clipboard.writeText(correos.join(", ")); toast(`${correos.length} correos copiados`); }catch(e){ toast(correos.join(", ")); }
+  };
+
   async function cargarPedidos(){
     let lista = [];
     try{ lista = await listarPedidos(); }catch(e){ return; }
+    cargarClientes(lista);
     show("pedidosBox", lista.length > 0 && $("panel").hidden);
     show("pedidosVacio", !lista.length && $("panel").hidden);
     const pagados = lista.filter(p=>p.estado==="pagado").length, porConfirmar = lista.filter(p=>p.estado==="por_confirmar").length;
@@ -2483,7 +2826,7 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
   // Vacía la caja al enviar. Antes se apaga el micrófono (si no, sigue escribiendo lo que escuchó) y se
   // suelta el foco: el dictado del teclado del celular vuelve a pegar el texto si la caja sigue activa.
   function limpiarAsisInput(enviado){
-    if(asisRec){ const r = asisRec; asisRec = null; r.onresult = null; r.onend = null; try{ r.stop(); }catch(e){} $("asisMic").classList.remove("on"); $("asisMic").setAttribute("aria-label","Hablar con el asistente"); }
+    if(asisRec){ const r = asisRec; asisRec = null; r.pausar(); $("asisMic").classList.remove("on"); $("asisMic").setAttribute("aria-label","Hablar con el asistente"); }
     const inp = $("asisInput"); inp.blur(); inp.value = ""; inp.dispatchEvent(new Event("input"));
     setTimeout(()=>{ if(inp.value.trim() === enviado){ inp.value = ""; inp.dispatchEvent(new Event("input")); } }, 150);
   }
@@ -2526,25 +2869,32 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
   if(SR){
     $("asisMic").hidden = false;
     $("asisMic").onclick = ()=>{
-      if(asisRec){ try{ asisRec.stop(); }catch(e){} return; }
+      if(asisRec){ const r = asisRec; asisRec = null; r.pausar(); return; }
       const inp = $("asisInput"), antes = inp.value ? inp.value.trim() + " " : "";
-      asisRec = new SR(); asisRec.lang = esUS() ? "en-US" : "es-PE"; asisRec.continuous = true; asisRec.interimResults = true;
+      // Los códigos dichos ("rop cero cero tres") se escriben como en la tienda (ROP-003)
+      const prefijos = [...new Set((S.products||[]).map(p=>(codigoDe(p)||"").split("-")[0]).filter(Boolean))];
       let fin = "";
-      asisRec.onresult = e=>{ let inter = ""; for(let i=e.resultIndex;i<e.results.length;i++){ const t=e.results[i][0].transcript; if(e.results[i].isFinal) fin += t + " "; else inter += t; } inp.value = (antes + fin + inter).trimStart(); inp.dispatchEvent(new Event("input")); };
-      asisRec.onerror = e=>{ if(/not-allowed|service-not-allowed|audio-capture/.test(e.error)) toast("Permite el micrófono para hablarle al asistente"); };
-      asisRec.onend = ()=>{ asisRec = null; $("asisMic").classList.remove("on"); $("asisMic").setAttribute("aria-label","Hablar con el asistente"); inp.focus(); };
-      try{ asisRec.start(); $("asisMic").classList.add("on"); $("asisMic").setAttribute("aria-label","Dejar de escuchar"); }catch(e){ asisRec = null; toast("No se pudo usar el micrófono"); }
+      const poner = inter=>{ inp.value = (antes + codigosDichos(fin + inter, prefijos)).trimStart(); inp.dispatchEvent(new Event("input")); };
+      const r = escucha(SR, { lang: esUS() ? "en-US" : "es-PE", vocab: vocabTienda(),
+        alTexto: t=>{ fin += t; poner(""); }, alInterino: t=>poner(t),
+        alEstado: (estado, det)=>{
+          if(estado==="error" && /not-allowed|audio-capture/.test(det||"")) toast("Permite el micrófono para hablarle al asistente");
+          if(estado==="escuchando"){ $("asisMic").classList.add("on"); $("asisMic").setAttribute("aria-label","Dejar de escuchar"); }
+          else { if(asisRec === r) asisRec = null; $("asisMic").classList.remove("on"); $("asisMic").setAttribute("aria-label","Hablar con el asistente"); if(estado!=="pausa") inp.focus(); }
+        } });
+      asisRec = r; if(!r.iniciar()) asisRec = null;
     };
   }
   $("asisInput").addEventListener("keydown", e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); enviarAsis($("asisInput").value); } });
   if(SR){
     $("cliMic").hidden = false;
     $("cliMic").onclick = ()=>{
-      if(cliRec){ try{ cliRec.stop(); }catch(e){} return; }
-      const inp = $("cliInput"); cliRec = new SR(); cliRec.lang = esUS() ? "en-US" : "es-PE"; cliRec.interimResults = true;
-      cliRec.onresult = e=>{ let t = ""; for(let i=0;i<e.results.length;i++) t += e.results[i][0].transcript; inp.value = t; };
-      cliRec.onend = ()=>{ cliRec = null; $("cliMic").classList.remove("on"); inp.focus(); };
-      try{ cliRec.start(); $("cliMic").classList.add("on"); }catch(e){ cliRec = null; }
+      if(cliRec){ const r = cliRec; cliRec = null; r.pausar(); return; }
+      const inp = $("cliInput"); let fin = "";
+      const r = escucha(SR, { lang: EN() ? "en-US" : "es-PE", vocab: vocabTienda(), unaFrase: true,
+        alTexto: t=>{ fin += t; inp.value = fin.trim(); }, alInterino: t=>{ inp.value = (fin + t).trim(); },
+        alEstado: estado=>{ if(estado==="escuchando") $("cliMic").classList.add("on"); else { if(cliRec === r) cliRec = null; $("cliMic").classList.remove("on"); if(estado!=="pausa") inp.focus(); } } });
+      cliRec = r; if(!r.iniciar()) cliRec = null;
     };
   }
   $("asisInput").addEventListener("input", e=>{ e.target.style.height = "auto"; e.target.style.height = Math.min(140, e.target.scrollHeight) + "px"; });

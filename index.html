@@ -92,6 +92,10 @@ button{cursor:pointer}
 
 /* Filtros */
 .tools{margin-top:22px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.orden{flex:0 0 auto;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;background:var(--surface);font:inherit;font-size:14px;color:var(--ink)}
+.mover-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.mover-op{font:inherit;font-size:15px;font-weight:600;text-align:left;background:var(--surface);color:var(--ink);border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;cursor:pointer}
+.mover-op:hover,.mover-op:focus-visible{border-color:var(--accent)}
 .search{flex:1 1 220px;min-width:0;padding:10px 14px;border:1.5px solid var(--line);border-radius:10px;background:var(--surface)}
 .cats{display:flex;gap:6px;flex-wrap:wrap}
 .chip .cn{font-family:var(--mono);font-size:11px;opacity:.6}
@@ -123,6 +127,15 @@ button{cursor:pointer}
 .oferta-tag{position:absolute;left:10px;top:10px;background:#d62f4b;color:#fff;font:700 12px/1 var(--mono);padding:5px 7px;border-radius:6px}
 .oferta-hasta{font-size:12.5px;font-weight:700;color:#c4223f}
 .oferta-fila{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font-size:13.5px;padding:8px 10px;border-radius:10px;background:var(--paper);border:1px solid #f1b7c1}
+.portada{position:relative;margin:0 0 16px;border-radius:22px;overflow:hidden;min-height:150px;display:flex;align-items:flex-end;background:linear-gradient(135deg,#1f4fd1,#14213d);background-size:cover;background-position:center;color:#fff}
+.portada.con-foto{min-height:clamp(200px,32vw,340px)}
+.portada.con-foto::before{content:"";position:absolute;inset:0;background:linear-gradient(to top,rgb(10 16 30 / .82),rgb(10 16 30 / .15) 65%)}
+.portada-txt{position:relative;padding:clamp(18px,3vw,32px);display:grid;gap:6px;max-width:760px}
+.portada h2{margin:0;font-family:var(--display);font-weight:800;font-size:clamp(26px,4.4vw,44px);line-height:1.05;letter-spacing:-.5px;text-wrap:balance}
+.portada p{margin:0;font-size:clamp(14.5px,1.6vw,17px);line-height:1.45;opacity:.95;white-space:pre-line}
+.portada-meta{font-size:13.5px;font-weight:700;opacity:.9}
+.portada-set{display:grid;gap:8px}
+.portada-prev{height:140px;border-radius:14px;border:1.5px dashed var(--line);background:var(--paper) center/cover no-repeat;display:grid;place-items:center;color:var(--muted);font-size:13px}
 .grupo-link{display:flex;align-items:center;justify-content:center;gap:8px;margin:0 0 14px;padding:11px 14px;border-radius:12px;background:#e7f8ee;color:#0b6b3a;border:1px solid #a6e2bf;font-weight:700;text-decoration:none}
 .grupo-link:hover{background:#d8f3e4}
 .price small{display:block;font-size:11px;font-weight:500;opacity:.8;line-height:1.1}
@@ -152,6 +165,26 @@ button{cursor:pointer}
 .vt-vacio{color:var(--muted);background:var(--surface);border:1px dashed var(--line);border-radius:12px;padding:22px;margin:0 0 16px;line-height:1.5}
 main.con-tabs:not([data-tab="productos"]) [data-sec="productos"]{display:none!important}
 main.con-tabs:not([data-tab="pedidos"]) [data-sec="pedidos"]{display:none!important}
+main.con-tabs:not([data-tab="clientes"]) [data-sec="clientes"]{display:none!important}
+main:not(.con-tabs) [data-sec="clientes"]{display:none!important}
+.clientes{display:grid;gap:12px;margin:0 0 16px}.cl-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px}.cl-head h2{margin:0;font-size:20px}
+.cl-tools{display:flex;flex-wrap:wrap;gap:8px}.cl-tools input{flex:1 1 220px;min-width:0}.cl-tools input,.cl-tools select{font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink)}
+.clientes-lista{display:grid;gap:8px}
+.cliente-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px 16px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.cl-who,.cl-num{display:grid;gap:2px;min-width:0}.cl-who small,.cl-num small{color:var(--muted);overflow-wrap:anywhere}.cl-num{text-align:right}
+.cl-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:2px}.cl-tag{font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--paper);border:1px solid var(--line);color:var(--muted)}
+.cl-tag.frec{background:#fff4d6;border-color:#f1d27a;color:#6b4d00}.cl-tag.sigue{background:#e7f3ec;border-color:#b6dcc4;color:#14532d}
+.cl-acts{display:flex;gap:6px}
+@media (max-width:640px){.cliente-row{grid-template-columns:minmax(0,1fr) auto}.cl-acts{grid-column:1/-1}.cl-acts .btn{flex:1;justify-content:center}}
+.bar .cuenta-btn::before{content:"👤 "}
+.qr-tarjeta{width:100%;max-width:420px;height:auto;justify-self:center;border-radius:14px;box-shadow:0 6px 20px rgba(0,0,0,.15)}
+.cuenta-form{display:grid;gap:12px}.cuenta-links{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.codigo-6{font:700 26px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;letter-spacing:10px;text-align:center}
+.mis-pedidos{display:grid;gap:8px}.mi-pedido{display:grid;gap:4px;border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--paper)}
+.mp-top{display:flex;justify-content:space-between;gap:8px;align-items:center}.mp-estado{font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;background:#eef2ff;color:#312e81;white-space:nowrap}
+.mp-estado.est-pagado{background:#e7f3ec;color:#14532d}.mp-estado.est-entregado{background:#f1f1f1;color:#333}.mp-estado.est-cancelado{background:#fde8e8;color:#8a1c1c}
+.cuenta-datos{border-top:1px solid var(--line);padding-top:10px}.cuenta-datos[open]{display:grid;gap:10px}.cuenta-datos summary{cursor:pointer;font-weight:700}
+.check{display:flex;gap:8px;align-items:flex-start;font-size:14px}
 main.con-tabs:not([data-tab="confianza"]) [data-sec="confianza"]{display:none!important}
 main.con-tabs:not([data-tab="plan"]) [data-sec="plan"]{display:none!important}
 main.con-tabs:not([data-tab="datos"]) [data-sec="datos"]{display:none!important}
@@ -541,12 +574,17 @@ html,body{overflow-x:clip}
 .l-cta{display:grid;gap:10px;justify-items:center;text-align:center;padding:36px 16px;border-radius:20px;background:color-mix(in srgb,#F4A51C 18%,var(--surface));border:1px solid color-mix(in srgb,#F4A51C 45%,var(--line))}
 .l-cta p{margin:0;color:var(--muted)}
 .l-contacto a{color:var(--ink);font-weight:700}
+.bar .lang{font-weight:700;letter-spacing:.02em}
+.bar .lang::before{content:"🌐 "}
+@media (max-width:520px){.bar .lang,.bar .cuenta-btn{padding:8px 10px;font-size:14px}.bar .brand .stamp{display:none}.bar .cuenta-btn span{display:none}.bar .cuenta-btn::before{content:"👤"}}
 </style>
 </head>
 <body>
 <header class="bar">
   <div class="wrap">
     <div class="brand"><h1 id="shopName">Showroomcito</h1><span class="stamp">Traído de USA</span></div>
+    <button class="btn ghost cuenta-btn" id="cuentaBtn" type="button" hidden><span>Mis pedidos</span></button>
+    <button class="btn ghost lang" id="langBtn" type="button" hidden>English</button>
     <div class="contact" id="contact" hidden></div>
     <button class="btn ghost" id="settingsBtn" hidden>Datos de la tienda</button>
     <button class="btn ghost" id="panelBtn" hidden>Panel de dueña</button>
@@ -557,7 +595,7 @@ html,body{overflow-x:clip}
 
 <main class="wrap">
   <div class="landing" id="landing" hidden>
-    <div class="l-tira" aria-hidden="true"><div class="l-tira-mov"><span>⚡ Gratis hasta 10 productos</span><span>⚡ Yape sin comisión</span><span>⚡ Carga tus productos por voz</span><span>⚡ La IA lee la etiqueta</span><span>⚡ Pedidos completos por WhatsApp</span><span>⚡ Perú y Estados Unidos</span><span>⚡ Tiendas de confianza</span><span>⚡ Gratis hasta 10 productos</span><span>⚡ Yape sin comisión</span><span>⚡ Carga tus productos por voz</span><span>⚡ La IA lee la etiqueta</span><span>⚡ Pedidos completos por WhatsApp</span><span>⚡ Perú y Estados Unidos</span><span>⚡ Tiendas de confianza</span></div></div>
+    <div class="l-tira" aria-hidden="true"><div class="l-tira-mov"><span>⚡ Gratis hasta 20 productos</span><span>⚡ Yape sin comisión</span><span>⚡ Carga tus productos por voz</span><span>⚡ La IA lee la etiqueta</span><span>⚡ Pedidos completos por WhatsApp</span><span>⚡ Perú y Estados Unidos</span><span>⚡ Tiendas de confianza</span><span>⚡ Gratis hasta 20 productos</span><span>⚡ Yape sin comisión</span><span>⚡ Carga tus productos por voz</span><span>⚡ La IA lee la etiqueta</span><span>⚡ Pedidos completos por WhatsApp</span><span>⚡ Perú y Estados Unidos</span><span>⚡ Tiendas de confianza</span></div></div>
     <section class="l-hero">
       <span class="l-blob l-b1" aria-hidden="true"></span><span class="l-blob l-b2" aria-hidden="true"></span><span class="l-blob l-b3" aria-hidden="true"></span><span class="l-x" aria-hidden="true">✕</span>
       <div class="logo-row"><svg aria-hidden="true" width="44" height="44" viewBox="0 0 64 64" fill="none" stroke-linejoin="round"><rect width="64" height="64" rx="14" fill="#F4A51C"/><g transform="translate(6 6) scale(.8125)"><rect x="15" y="24" width="34" height="36" rx="6" fill="#FFFFFF" stroke="#16203A" stroke-width="4.5"/><path d="M14 8h36l6 14H8L14 8z" fill="#16203A"/><path d="M8 22a6 6 0 0 0 12 0a6 6 0 0 0 12 0a6 6 0 0 0 12 0a6 6 0 0 0 12 0z" fill="#FFFFFF" stroke="#16203A" stroke-width="3.5"/><path d="M27 52h10" stroke="#16203A" stroke-width="4" stroke-linecap="round"/></g></svg><span class="logo-txt">showroom<span>cito</span></span></div>
@@ -567,7 +605,7 @@ html,body{overflow-x:clip}
         <a class="pill blanco" href="#comoFunciona">Mira cómo funciona <i aria-hidden="true">↓</i></a>
         <button class="pill lleno" type="button" id="goSignup">Crear mi showroom gratis</button>
       </div>
-      <span class="note" style="margin:0">Gratis hasta 10 productos · <button class="linkish" type="button" id="goLogin" style="font-size:inherit">Ya tengo cuenta</button></span>
+      <span class="note" style="margin:0">Gratis hasta 20 productos · <button class="linkish" type="button" id="goLogin" style="font-size:inherit">Ya tengo cuenta</button></span>
       <div class="l-escena" aria-hidden="true">
         <span class="l-chip c1">✨ La IA lee la etiqueta</span>
         <span class="l-chip c2">💜 Yape sin comisión</span>
@@ -644,7 +682,7 @@ html,body{overflow-x:clip}
 
     <section class="l-cta">
       <h3>Abre tu showroom hoy</h3>
-      <p>Empieza gratis con tus primeros 10 productos.</p>
+      <p>Empieza gratis con tus primeros 20 productos.</p>
       <div class="actions" style="justify-content:center"><button class="btn tag big" type="button" data-ir="signup">Crear mi showroom gratis</button></div>
       <p class="l-contacto">¿Dudas? Escríbenos a <a href="mailto:ventas@showroomcito.com">ventas@showroomcito.com</a></p>
     </section>
@@ -688,6 +726,8 @@ html,body{overflow-x:clip}
     <span class="pill" id="bannerPill"></span>
     <span id="bannerText" style="flex:1;min-width:0"></span>
     <span class="copy" id="bannerLink"></span>
+    <button class="btn primary" type="button" id="shareStore">Compartir mi tienda</button>
+    <button class="btn" type="button" id="qrStore">Código QR</button>
     <button class="btn" type="button" id="copyLink">Copiar enlace</button>
     <a class="btn" id="viewStore" target="_blank" rel="noopener" style="text-decoration:none">Ver como cliente</a>
   </section>
@@ -696,6 +736,7 @@ html,body{overflow-x:clip}
   <nav class="vtabs" id="vtabs" hidden aria-label="Secciones de tu tienda">
     <button type="button" data-tab="productos">Productos <span class="vt-n" id="vtN-productos"></span></button>
     <button type="button" data-tab="pedidos">Pedidos <span class="vt-n" id="vtN-pedidos"></span></button>
+    <button type="button" data-tab="clientes">Clientes <span class="vt-n" id="vtN-clientes"></span></button>
     <button type="button" data-tab="confianza">Tiendas de confianza <span class="vt-n" id="vtN-confianza"></span></button>
     <button type="button" data-tab="plan">Plan y cobros <span class="vt-n" id="vtN-plan"></span></button>
     <button type="button" data-tab="datos">Datos de la tienda</button>
@@ -722,6 +763,18 @@ html,body{overflow-x:clip}
     <div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Productos</th><th>Total</th><th>Pago</th><th>Estado</th><th></th></tr></thead><tbody id="pedidosRows"></tbody></table></div>
   </details>
 
+  <section class="clientes" id="clientesBox" data-sec="clientes">
+    <div class="cl-head"><h2>Mis clientes</h2><span class="note" id="clientesResumen" style="margin:0"></span></div>
+    <p class="note" style="margin:0">Se arma sola: aquí aparece cada persona que te compra pagando en tu tienda (tarjeta o Yape) y quien entra a <b>Mis pedidos</b> con su correo. Los pedidos que llegan solo por WhatsApp no se guardan aquí.</p>
+    <div class="cl-tools" id="clientesTools" hidden>
+      <input id="clientesQ" type="search" placeholder="Buscar por nombre, correo o teléfono" aria-label="Buscar cliente">
+      <select id="clientesFiltro" aria-label="Filtrar clientes"><option value="">Todos</option><option value="frecuentes">Compran seguido (2 o más)</option><option value="sigue">Quieren ofertas</option></select>
+      <button class="btn" type="button" id="clientesCopiar">Copiar correos de los que quieren ofertas</button>
+    </div>
+    <p class="vt-vacio" id="clientesVacio">Todavía no tienes clientes guardados. Cuando alguien te pague desde tu tienda o entre a <b>Mis pedidos</b>, aparecerá aquí con cuántas veces te compró.</p>
+    <div class="clientes-lista" id="clientesLista"></div>
+  </section>
+
   <section class="panel" id="panel" hidden>
     <div class="panel-head"><h2>Panel de la dueña</h2><span class="note" id="panelCount" style="margin:0"></span></div>
     <div class="cats" id="panelFilter"></div>
@@ -745,6 +798,17 @@ html,body{overflow-x:clip}
       <div class="f">Asistente para tus clientes<label class="chk" style="text-transform:none;letter-spacing:0;font-weight:500;color:var(--ink)"><input type="checkbox" id="setChatCli" checked> Activado</label><span class="note" style="margin:0;text-transform:none;letter-spacing:0;font-weight:400">Tus clientes le preguntan en tu tienda y les sugiere tus productos. Por ejemplo, si escriben "busco una cartera negra", les muestra tus carteras negras.</span></div>
       <label class="f">Días para separar tus productos (tiendas de confianza)<input id="setDias" inputmode="numeric" placeholder="7" title="Cuánto tiempo puede una tienda de confianza tener separado un producto tuyo antes de confirmar la venta"></label>
     </div>
+    <fieldset class="yape-set" id="paginaSet">
+      <legend>Tu página de venta</legend>
+      <div class="portada-set">
+        <div class="portada-prev" id="setPortadaPrev"><span id="setPortadaVacia">Sin foto de portada</span></div>
+        <span style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" type="button" id="setPortadaUp">Subir foto de portada</button><button class="btn danger" type="button" id="setPortadaDel" hidden>Quitar</button></span>
+        <span class="note" style="margin:0">Una foto horizontal de tu tienda, tu puesto o tus productos. Se ve arriba de tu tienda.</span>
+        <input type="file" id="setPortadaFile" accept="image/*" hidden>
+      </div>
+      <label class="f">Descripción de tu tienda<textarea id="setDescTienda" rows="3" maxlength="300" placeholder="Ej.: Ropa y carteras originales traídas de USA. Entregas en Lima y envíos a todo el Perú."></textarea></label>
+      <span class="note" style="margin:0" id="setDescCuenta">0 / 300</span>
+    </fieldset>
     <fieldset class="yape-set solo-pe">
       <legend>Cobrar con Yape</legend>
       <div class="row2">
@@ -818,9 +882,17 @@ html,body{overflow-x:clip}
 
   <section class="lote" id="lote" hidden aria-labelledby="loteTitulo"></section>
 
+  <section class="portada" id="portadaTienda" hidden>
+    <div class="portada-txt">
+      <h2 id="portadaNombre"></h2>
+      <p id="portadaDesc"></p>
+      <span class="portada-meta" id="portadaMeta"></span>
+    </div>
+  </section>
   <a class="grupo-link" id="grupoLink" hidden target="_blank" rel="noopener"></a>
   <div class="tools">
     <input class="search" id="q" type="search" placeholder="Buscar producto…" aria-label="Buscar producto">
+    <select class="orden" id="orden" aria-label="Ordenar productos"><option value="nuevos">Más nuevos</option><option value="barato">Precio: menor a mayor</option><option value="caro">Precio: mayor a menor</option></select>
     <div class="cats" id="cats"></div>
     <div class="cats" id="pubs"></div>
   </div>
@@ -842,6 +914,7 @@ html,body{overflow-x:clip}
     <button class="btn" id="bulkAI" hidden>Clasificar con IA</button>
     <button class="btn" id="bulkTabla">Editar en tabla</button>
     <button class="btn" id="bulkDup">Buscar repetidos</button>
+    <button class="btn" id="bulkMover" title="Cambia la categoría de los marcados con un toque">Mover a…</button>
     <button class="btn" id="bulkGrupo" title="Arma el mensaje con estos productos para tu grupo de WhatsApp">📣 Mensaje para mi grupo</button>
     <button class="btn" id="bulkShare" title="Tus tiendas de confianza podrán revenderlos">Compartir</button>
     <button class="btn" id="bulkUnshare">Dejar de compartir</button>

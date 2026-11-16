@@ -6,6 +6,7 @@ import { PLANES, esPlan, paisDe } from '../shared/planes';
 import { ddb, PRODUCTO, PEDIDO, leerTienda, actualizarTienda, subDe, origenSeguro } from '../shared/tablas';
 import { avisarPedido } from '../shared/correo';
 import { resolverCopias } from '../shared/reventa';
+import { registrarCliente, normEmail, emailOk } from '../shared/clientes';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
 
@@ -171,9 +172,12 @@ async function pagarPedido(a: Record<string, any>) {
   const ahora = new Date().toISOString();
   const nombre = texto(a.nombre, 60);
   const nota = texto(a.nota, 300);
+  // Cliente que entró a "Mis pedidos": Stripe ya trae su correo y el pedido aparece en su lista
+  const emailCliente = emailOk(normEmail(a.email)) ? normEmail(a.email) : undefined;
 
   const s = await stripe.checkout.sessions.create({
     mode: 'payment',
+    ...(emailCliente ? { customer_email: emailCliente } : {}),
     line_items: lineas.map((l) => ({
       quantity: 1,
       price_data: { currency: moneda, unit_amount: l.monto, product_data: { name: l.q > 1 ? `${l.nombre} × ${l.q}` : l.nombre } },
@@ -193,7 +197,7 @@ async function pagarPedido(a: Record<string, any>) {
     Item: {
       id: pedidoId, __typename: 'Pedido', tiendaId: t!.id, owner: t!.owner,
       items: JSON.stringify(lineas), total, moneda, comision,
-      cliente: nombre, nota, metodo: 'tarjeta', estado: 'pendiente', stripeSessionId: s.id,
+      cliente: nombre, nota, metodo: 'tarjeta', estado: 'pendiente', stripeSessionId: s.id, ...(emailCliente ? { email: emailCliente } : {}),
       createdAt: ahora, updatedAt: ahora,
     },
   }));
@@ -211,7 +215,7 @@ async function pedidoYape(a: Record<string, any>) {
   const { lineas, total, moneda } = await armarPedido(t, a.items, true, descuento);
   const pedidoId = randomUUID();
   const ahora = new Date().toISOString();
-  const email = texto(a.email, 254) || undefined;
+  const email = normEmail(a.email) || undefined;
   const pedido = {
     id: pedidoId, __typename: 'Pedido', tiendaId: t.id, owner: t.owner,
     items: JSON.stringify(lineas), total, moneda, comision: 0,
@@ -221,6 +225,7 @@ async function pedidoYape(a: Record<string, any>) {
   await ddb.send(new PutCommand({ TableName: PEDIDO(), Item: pedido }));
   // Correo al cliente ("recibimos tu pedido") y a la vendedora ("confirma el pago"). Nunca rompe el pedido.
   await avisarPedido(t as any, pedido, email);
+  await registrarCliente(t as any, { email, nombre });
   return { pedidoId, total, moneda };
 }
 

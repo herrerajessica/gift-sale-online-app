@@ -110,8 +110,8 @@ export async function cargarCatalogo() {
 export const estadoCatalogo = () => catalogoActual;
 
 /** Asistente de compras del cliente: devuelve { texto, codigos } (solo productos de esta tienda). */
-export async function preguntarTienda(mensajes) {
-  const r = await client.queries.preguntarTienda({ slug: TIENDA, mensajes: JSON.stringify(mensajes) }, { authMode: AUTH });
+export async function preguntarTienda(mensajes, idioma) {
+  const r = await client.queries.preguntarTienda({ slug: TIENDA, mensajes: JSON.stringify(mensajes), ...(idioma ? { idioma } : {}) }, { authMode: AUTH });
   const d = check(r);
   return typeof d === 'string' ? JSON.parse(d) : d;
 }
@@ -130,6 +130,9 @@ const toProducto = (it) => ({
   huella: it.huella || '',
   categoria: it.categoria || '',
   tipo: it.tipo || '',
+  trNombre: it.trNombre || '',
+  trDescripcion: it.trDescripcion || '',
+  trFuente: it.trFuente || '',
   publico: it.publico || '',
   descripcion: it.descripcion || '',
   estado: it.estado || 'disponible',
@@ -230,6 +233,9 @@ function configRef() {
         ...(typeof d.grupoWhatsapp === 'string' ? { grupoWhatsapp: d.grupoWhatsapp } : {}),
         ...(typeof d.chatClientes === 'boolean' ? { chatClientes: d.chatClientes } : {}),
         ...(typeof d.rubro === 'string' && d.rubro ? { rubro: d.rubro } : {}),
+        ...(typeof d.portada === 'string' ? { portada: d.portada } : {}),
+        ...(typeof d.descripcionTienda === 'string' ? { descripcionTienda: d.descripcionTienda.slice(0, 300) } : {}),
+        ...(typeof d.trDescripcionTienda === 'string' ? { trDescripcionTienda: d.trDescripcionTienda.slice(0, 400) } : {}),
         ...(d.pais === 'US' || d.pais === 'PE' ? { pais: d.pais } : {}),
         ...(d.moneda === 'USD' || d.moneda === 'PEN' ? { moneda: d.moneda } : {}),
       };
@@ -293,14 +299,22 @@ export async function interpretarDictado(textos, idioma = 'es', moneda = 'USD', 
   return typeof d === 'string' ? JSON.parse(d) : (d || []);
 }
 
+/** Traduce textos de productos al idioma "a" ('en' o 'es'). Devuelve un arreglo del mismo largo (o vacío si falla). */
+export async function traducirTextos(textos, a) {
+  const r = await client.queries.traducirTextos({ textos, a }, { authMode: 'userPool' });
+  const d = check(r);
+  return typeof d === 'string' ? JSON.parse(d) : (d || []);
+}
+
 // ---------- Planes y pagos (Stripe) ----------
 // Debe coincidir con amplify/functions/shared/planes.ts
 export const PLANES = [
+  // asis: mensajes del asistente por día (LIMITE_DIARIO en asistente/herramientas.ts); cli: preguntas de clientes por día (LIMITE_CLIENTES en catalogo/cliente.ts).
   // precio: soles (tiendas de Perú). precioUsd: dólares (tiendas de EE. UU.), PROVISIONALES: deben coincidir con amplify/functions/shared/planes.ts.
-  { id: 'free', nombre: 'Free', limite: 10, precio: 0, precioUsd: 0 },
-  { id: 'basico', nombre: 'Básico', limite: 30, precio: 19, precioUsd: 9 },
-  { id: 'pro', nombre: 'Pro', limite: 150, precio: 49, precioUsd: 19 },
-  { id: 'plus', nombre: 'Plus', limite: null, precio: 99, precioUsd: 39, extra: 'Próximamente: fotos con fondo blanco (IA)' },
+  { id: 'free', nombre: 'Free', limite: 20, precio: 0, precioUsd: 0, asis: 15, cli: 20 },
+  { id: 'basico', nombre: 'Básico', limite: 50, precio: 19, precioUsd: 9, asis: 60, cli: 100 },
+  { id: 'pro', nombre: 'Pro', limite: null, precio: 49, precioUsd: 19, asis: 200, cli: 300 },
+  { id: 'plus', nombre: 'Plus', limite: null, precio: 99, precioUsd: 39, asis: 1000, cli: 1000, extra: 'Próximamente: fotos con fondo blanco (IA)' },
 ];
 // Funciones con costo por uso: solo en el plan Plus.
 export const tieneFondoIA = (t) => planVigente(t).id === 'plus';
@@ -331,8 +345,21 @@ export const estadoCobros = () => llamar('estadoCobros', { tiendaId: TIENDA }, '
 export const confianza = (accion, datos = {}) => llamar('confianza', { tiendaId: TIENDA || '-', accion, datos: JSON.stringify(datos) }, 'userPool');
 export const pedidoYape = (items, nombre, nota, operacion, email) =>
   llamar('pedidoYape', { tiendaId: TIENDA, items: JSON.stringify(items), nombre, nota, operacion, email: email || null }, AUTH);
-export const pagarPedido = (items, nombre, nota) =>
-  llamar('pagarPedido', { tiendaId: TIENDA, items: JSON.stringify(items), nombre, nota, origen: origen() }, AUTH);
+export const pagarPedido = (items, nombre, nota, email) =>
+  llamar('pagarPedido', { tiendaId: TIENDA, items: JSON.stringify(items), nombre, nota, email: email || null, origen: origen() }, AUTH);
+// "Mis pedidos" del cliente (código por correo). accion: pedirCodigo | entrar | misPedidos | guardarPerfil | salir
+export const clienteCuenta = (accion, datos = {}) => llamar('clienteCuenta', { accion, tiendaId: TIENDA, ...datos }, AUTH);
+/** Clientes de la tienda (los que compraron con su correo o entraron a "Mis pedidos"). */
+export async function listarClientes() {
+  const todos = [];
+  let nextToken = null;
+  do {
+    const r = await client.models.Cliente.list({ filter: { tiendaId: { eq: TIENDA } }, authMode: 'userPool', limit: 500, nextToken });
+    todos.push(...(check(r) || []));
+    nextToken = r.nextToken;
+  } while (nextToken);
+  return todos;
+}
 
 export async function miTiendaActual() {
   return check(await client.models.Tienda.get({ id: TIENDA }, { authMode: 'userPool' }));

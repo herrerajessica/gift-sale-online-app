@@ -6,9 +6,9 @@
 export type PlanId = 'free' | 'basico' | 'pro' | 'plus';
 
 export const PLANES: Record<PlanId, { nombre: string; limite: number | null; precio: number; precioUsd: number }> = {
-  free:   { nombre: 'Free',   limite: 10,   precio: 0,  precioUsd: 0 },
-  basico: { nombre: 'Básico', limite: 30,   precio: 19, precioUsd: 9 },
-  pro:    { nombre: 'Pro',    limite: 150,  precio: 49, precioUsd: 19 },
+  free:   { nombre: 'Free',   limite: 20,   precio: 0,  precioUsd: 0 },
+  basico: { nombre: 'Básico', limite: 50,   precio: 19, precioUsd: 9 },
+  pro:    { nombre: 'Pro',    limite: null, precio: 49, precioUsd: 19 },
   plus:   { nombre: 'Plus',   limite: null, precio: 99, precioUsd: 39 },
 };
 

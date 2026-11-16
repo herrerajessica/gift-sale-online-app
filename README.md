@@ -23,6 +23,7 @@
 
 - `/` : inicio, registro e ingreso. Con sesión iniciada: la vitrina de la vendedora (edición).
 - `/?tienda=<enlace>` : vitrina pública que ve el cliente.
+- `/<enlace>` : lo mismo, con enlace corto (`showroomcito.com/maria-importados`). Necesita la regla de reescritura de abajo.
 - `/#entrar` : abre el formulario de ingreso.
 - `/#panel` : panel de la dueña (solo `SUPERADMIN`).
 
@@ -44,6 +45,33 @@ La idea central es **subir muchas fotos de una vez**. Al arrastrar el lote se pu
 - **Condición y descripción:** cada producto puede llevar su condición (*Nuevo con etiqueta, Nuevo sin etiqueta, Caja abierta, Usado como nuevo, Usado*), visible para el cliente en la tarjeta, el detalle y el mensaje de WhatsApp. Al subir un lote se puede fijar para todas las fotos en *Aplicar a todas*; si se deja vacía, la IA la sugiere por foto (solo si está segura). La IA también escribe una descripción corta con lo que se ve en la foto, que la vendedora puede editar.
 - **Cantidad (stock):** opcional; vacío significa "sin control". El cliente ve "Quedan N" o "¡Última unidad!" cuando quedan 3 o menos, y "Agotado" en 0. No puede pedir más unidades de las disponibles: lo valida la pantalla y también el servidor.
 - **Descuento automático:** al pagar con tarjeta, el webhook descuenta las unidades una sola vez (aunque Stripe reenvíe el aviso). Al confirmar un Yape, se descuentan cuando la vendedora toca *Confirmar pago*. Los pedidos por WhatsApp se ajustan a mano.
+
+## Página de venta: portada y descripción
+
+En Datos de la tienda › **Tu página de venta**: foto de portada (`Tienda.portada`, se achica a 1600 px) y descripción de hasta 300 letras (`Tienda.descripcionTienda`). El cliente ve arriba de la tienda la foto con el nombre, la descripción y cuántos productos hay. Sin foto, la cabecera usa los colores de Showroomcito; sin foto ni descripción, no se muestra.
+
+## Tienda en dos idiomas (ES | EN)
+
+- El cliente ve un botón **English / Español** arriba de la tienda. Se recuerda en su navegador (`localStorage` "vitrina-idioma"); también se puede abrir con `?lang=en` o `?lang=es`. Sin elegir, la tienda sale en el idioma de su país (Perú = español, EE. UU. = inglés).
+- La vendedora siempre ve su panel en español y escribe en su idioma. Mientras tiene abierta su tienda, la app traduce sola con IA (Nova, query `traducirTextos`) el nombre y la descripción de cada producto nuevo o cambiado y los guarda en `Producto.trNombre`, `trDescripcion` (`trFuente` = huella del texto original, para no traducir dos veces). La descripción de la tienda se traduce al guardar Datos de la tienda (`Tienda.trDescripcionTienda`).
+- Si todavía no hay traducción, el cliente ve el texto original.
+- El mensaje de WhatsApp del pedido le llega a la vendedora en el idioma de su tienda, aunque el cliente compre en el otro.
+- El asistente de compras responde en el idioma que eligió el cliente (`preguntarTienda(…, idioma)`).
+
+## Cuentas de clientes y Mis clientes
+
+- **Cliente › Mis pedidos** (botón 👤 arriba de la tienda): escribe su correo y le llega un código de 6 números (Resend, vence en 10 min, uno por minuto, 5 intentos). Sin contraseña y sin Cognito: la función `clientes` guarda en la tabla `Cliente` (id = `<tienda>|<correo>`) el código y las sesiones con hash (90 días, hasta 5 aparatos); esos campos solo los lee la función.
+- Ve sus pedidos de esa tienda (los que tienen su correo), su estado, y guarda nombre, WhatsApp y si quiere ofertas. Con la cuenta abierta, al pagar ya van su nombre y correo (en tarjeta, Stripe recibe su correo).
+- **Vendedora › pestaña Clientes**: se arma sola con los pedidos pagados o confirmados (Yape o tarjeta) y con quienes entraron a Mis pedidos. Muestra cuántas veces compró, cuánto gastó, "Compra seguido" (2 o más), "Quiere ofertas", y botones de WhatsApp y correo. "Copiar correos de los que quieren ofertas" para mandarles novedades. Los pedidos que llegan solo por WhatsApp no se guardan.
+
+## Compartir la tienda (botón, QR y enlace corto)
+
+- En el panel, junto al enlace: **Compartir mi tienda** (en el celular abre la lista de apps con el mensaje listo; en computadora, WhatsApp Web) y **Código QR** (tarjeta con el nombre, el QR y el enlace para descargar, compartir o imprimir). El QR se genera en la página (`src/qr.js`), sin librerías.
+- **Enlace corto** `showroomcito.com/<tienda>`: la página ya lo entiende; falta que Amplify sirva la web en esas direcciones. En la consola de Amplify › la app › *Hosting › Rewrites and redirects › Manage redirects* agrega esta regla **arriba** de las demás (y guarda):
+  - Source address: `</^\/[a-z0-9][a-z0-9-]{1,39}\/?$/>`
+  - Target address: `/index.html`
+  - Type: `200 (Rewrite)`
+  Mientras no exista la regla, el panel sigue mostrando el enlace con `?tienda=` (lo detecta solo).
 
 ## Catálogo por rubro (tipo de producto y marcas)
 
@@ -115,6 +143,15 @@ Pensado para quien tiene muchos productos y los va mirando uno por uno:
 
 El reconocimiento de voz lo hace el navegador del celular (sin costo); solo el texto viaja a la IA.
 
+### Voz reforzada (sin servicios de pago)
+
+La voz la pasa a texto el navegador (gratis). `src/voz.js` la hace más confiable:
+- **No se corta**: si el navegador deja de escuchar por un silencio, vuelve a encenderse solo. Si se corta muchas veces seguidas sin oír nada, se pausa y avisa. Al apagar la pantalla se pausa y al volver sigue.
+- **Pausar y seguir**: el botón ❚❚ pausa; "Seguir dictando" continúa en el mismo producto.
+- **No repite**: descarta la frase que Android manda dos veces y, cuando la manda acumulada, se queda solo con lo nuevo.
+- **Vocabulario**: el navegador da hasta 5 versiones de lo que oyó y se elige la que tiene más palabras conocidas; luego se corrige por sonido con las marcas conocidas (`MARCAS`), las marcas y palabras de los productos de la tienda, los tipos de producto y "siguiente" ("maicol cors" → Michael Kors, "esquechers" → Skechers, "levis" → Levi's). Las palabras comunes y los números no se tocan.
+- **Códigos dichos** al asistente: "ropa cero cero tres" → ROP-003 (solo con los prefijos que existen en la tienda).
+
 ## Tiendas de confianza
 
 Dos vendedoras se conectan (una invita con el enlace de la tienda de la otra y la otra acepta) y cada una puede revender los productos que la otra comparte, **como si fueran suyos**: el cliente ve el nombre, el WhatsApp y los pagos de la revendedora, nunca la tienda de origen.
@@ -132,9 +169,9 @@ Dos vendedoras se conectan (una invita con el enlace de la tienda de la otra y l
 
 | Plan | Productos visibles | Precio |
 |---|---|---|
-| Free | 10 | Gratis |
-| Básico | 30 | S/ 19 al mes |
-| Pro | 150 | S/ 49 al mes |
+| Free | 20 | Gratis |
+| Básico | 50 | S/ 19 al mes |
+| Pro | ilimitados | S/ 49 al mes |
 | Plus | ilimitados + fondo blanco con IA | S/ 99 al mes |
 
 - **Planes:** suscripción mensual con Stripe Checkout. Los productos ocultos no cuentan. El límite se aplica en el servidor (Lambda `catalogo`): si una vendedora supera su plan o deja de pagar (3 días de gracia), los clientes solo ven sus productos más recientes hasta el límite.

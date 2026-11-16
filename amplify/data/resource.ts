@@ -5,6 +5,7 @@ import { pagos } from '../functions/pagos/resource';
 import { fondo } from '../functions/fondo/resource';
 import { asistente } from '../functions/asistente/resource';
 import { confianza } from '../functions/confianza/resource';
+import { clientes } from '../functions/clientes/resource';
 
 /**
  * Aislamiento por vendedora:
@@ -39,6 +40,10 @@ const schema = a.schema({
       grupoWhatsapp: a.string(),
       // Rubro de la tienda (moda, zapatos, carteras, belleza, joyeria, variado): trae sus tipos de producto. Vacío = moda.
       rubro: a.string(),
+      // Página de la tienda: foto de portada (ruta en S3) y una descripción corta
+      portada: a.string(),
+      descripcionTienda: a.string(),
+      trDescripcionTienda: a.string(),
       // Asistente para clientes en la tienda ("regalos para niño de 5 años"). Vacío = activado; false = apagado.
       chatClientes: a.boolean(),
       clienteDia: a.string().authorization(soloLecturaDueña),
@@ -49,7 +54,7 @@ const schema = a.schema({
       moneda: a.enum(['USD', 'PEN']),
       // Texto y no enum: Amplify no permite permisos por campo en un enum. Valores: pendiente | aprobada | suspendida
       estado: a.string().authorization(soloLecturaDueña),
-      // Plan: free (10), basico (30), pro (150), plus (ilimitado)
+      // Plan: free (20), basico (50), pro (ilimitado), plus (ilimitado + extras)
       // Valores: free | basico | pro | plus (lo cambian SUPERADMIN o el webhook de Stripe)
       plan: a.string().authorization(soloLecturaDueña),
       planVence: a.float().authorization(soloLecturaDueña),
@@ -82,6 +87,11 @@ const schema = a.schema({
       categoria: a.string(),
       // Tipo de producto dentro de la categoría (Vestido, Falda, Zapatillas…): ver src/rubros.js
       tipo: a.string(),
+      // Traducción automática al otro idioma (inglés si la tienda es de Perú, español si es de EE. UU.).
+      // trFuente = de qué nombre/descripción se tradujo: si cambian, se vuelve a traducir.
+      trNombre: a.string(),
+      trDescripcion: a.string(),
+      trFuente: a.string(),
       publico: a.string(),
       descripcion: a.string(),
       estado: a.enum(['disponible', 'apartado', 'vendido', 'oculto']),
@@ -124,6 +134,38 @@ const schema = a.schema({
     })
     .secondaryIndexes((index) => [index('tiendaId').name('pedidosByTienda')])
     .authorization((allow) => [allow.owner().to(['read', 'update']), allow.group('SUPERADMIN')]),
+
+  // Clientes de cada tienda (id = "<tienda>|<correo>"). Los crea la función "clientes" o un pedido con correo.
+  // La vendedora los lee en "Mis clientes"; el código y las sesiones nunca salen de la función.
+  Cliente: a
+    .model({
+      tiendaId: a.string().required(),
+      email: a.string(),
+      nombre: a.string(),
+      telefono: a.string(),
+      sigue: a.boolean(),                  // quiere enterarse de ofertas y novedades
+      verificado: a.boolean(),             // entró con el código de su correo
+      ultimaVez: a.string(),
+      codigoHash: a.string().authorization((allow) => [allow.group('SUPERADMIN')]),
+      codigoVence: a.float().authorization((allow) => [allow.group('SUPERADMIN')]),
+      codigoEnviado: a.float().authorization((allow) => [allow.group('SUPERADMIN')]),
+      intentos: a.integer().authorization((allow) => [allow.group('SUPERADMIN')]),
+      sesiones: a.json().authorization((allow) => [allow.group('SUPERADMIN')]),
+    })
+    .secondaryIndexes((index) => [index('tiendaId').name('clientesByTienda')])
+    .authorization((allow) => [allow.owner().to(['read']), allow.group('SUPERADMIN')]),
+
+  // "Mis pedidos" del cliente: código por correo, sin contraseña. accion = pedirCodigo | entrar | misPedidos | guardarPerfil | salir
+  clienteCuenta: a
+    .mutation()
+    .arguments({
+      accion: a.string().required(), tiendaId: a.string().required(),
+      email: a.string(), codigo: a.string(), token: a.string(), idioma: a.string(),
+      nombre: a.string(), telefono: a.string(), sigue: a.boolean(),
+    })
+    .returns(a.string())
+    .handler(a.handler.function(clientes))
+    .authorization((allow) => [allow.guest(), allow.authenticated()]),
 
   // Relación entre dos tiendas de confianza. id = "tiendaA|tiendaB" (en orden alfabético).
   // Solo la lee y escribe la función "confianza" (y SUPERADMIN); las vendedoras la ven a través de ella.
@@ -178,7 +220,7 @@ const schema = a.schema({
   // Asistente de compras para los clientes de una tienda: recomienda solo productos de esa tienda.
   preguntarTienda: a
     .query()
-    .arguments({ slug: a.string().required(), mensajes: a.string().required() })
+    .arguments({ slug: a.string().required(), mensajes: a.string().required(), idioma: a.string() })
     .returns(a.string())
     .handler(a.handler.function(catalogo))
     .authorization((allow) => [allow.guest(), allow.authenticated()]),
@@ -186,6 +228,14 @@ const schema = a.schema({
   clasificarFotos: a
     .query()
     .arguments({ paths: a.string().array().required(), idioma: a.string(), rubro: a.string() })
+    .returns(a.string())
+    .handler(a.handler.function(clasificar))
+    .authorization((allow) => [allow.authenticated()]),
+
+  // Traduce nombres y descripciones de productos (para la tienda en dos idiomas)
+  traducirTextos: a
+    .query()
+    .arguments({ textos: a.string().array().required(), a: a.string().required() })
     .returns(a.string())
     .handler(a.handler.function(clasificar))
     .authorization((allow) => [allow.authenticated()]),
@@ -263,6 +313,7 @@ const schema = a.schema({
       tiendaId: a.string().required(),
       items: a.string().required(),
       nombre: a.string(),
+      email: a.string(),
       nota: a.string(),
       origen: a.string().required(),
     })

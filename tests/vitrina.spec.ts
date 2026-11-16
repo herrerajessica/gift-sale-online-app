@@ -49,6 +49,18 @@ test.describe('REQ-026 Código de cada producto', () => {
 test.describe('REQ-003 Catálogo público por vendedora', () => {
   test.skip(!A.tienda && !enVistaPrevia, 'Define TEST_STORE');
 
+  test('CP-099 Ordenar por precio de menor a mayor y al revés @REQ-003', async ({ page }) => {
+    await abrirTienda(page, A.tienda);
+    const precios = async () => (await page.locator('#grid .card .price:not(.none)').allInnerTexts())
+      .map((t) => parseFloat(t.split('\n')[0].replace(/[^0-9.]/g, '')));
+    await page.locator('#orden').selectOption('barato');
+    const sube = await precios();
+    expect(sube).toEqual([...sube].sort((a, b) => a - b));
+    await page.locator('#orden').selectOption('caro');
+    const baja = await precios();
+    expect(baja).toEqual([...baja].sort((a, b) => b - a));
+  });
+
   test('CP-065 Una búsqueda sin resultados lo dice @REQ-003', async ({ page }) => {
     await abrirTienda(page, A.tienda);
     await page.getByRole('searchbox', { name: 'Buscar producto' }).fill('zzqx-no-existe');
