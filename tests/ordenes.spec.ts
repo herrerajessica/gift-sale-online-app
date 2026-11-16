@@ -87,7 +87,7 @@ test.describe('REQ-030 Grupo de WhatsApp de ventas', () => {
     await expect(dlg).toBeVisible();
     const texto = dlg.locator('#grupoTexto');
     await expect(texto).toHaveValue(new RegExp(cod));
-    await expect(texto).toHaveValue(/\?tienda=/);
+    await expect(texto).toHaveValue(/\?tienda=|showroomcito\.com\/[a-z0-9-]+/);   // enlace largo o corto
     await dlg.getByRole('button', { name: /Preventa/ }).click();
     await expect(texto).toHaveValue(/PREVENTA/);
     await expect(dlg.getByRole('link', { name: 'Enviar por WhatsApp' })).toBeVisible();

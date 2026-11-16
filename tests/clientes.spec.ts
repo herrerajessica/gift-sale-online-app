@@ -33,3 +33,18 @@ test.describe('REQ-035 Cuentas de clientes y Mis clientes', () => {
     if (enVistaPrevia) await expect(page.locator('#clientesLista .cliente-row').filter({ hasText: 'Ana Torres' })).toContainText('Compra seguido');
   });
 });
+
+test.describe('REQ-036 Compartir la tienda (botón y código QR)', () => {
+  test('CP-106 La vendedora abre el código QR de su tienda @REQ-036', async ({ page }) => {
+    test.skip(!A.user && !enVistaPrevia, 'Define TEST_USER y TEST_PASSWORD');
+    await entrar(page, A.user, A.pass);
+    await expect(page.getByRole('button', { name: 'Compartir mi tienda' })).toBeVisible();
+    await page.getByRole('button', { name: 'Código QR' }).click();
+    const dialogo = page.getByRole('dialog', { name: 'Código QR de tu tienda' });
+    await expect(dialogo).toBeVisible();
+    await expect(dialogo.locator('canvas.qr-tarjeta')).toBeVisible();
+    await expect(dialogo.getByRole('link', { name: 'Descargar imagen' })).toBeVisible();
+    await dialogo.getByRole('button', { name: 'Cerrar' }).click();
+    await expect(dialogo).toBeHidden();
+  });
+});

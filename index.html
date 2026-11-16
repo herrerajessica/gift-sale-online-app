@@ -177,6 +177,7 @@ main:not(.con-tabs) [data-sec="clientes"]{display:none!important}
 .cl-acts{display:flex;gap:6px}
 @media (max-width:640px){.cliente-row{grid-template-columns:minmax(0,1fr) auto}.cl-acts{grid-column:1/-1}.cl-acts .btn{flex:1;justify-content:center}}
 .bar .cuenta-btn::before{content:"👤 "}
+.qr-tarjeta{width:100%;max-width:420px;height:auto;justify-self:center;border-radius:14px;box-shadow:0 6px 20px rgba(0,0,0,.15)}
 .cuenta-form{display:grid;gap:12px}.cuenta-links{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .codigo-6{font:700 26px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;letter-spacing:10px;text-align:center}
 .mis-pedidos{display:grid;gap:8px}.mi-pedido{display:grid;gap:4px;border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--paper)}
@@ -725,6 +726,8 @@ html,body{overflow-x:clip}
     <span class="pill" id="bannerPill"></span>
     <span id="bannerText" style="flex:1;min-width:0"></span>
     <span class="copy" id="bannerLink"></span>
+    <button class="btn primary" type="button" id="shareStore">Compartir mi tienda</button>
+    <button class="btn" type="button" id="qrStore">Código QR</button>
     <button class="btn" type="button" id="copyLink">Copiar enlace</button>
     <a class="btn" id="viewStore" target="_blank" rel="noopener" style="text-decoration:none">Ver como cliente</a>
   </section>

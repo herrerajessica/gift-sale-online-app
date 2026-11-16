@@ -23,6 +23,7 @@
 
 - `/` : inicio, registro e ingreso. Con sesión iniciada: la vitrina de la vendedora (edición).
 - `/?tienda=<enlace>` : vitrina pública que ve el cliente.
+- `/<enlace>` : lo mismo, con enlace corto (`showroomcito.com/maria-importados`). Necesita la regla de reescritura de abajo.
 - `/#entrar` : abre el formulario de ingreso.
 - `/#panel` : panel de la dueña (solo `SUPERADMIN`).
 
@@ -56,6 +57,21 @@ En Datos de la tienda › **Tu página de venta**: foto de portada (`Tienda.port
 - Si todavía no hay traducción, el cliente ve el texto original.
 - El mensaje de WhatsApp del pedido le llega a la vendedora en el idioma de su tienda, aunque el cliente compre en el otro.
 - El asistente de compras responde en el idioma que eligió el cliente (`preguntarTienda(…, idioma)`).
+
+## Cuentas de clientes y Mis clientes
+
+- **Cliente › Mis pedidos** (botón 👤 arriba de la tienda): escribe su correo y le llega un código de 6 números (Resend, vence en 10 min, uno por minuto, 5 intentos). Sin contraseña y sin Cognito: la función `clientes` guarda en la tabla `Cliente` (id = `<tienda>|<correo>`) el código y las sesiones con hash (90 días, hasta 5 aparatos); esos campos solo los lee la función.
+- Ve sus pedidos de esa tienda (los que tienen su correo), su estado, y guarda nombre, WhatsApp y si quiere ofertas. Con la cuenta abierta, al pagar ya van su nombre y correo (en tarjeta, Stripe recibe su correo).
+- **Vendedora › pestaña Clientes**: se arma sola con los pedidos pagados o confirmados (Yape o tarjeta) y con quienes entraron a Mis pedidos. Muestra cuántas veces compró, cuánto gastó, "Compra seguido" (2 o más), "Quiere ofertas", y botones de WhatsApp y correo. "Copiar correos de los que quieren ofertas" para mandarles novedades. Los pedidos que llegan solo por WhatsApp no se guardan.
+
+## Compartir la tienda (botón, QR y enlace corto)
+
+- En el panel, junto al enlace: **Compartir mi tienda** (en el celular abre la lista de apps con el mensaje listo; en computadora, WhatsApp Web) y **Código QR** (tarjeta con el nombre, el QR y el enlace para descargar, compartir o imprimir). El QR se genera en la página (`src/qr.js`), sin librerías.
+- **Enlace corto** `showroomcito.com/<tienda>`: la página ya lo entiende; falta que Amplify sirva la web en esas direcciones. En la consola de Amplify › la app › *Hosting › Rewrites and redirects › Manage redirects* agrega esta regla **arriba** de las demás (y guarda):
+  - Source address: `</^\/[a-z0-9][a-z0-9-]{1,39}\/?$/>`
+  - Target address: `/index.html`
+  - Type: `200 (Rewrite)`
+  Mientras no exista la regla, el panel sigue mostrando el enlace con `?tienda=` (lo detecta solo).
 
 ## Catálogo por rubro (tipo de producto y marcas)
 

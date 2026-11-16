@@ -7,6 +7,7 @@ import {
   miTiendaActual, listarPedidos, cambiarEstadoPedido, cambiarPlanTienda, confianza, refrescarProductos, preguntarTienda, traducirTextos, clienteCuenta, listarClientes,
 } from './amplify-adapter.js';
 import { interpretarComando } from './comandos.js';
+import { qrCanvas } from './qr.js';
 import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, marcaDeTexto, MARCAS } from './rubros.js';
 
 // Lógica de Showroomcito (misma que la versión de Claude).
@@ -1453,8 +1454,17 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
 
   // ---------- Conexión (AWS Amplify) ----------
   const params = new URLSearchParams(location.search);
-  const slugPublico = (params.get("tienda") || "").toLowerCase();
-  const enlaceDe = slug => location.origin + location.pathname + "?tienda=" + encodeURIComponent(slug);
+  // Enlace corto: showroomcito.com/maria-importados (necesita la regla de reescritura en Amplify, ver README)
+  const slugDeRuta = (/^\/([a-z0-9][a-z0-9-]{1,39})\/?$/i.exec(location.pathname) || [])[1] || "";
+  const slugPublico = (params.get("tienda") || slugDeRuta || "").toLowerCase();
+  // Se usa el enlace corto solo si la página responde en esa dirección (si falta la regla, sigue el enlace con ?tienda=)
+  let linkCorto = slugDeRuta ? true : null;
+  const enlaceDe = slug => linkCorto ? location.origin + "/" + encodeURIComponent(slug) : location.origin + "/?tienda=" + encodeURIComponent(slug);
+  async function probarLinkCorto(t){
+    if(linkCorto !== null) return;
+    try{ const r = await fetch("/" + encodeURIComponent(t.id), { cache:"no-store" }); linkCorto = r.ok && /text\/html/.test(r.headers.get("content-type")||""); }catch(e){ linkCorto = false; }
+    if(linkCorto) bannerVendedora(t);
+  }
   const show = (id, on) => { $(id).hidden = !on; };
   const ESTADO_TXT = { pendiente:"Pendiente de aprobación", aprobada:"Aprobada", suspendida:"Suspendida" };
 
@@ -1631,7 +1641,53 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       : "Ya puedes subir tus productos. Los clientes la verán cuando la administración la apruebe.";
     $("bannerLink").textContent = enlaceDe(t.id);
     $("viewStore").href = enlaceDe(t.id);
+    probarLinkCorto(t);
+    $("shareStore").onclick = ()=>compartirTienda(t);
+    $("qrStore").onclick = ()=>abrirQR(t);
     $("copyLink").onclick = async ()=>{ try{ await navigator.clipboard.writeText(enlaceDe(t.id)); toast("Enlace copiado"); }catch(e){ const r=document.createRange(); r.selectNodeContents($("bannerLink")); const sl=getSelection(); sl.removeAllRanges(); sl.addRange(r); toast("Selecciona y copia el enlace"); } };
+  }
+
+  // ---------- Compartir la tienda: un toque (WhatsApp, Instagram…) y código QR para imprimir ----------
+  const textoCompartir = t => `¡Mira mi tienda ${t.nombre||""}! 🛍️ Novedades y ofertas aquí 👉 ${enlaceDe(t.id)}`;
+  async function compartirTienda(t){
+    const url = enlaceDe(t.id), texto = textoCompartir(t);
+    if(navigator.share){ try{ await navigator.share({ title: t.nombre || "Mi tienda", text: texto.replace(" " + url, ""), url }); return; }catch(e){ if(e && e.name==="AbortError") return; } }
+    window.open("https://wa.me/?text=" + encodeURIComponent(texto), "_blank", "noopener");
+  }
+  /** Tarjeta para imprimir o compartir: nombre de la tienda, el QR y el enlace. */
+  function tarjetaQR(t){
+    const W = 1080, H = 1350, c = document.createElement("canvas"); c.width = W; c.height = H;
+    const g = c.getContext("2d"), q = qrCanvas(enlaceDe(t.id), 760);
+    g.fillStyle = "#14213d"; g.fillRect(0, 0, W, H);
+    g.fillStyle = "#fff"; g.beginPath(); g.roundRect ? g.roundRect(70, 250, W-140, 900, 48) : g.rect(70, 250, W-140, 900); g.fill();
+    g.textAlign = "center"; g.fillStyle = "#fff";
+    let tam = 76; g.font = `800 ${tam}px Inter, system-ui, sans-serif`;
+    const nombre = t.nombre || "Mi tienda"; while(g.measureText(nombre).width > W-120 && tam > 36){ tam -= 4; g.font = `800 ${tam}px Inter, system-ui, sans-serif`; }
+    g.fillText(nombre, W/2, 140);
+    g.font = "500 40px Inter, system-ui, sans-serif"; g.fillStyle = "#ffcc29"; g.fillText("Escanéame y mira mi tienda", W/2, 205);
+    const lado = 760; g.drawImage(q, (W-lado)/2, 300, lado, lado);
+    g.fillStyle = "#14213d"; g.font = "600 34px ui-monospace, Menlo, monospace";
+    const corto = enlaceDe(t.id).replace(/^https?:\/\//, ""); g.fillText(corto.length > 44 ? corto.slice(0, 43) + "…" : corto, W/2, 1110);
+    g.fillStyle = "#c9d1e3"; g.font = "500 30px Inter, system-ui, sans-serif"; g.fillText("Apunta la cámara de tu celular al código", W/2, 1240);
+    return c;
+  }
+  function abrirQR(t){
+    const ov = $("overlay"); ov.textContent = ""; openId = null; cartOpen = false; cuentaOpen = true; ov.hidden = false;
+    const c = tarjetaQR(t); c.className = "qr-tarjeta"; c.setAttribute("role","img"); c.setAttribute("aria-label", "Código QR de tu tienda");
+    const nombreArchivo = "qr-" + t.id + ".png";
+    const bajar = el("a",{class:"btn primary",download:nombreArchivo,href:"#",style:"text-decoration:none;justify-content:center"},"Descargar imagen");
+    bajar.onclick = ()=>{ bajar.href = c.toDataURL("image/png"); };
+    const enviar = el("button",{class:"btn",type:"button",onclick:async()=>{
+      try{ const blob = await new Promise(r=>c.toBlob(r,"image/png")); const f = new File([blob], nombreArchivo, {type:"image/png"});
+        if(navigator.canShare && navigator.canShare({ files:[f] })){ await navigator.share({ files:[f], text: textoCompartir(t) }); return; } }catch(e){ if(e && e.name==="AbortError") return; }
+      bajar.click(); toast("Imagen descargada: envíala por WhatsApp o ponla en tu estado"); }},"Compartir imagen");
+    const imprimir = el("button",{class:"btn",type:"button",onclick:()=>{
+      const w = window.open("", "_blank"); if(!w){ toast("Permite las ventanas emergentes para imprimir"); return; }
+      w.document.write(`<!doctype html><title>QR ${t.nombre||""}</title><body style="margin:0;display:grid;place-items:center;min-height:100vh"><img src="${c.toDataURL("image/png")}" style="width:12cm;max-width:90vw" onload="setTimeout(()=>print(),200)"></body>`); w.document.close(); }},"Imprimir");
+    ov.append(el("div",{class:"cart qr-box",role:"dialog","aria-modal":"true","aria-label":"Código QR de tu tienda"},
+      el("div",{class:"cart-head"}, el("h2",null,"Código QR de tu tienda"), el("button",{class:"btn",type:"button",onclick:closeCart},"Cerrar")),
+      el("p",{class:"note",style:"margin:0"},"Imprímelo y pégalo en tu puesto, en tus bolsas o en una tarjeta. Tus clientes lo escanean con la cámara del celular y entran directo a tu tienda."),
+      c, el("div",{class:"send"}, bajar, enviar, imprimir)));
   }
 
   // ---------- Asistente de compras del cliente ----------
