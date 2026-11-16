@@ -4,7 +4,7 @@ import {
   signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn, resetPassword, confirmResetPassword, updatePassword,
   googleDisponible, entrarConGoogle, alVolverDeGoogle,
   PLANES, planVigente, tieneFondoIA, pagarPlan, quitarFondo, asistente, interpretarDictado, cancelarPlan, conectarCobros, estadoCobros, pagarPedido, pedidoYape,
-  miTiendaActual, listarPedidos, cambiarEstadoPedido, cambiarPlanTienda, confianza, refrescarProductos, preguntarTienda, traducirTextos,
+  miTiendaActual, listarPedidos, cambiarEstadoPedido, cambiarPlanTienda, confianza, refrescarProductos, preguntarTienda, traducirTextos, clienteCuenta, listarClientes,
 } from './amplify-adapter.js';
 import { interpretarComando } from './comandos.js';
 import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, marcaDeTexto, MARCAS } from './rubros.js';
@@ -899,8 +899,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   let openId=null, photoIdx=0;
   function openProduct(id){ openId=id; photoIdx=0; drawSheet(); $("overlay").hidden=false; }
   function closeSheet(){ openId=null; $("overlay").hidden=true; $("overlay").textContent=""; if(!$("cli").hidden) pintarCli(); }
-  $("overlay").addEventListener("click", e=>{ if(e.target.id==="overlay") (cartOpen?closeCart:closeSheet)(); });
-  document.addEventListener("keydown", e=>{ if(e.key==="Escape"){ if(cartOpen) closeCart(); else if(openId) closeSheet(); } });
+  $("overlay").addEventListener("click", e=>{ if(e.target.id==="overlay") (cartOpen||cuentaOpen?closeCart:closeSheet)(); });
+  document.addEventListener("keydown", e=>{ if(e.key==="Escape"){ if(cartOpen||cuentaOpen) closeCart(); else if(openId) closeSheet(); } });
   function drawSheet(){
     const p = S.products.find(x=>x.id===openId); const ov=$("overlay");
     if(!p){ closeSheet(); return; }
@@ -1085,7 +1085,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       const sinPrecio = pagables.some(l=>l.p.precio==null);
       const payBtn = el("button",{class:"btn primary",type:"button",disabled:sinPrecio?"":false,onclick:async()=>{
         payBtn.disabled=true; payBtn.textContent=tx("Abriendo pago seguro…","Opening secure checkout…");
-        try{ const r = await pagarPedido(pagables.map(l=>({id:l.id,q:l.q})), buyer.nombre.trim(), buyer.nota.trim()); location.href = r.url; }
+        try{ const r = await pagarPedido(pagables.map(l=>({id:l.id,q:l.q})), buyer.nombre.trim(), buyer.nota.trim(), cuenta.perfil ? cuenta.perfil.email : ""); location.href = r.url; }
         catch(e){ toast((e&&e.message)||tx("No se pudo iniciar el pago","Couldn't start the payment")); payBtn.disabled=false; payBtn.textContent=tx("Pagar con tarjeta","Pay with card"); }
       }},tx("Pagar con tarjeta","Pay with card"));
       send.append(payBtn, el("span",{class:"note",style:"margin:0;text-align:center"}, sinPrecio ? tx("Algunos productos no tienen precio: consúltalos por WhatsApp o quítalos para pagar con tarjeta.","Some items have no price: ask on WhatsApp or remove them to pay by card.") : descuento() ? tx("Pago seguro con Stripe, al precio normal con tarjeta.","Secure payment with Stripe, at the regular card price.") : tx("Pago seguro con Stripe. El total final se muestra en la página de pago.","Secure payment with Stripe. You'll see the final total on the checkout page.")));
@@ -1107,7 +1107,100 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       el("button",{class:"rm",type:"button",style:"justify-self:center",onclick:()=>{ cart={}; saveCart(); render(); closeCart(); toast(tx("Pedido vaciado","Order cleared")); }},tx("Vaciar pedido","Clear order")));
     ov.append(box);
   }
-  function closeCart(){ cartOpen=false; $("overlay").hidden=true; $("overlay").textContent=""; }
+  function closeCart(){ cartOpen=false; cuentaOpen=false; $("overlay").hidden=true; $("overlay").textContent=""; }
+
+  // ----- "Mis pedidos" del cliente: entra con un código que le llega al correo (sin contraseña) -----
+  const CUENTA_KEY = () => "cuenta:" + ((S.config && S.config.id) || "tienda");
+  let cuentaOpen = false;
+  const cuenta = { token:"", perfil:null, pedidos:null, paso:"correo", email:"", leida:"" };
+  // La sesión se guarda por tienda: se lee cuando ya se sabe qué tienda es
+  function leerCuenta(){
+    const id = S.config && S.config.id; if(!id || cuenta.leida === id) return; cuenta.leida = id;
+    try{ const c = JSON.parse(localStorage.getItem(CUENTA_KEY()) || "null"); if(c && c.token){ cuenta.token = c.token; cuenta.perfil = c.perfil || null; usarPerfil(); } }catch(e){}
+  }
+  function guardarCuenta(){ try{ if(cuenta.token) localStorage.setItem(CUENTA_KEY(), JSON.stringify({ token:cuenta.token, perfil:cuenta.perfil })); else localStorage.removeItem(CUENTA_KEY()); }catch(e){} pintarCuentaBtn(); }
+  function pintarCuentaBtn(){
+    const b = $("cuentaBtn"); if(!b) return;
+    if(!S.canEdit) leerCuenta();
+    b.hidden = S.canEdit || (estadoCatalogo()||{}).estado !== "aprobada";
+    const n = cuenta.perfil && cuenta.perfil.nombre ? cuenta.perfil.nombre.split(" ")[0] : "";
+    b.querySelector("span").textContent = n ? n : tx("Mis pedidos","My orders");
+    b.setAttribute("aria-label", tx("Mis pedidos","My orders"));
+  }
+  // Con la cuenta abierta, el cliente no vuelve a escribir su nombre ni su correo al pagar
+  function usarPerfil(){ const p = cuenta.perfil; if(!p) return; if(p.nombre && !buyer.nombre) buyer.nombre = p.nombre; if(p.email) buyer.email = p.email; saveCart(); }
+  const ESTADO_PEDIDO = () => ({ por_confirmar:tx("Por confirmar","Waiting confirmation"), pagado:tx("Pagado","Paid"), entregado:tx("Entregado","Delivered"), cancelado:tx("Cancelado","Cancelled") });
+  function openCuenta(){ openId=null; cartOpen=false; cuentaOpen=true; $("overlay").hidden=false; drawCuenta(); if(cuenta.token) cargarMisPedidos(); }
+  async function cargarMisPedidos(){
+    try{ const r = await clienteCuenta("misPedidos", { token: cuenta.token }); cuenta.perfil = r.perfil; cuenta.pedidos = r.pedidos || []; guardarCuenta(); usarPerfil(); }
+    catch(e){ if(/SESION/.test(String(e && e.message))){ cuenta.token = ""; cuenta.perfil = null; cuenta.paso = "correo"; guardarCuenta(); } else { cuenta.pedidos = cuenta.pedidos || []; toast(tx("No se pudieron cargar tus pedidos","Couldn't load your orders")); } }
+    if(cuentaOpen) drawCuenta();
+  }
+  function drawCuenta(){
+    const ov = $("overlay"); ov.textContent = "";
+    const box = el("div",{class:"cart cuenta",role:"dialog","aria-modal":"true","aria-label":tx("Mis pedidos","My orders")});
+    box.append(el("div",{class:"cart-head"}, el("h2",null,tx("Mis pedidos","My orders")), el("button",{class:"btn",type:"button",onclick:closeCart},tx("Cerrar","Close"))));
+    const err = el("p",{class:"err",role:"alert",hidden:""});
+    const mostrarError = e=>{ err.textContent = (e && e.message) || tx("Algo falló. Intenta de nuevo.","Something went wrong. Try again."); err.hidden = false; };
+    if(!cuenta.token){
+      if(cuenta.paso === "codigo"){
+        const cod = el("input",{id:"cuentaCodigo",inputmode:"numeric",autocomplete:"one-time-code",maxlength:"6",placeholder:"123456",class:"codigo-6"});
+        const entrarBtn = el("button",{class:"btn primary",type:"submit"},tx("Entrar","Sign in"));
+        const f = el("form",{class:"cuenta-form"},
+          el("p",{style:"margin:0"}, tx("Te enviamos un código de 6 números a ","We sent a 6-digit code to "), el("strong",null,cuenta.email), tx(". Revisa también la carpeta de spam.",". Check your spam folder too.")),
+          el("label",{class:"f"},tx("Código","Code"), cod), err, entrarBtn,
+          el("div",{class:"cuenta-links"},
+            el("button",{class:"linkish",type:"button",onclick:()=>{ cuenta.paso="correo"; drawCuenta(); }},tx("Cambiar correo","Change email")),
+            el("button",{class:"linkish",type:"button",onclick:async()=>{ try{ await clienteCuenta("pedirCodigo",{ email:cuenta.email, idioma: EN()?"en":"es" }); toast(tx("Te enviamos otro código","We sent you another code")); }catch(e){ mostrarError(e); } }},tx("Enviar otro código","Send another code"))));
+        f.onsubmit = async e=>{ e.preventDefault(); err.hidden = true;
+          if(cod.value.replace(/\D/g,"").length !== 6){ mostrarError({ message: tx("Escribe los 6 números del correo","Type the 6 digits from the email") }); return; }
+          entrarBtn.disabled = true; entrarBtn.textContent = tx("Entrando…","Signing in…");
+          try{ const r = await clienteCuenta("entrar",{ email:cuenta.email, codigo:cod.value, idioma: EN()?"en":"es" }); cuenta.token = r.token; cuenta.perfil = r.perfil; cuenta.pedidos = null; guardarCuenta(); usarPerfil(); drawCuenta(); cargarMisPedidos(); toast(tx("¡Listo! Ya entraste","You're in!")); }
+          catch(e2){ mostrarError(e2); entrarBtn.disabled = false; entrarBtn.textContent = tx("Entrar","Sign in"); } };
+        cod.addEventListener("input", ()=>{ cod.value = cod.value.replace(/\D/g,"").slice(0,6); if(cod.value.length===6) f.requestSubmit(); });
+        box.append(f); ov.append(box); setTimeout(()=>cod.focus(), 50); return;
+      }
+      const mail = el("input",{id:"cuentaEmail",type:"email",autocomplete:"email",maxlength:"254",placeholder:tx("tucorreo@ejemplo.com","you@example.com"),value:cuenta.email||buyer.email||""});
+      const pedir = el("button",{class:"btn primary",type:"submit"},tx("Enviarme el código","Send me the code"));
+      const f = el("form",{class:"cuenta-form"},
+        el("p",{style:"margin:0"}, tx("Mira tus pedidos de esta tienda y compra más rápido. Sin contraseña: te mandamos un código a tu correo.","See your orders from this store and check out faster. No password: we email you a code.")),
+        el("label",{class:"f"},tx("Tu correo","Your email"), mail), err, pedir);
+      f.onsubmit = async e=>{ e.preventDefault(); err.hidden = true;
+        const v = mail.value.trim().toLowerCase();
+        if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)){ mostrarError({ message: tx("Revisa tu correo: parece que falta algo","Check your email: something seems missing") }); mail.focus(); return; }
+        pedir.disabled = true; pedir.textContent = tx("Enviando…","Sending…");
+        try{ await clienteCuenta("pedirCodigo",{ email:v, idioma: EN()?"en":"es" }); cuenta.email = v; cuenta.paso = "codigo"; drawCuenta(); }
+        catch(e2){ mostrarError(e2); pedir.disabled = false; pedir.textContent = tx("Enviarme el código","Send me the code"); } };
+      box.append(f); ov.append(box); setTimeout(()=>mail.focus(), 50); return;
+    }
+    // Con sesión: sus pedidos y sus datos
+    const p = cuenta.perfil || {};
+    box.append(el("p",{style:"margin:0"}, tx("Hola","Hi") + (p.nombre ? " " + p.nombre : "") + " · ", el("small",{class:"note"}, p.email||"")));
+    const lista = el("div",{class:"mis-pedidos"});
+    if(cuenta.pedidos === null) lista.append(el("p",{class:"note",style:"margin:0"},tx("Cargando tus pedidos…","Loading your orders…")));
+    else if(!cuenta.pedidos.length) lista.append(el("p",{class:"note",style:"margin:0"},tx("Todavía no tienes pedidos con este correo. Cuando pagues aquí con tarjeta o Yape usando este correo, tus pedidos aparecerán solos. Los que pides solo por WhatsApp no se guardan aquí.","No orders with this email yet. When you pay here by card or Yape with this email, your orders show up here. Orders sent only on WhatsApp aren't saved here.")));
+    else for(const o of cuenta.pedidos){
+      let items = []; try{ items = JSON.parse(o.items||"[]"); }catch(e){}
+      lista.append(el("div",{class:"mi-pedido"},
+        el("div",{class:"mp-top"}, el("strong",null, tx("Pedido N.° ","Order #") + o.id), el("span",{class:"mp-estado est-"+o.estado}, ESTADO_PEDIDO()[o.estado]||o.estado)),
+        el("small",{class:"note"}, new Date(o.fecha).toLocaleDateString(EN()?"en-US":"es-PE",{dateStyle:"medium"}) + " · " + (o.metodo==="yape" ? "Yape" : tx("Tarjeta","Card"))),
+        el("span",null, items.map(i=>`${i.nombre}${i.q>1?" × "+i.q:""}`).join(", ")),
+        el("strong",null, (o.moneda==="pen"?"S/ ":"$") + (o.total/100).toLocaleString("es-PE",{maximumFractionDigits:2}))));
+    }
+    box.append(lista);
+    const nm = el("input",{id:"cuentaNombre",maxlength:"60",autocomplete:"name",value:p.nombre||""});
+    const tel = el("input",{id:"cuentaTel",maxlength:"30",inputmode:"tel",autocomplete:"tel",placeholder:tx("Para que la tienda te escriba","So the store can message you"),value:p.telefono||""});
+    const sigue = el("input",{type:"checkbox",id:"cuentaSigue"}); sigue.checked = !!p.sigue;
+    const guardar = el("button",{class:"btn",type:"button",onclick:async()=>{
+      guardar.disabled = true;
+      try{ const r = await clienteCuenta("guardarPerfil",{ token:cuenta.token, nombre:nm.value.trim(), telefono:tel.value.trim(), sigue:sigue.checked }); cuenta.perfil = r.perfil; guardarCuenta(); buyer.nombre = r.perfil.nombre || buyer.nombre; saveCart(); toast(tx("Datos guardados","Saved")); }
+      catch(e){ mostrarError(e); } finally{ guardar.disabled = false; } }},tx("Guardar mis datos","Save"));
+    box.append(el("details",{class:"cuenta-datos"}, el("summary",null,tx("Mis datos","My details")),
+      el("label",{class:"f"},tx("Tu nombre","Your name"), nm), el("label",{class:"f"},tx("Tu WhatsApp (opcional)","Your WhatsApp (optional)"), tel),
+      el("label",{class:"check"}, sigue, tx(" Quiero enterarme de ofertas y novedades de esta tienda"," Tell me about this store's deals and new arrivals")), err, guardar));
+    box.append(el("button",{class:"rm",type:"button",style:"justify-self:center",onclick:async()=>{ const t = cuenta.token; cuenta.token=""; cuenta.perfil=null; cuenta.pedidos=null; cuenta.paso="correo"; guardarCuenta(); drawCuenta(); try{ await clienteCuenta("salir",{ token:t }); }catch(e){} }},tx("Salir","Sign out")));
+    ov.append(box);
+  }
 
   // ----- Pago con Yape (QR) -----
   // El total en soles se muestra aquí, pero el servidor lo vuelve a calcular con los precios guardados.
@@ -1178,6 +1271,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     { const o = $("orden").options; o[0].text = tx("Más nuevos","Newest"); o[1].text = tx("Precio: menor a mayor","Price: low to high"); o[2].text = tx("Precio: mayor a menor","Price: high to low"); $("orden").setAttribute("aria-label", tx("Ordenar productos","Sort products")); }
     document.documentElement.lang = EN() ? "en" : "es";
     // Botón ES | EN: el cliente cambia el idioma de la tienda (la vendedora siempre ve su panel en español)
+    pintarCuentaBtn();
     const lb = $("langBtn"); lb.hidden = S.canEdit; lb.textContent = EN() ? "Español" : "English";
     lb.setAttribute("aria-label", EN() ? "Ver la tienda en español" : "See the store in English"); lb.lang = EN() ? "es" : "en";
     $("q").placeholder = tx("Buscar producto…","Search products…"); $("q").setAttribute("aria-label", tx("Buscar producto","Search products"));
@@ -1209,10 +1303,11 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     if(yapeQrNuevo===undefined) pintarQrConfig(S.config.yapeQr||"");
     render(); if(openId) drawSheet();
   }
+  $("cuentaBtn").onclick = openCuenta;
   $("langBtn").onclick = ()=>{
     S.idioma = EN() ? "es" : "en";
     try{ localStorage.setItem(IDIOMA_KEY, S.idioma); }catch(e){}
-    renderConfig(); if(cartOpen) drawCart(); if(!$("cli").hidden) pintarCli();
+    renderConfig(); if(cartOpen) drawCart(); if(cuentaOpen) drawCuenta(); if(!$("cli").hidden) pintarCli();
     if(!S.canEdit) mensajeEstadoPublico(true);
     toast(EN() ? "Store in English" : "Tienda en español");
   };
@@ -1517,7 +1612,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       // Vista previa del dictado: se actualiza con lo que completa la IA (sin interrumpir si está escribiendo)
       if(typeof dictAbierto==="function" && dictAbierto() && D.paso==="previa" && !(document.activeElement && $("planOverlay").contains(document.activeElement) && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName))) pintarDict();
       if(cartOpen && !$("overlay").contains(document.activeElement)) drawCart();
-      if(!S.canEdit) mensajeEstadoPublico(); else { actualizarPlan(); if(!snap.metadata.fromCache){ asignarCodigos(); if(!S.timerCodigos) S.timerCodigos = setInterval(asignarCodigos, 60000); programarTraduccion(); if(!S.timerTr) S.timerTr = setInterval(()=>{ trFallos = 0; traducirPendientes(); }, 300000); } }
+      if(!S.canEdit){ mensajeEstadoPublico(); pintarCuentaBtn(); } else { actualizarPlan(); if(!snap.metadata.fromCache){ asignarCodigos(); if(!S.timerCodigos) S.timerCodigos = setInterval(asignarCodigos, 60000); programarTraduccion(); if(!S.timerTr) S.timerTr = setInterval(()=>{ trFallos = 0; traducirPendientes(); }, 300000); } }
     }, ()=>{ clearTimeout(slow); S.loaded=true; $("emptyTitle").textContent="No se pudo cargar la vitrina"; $("emptyText").textContent="Recarga la página en unos minutos."; render(); });
     db.doc("config/tienda").onSnapshot(s=>{ S.config = s.exists ? s.data() : {}; renderConfig(); if(S.canEdit){ actualizarPlan(); pintarCobros(); } }, ()=>{});
   }
@@ -1668,7 +1763,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   }
 
   // ---------- Pestañas de la vendedora ----------
-  const TABS = ["productos","pedidos","confianza","plan","datos"], TAB_KEY = "vitrina-tab";
+  const TABS = ["productos","pedidos","clientes","confianza","plan","datos"], TAB_KEY = "vitrina-tab";
   function irTab(tab, guardar = true){
     if(!TABS.includes(tab)) tab = "productos";
     const main = document.querySelector("main"); main.dataset.tab = tab;
@@ -2408,9 +2503,60 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     }
     if(deConfianza) cargarConfianza();
   }
+  // ---------- Mis clientes: se arma sola con los pedidos y con quienes entraron a "Mis pedidos" ----------
+  async function cargarClientes(pedidos){
+    let regs = []; try{ regs = await listarClientes(); }catch(e){ console.warn("Detalle técnico:", e); }
+    const norm = s=>String(s||"").trim().toLowerCase();
+    const mapa = new Map();
+    const de = k=>{ if(!mapa.has(k)) mapa.set(k, { nombre:"", email:"", telefono:"", pedidos:0, total:0, moneda:"", ultima:"", sigue:false, verificado:false }); return mapa.get(k); };
+    for(const p of pedidos || []){
+      if(p.estado==="pendiente" || p.estado==="cancelado") continue;
+      const k = norm(p.email) || norm(p.telefono) || ("n:"+norm(p.cliente)); if(k==="n:") continue;
+      const c = de(k); c.nombre = c.nombre || p.cliente || ""; c.email = c.email || norm(p.email); c.telefono = c.telefono || p.telefono || "";
+      c.pedidos++; c.total += p.total||0; c.moneda = p.moneda || c.moneda; if(String(p.createdAt) > c.ultima) c.ultima = String(p.createdAt);
+    }
+    for(const r of regs){
+      const k = norm(r.email); if(!k) continue;
+      if(!r.verificado && !mapa.has(k)) continue;   // pidió código pero nunca entró
+      const c = de(k); c.email = k; c.nombre = r.nombre || c.nombre; c.telefono = r.telefono || c.telefono; c.sigue = !!r.sigue; c.verificado = !!r.verificado;
+      if(!c.ultima) c.ultima = String(r.ultimaVez || r.createdAt || "");
+    }
+    S.clientes = [...mapa.values()].sort((a,b)=> b.ultima.localeCompare(a.ultima));
+    pintarClientes();
+  }
+  function pintarClientes(){
+    const lista = S.clientes || [], box = $("clientesLista"); if(!box) return;
+    marcarTab("clientes", lista.length, false);
+    const filtro = $("clientesFiltro").value, q = $("clientesQ").value.trim().toLowerCase();
+    const ver = lista.filter(c=> (filtro!=="sigue" || c.sigue) && (filtro!=="frecuentes" || c.pedidos>=2) && (!q || (c.nombre+" "+c.email+" "+c.telefono).toLowerCase().includes(q)));
+    const siguen = lista.filter(c=>c.sigue).length, frec = lista.filter(c=>c.pedidos>=2).length;
+    $("clientesResumen").textContent = lista.length ? [`${lista.length} ${lista.length===1?"cliente":"clientes"}`, frec ? `${frec} ${frec===1?"compra":"compran"} seguido` : "", siguen ? `${siguen} ${siguen===1?"quiere":"quieren"} ofertas` : ""].filter(Boolean).join(" · ") : "";
+    show("clientesVacio", !lista.length); show("clientesTools", lista.length > 0);
+    box.textContent = "";
+    for(const c of ver){
+      const wa = String(c.telefono||"").replace(/\D/g,"");
+      const waUrl = wa ? `https://wa.me/${wa.length===9 ? "51"+wa : wa}?text=${encodeURIComponent(`Hola${c.nombre?" "+c.nombre.split(" ")[0]:""}, te escribo de ${S.config.nombre||"la tienda"} 😊`)}` : "";
+      box.append(el("div",{class:"cliente-row"},
+        el("div",{class:"cl-who"}, el("strong",null, c.nombre || c.email || c.telefono),
+          el("small",null, [c.email, c.telefono].filter(Boolean).join(" · ")),
+          el("span",{class:"cl-tags"}, c.pedidos>=2 ? el("span",{class:"cl-tag frec"},"Compra seguido") : null, c.sigue ? el("span",{class:"cl-tag sigue"},"Quiere ofertas") : null, c.verificado ? el("span",{class:"cl-tag"},"Tiene cuenta") : null)),
+        el("div",{class:"cl-num"}, el("strong",null, c.pedidos ? `${c.pedidos} ${c.pedidos===1?"pedido":"pedidos"}` : "Sin pedidos aún"), c.pedidos ? el("small",null, montoTxt(c.total, c.moneda) + (c.ultima ? " · último " + new Date(c.ultima).toLocaleDateString("es-PE",{day:"numeric",month:"short"}) : "")) : null),
+        el("div",{class:"cl-acts"}, waUrl ? el("a",{class:"btn tag",href:waUrl,target:"_blank",rel:"noopener",style:"text-decoration:none"},"WhatsApp") : null,
+          c.email ? el("a",{class:"btn",href:"mailto:"+c.email,style:"text-decoration:none"},"Correo") : null)));
+    }
+    if(lista.length && !ver.length) box.append(el("p",{class:"note"},"Nadie coincide con ese filtro."));
+  }
+  $("clientesFiltro").onchange = pintarClientes; $("clientesQ").addEventListener("input", pintarClientes);
+  $("clientesCopiar").onclick = async ()=>{
+    const correos = (S.clientes||[]).filter(c=>c.sigue && c.email).map(c=>c.email);
+    if(!correos.length){ toast("Todavía nadie marcó que quiere ofertas"); return; }
+    try{ await navigator.clipboard.writeText(correos.join(", ")); toast(`${correos.length} correos copiados`); }catch(e){ toast(correos.join(", ")); }
+  };
+
   async function cargarPedidos(){
     let lista = [];
     try{ lista = await listarPedidos(); }catch(e){ return; }
+    cargarClientes(lista);
     show("pedidosBox", lista.length > 0 && $("panel").hidden);
     show("pedidosVacio", !lista.length && $("panel").hidden);
     const pagados = lista.filter(p=>p.estado==="pagado").length, porConfirmar = lista.filter(p=>p.estado==="por_confirmar").length;

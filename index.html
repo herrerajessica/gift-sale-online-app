@@ -165,6 +165,25 @@ button{cursor:pointer}
 .vt-vacio{color:var(--muted);background:var(--surface);border:1px dashed var(--line);border-radius:12px;padding:22px;margin:0 0 16px;line-height:1.5}
 main.con-tabs:not([data-tab="productos"]) [data-sec="productos"]{display:none!important}
 main.con-tabs:not([data-tab="pedidos"]) [data-sec="pedidos"]{display:none!important}
+main.con-tabs:not([data-tab="clientes"]) [data-sec="clientes"]{display:none!important}
+main:not(.con-tabs) [data-sec="clientes"]{display:none!important}
+.clientes{display:grid;gap:12px;margin:0 0 16px}.cl-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px}.cl-head h2{margin:0;font-size:20px}
+.cl-tools{display:flex;flex-wrap:wrap;gap:8px}.cl-tools input{flex:1 1 220px;min-width:0}.cl-tools input,.cl-tools select{font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink)}
+.clientes-lista{display:grid;gap:8px}
+.cliente-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px 16px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.cl-who,.cl-num{display:grid;gap:2px;min-width:0}.cl-who small,.cl-num small{color:var(--muted);overflow-wrap:anywhere}.cl-num{text-align:right}
+.cl-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:2px}.cl-tag{font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--paper);border:1px solid var(--line);color:var(--muted)}
+.cl-tag.frec{background:#fff4d6;border-color:#f1d27a;color:#6b4d00}.cl-tag.sigue{background:#e7f3ec;border-color:#b6dcc4;color:#14532d}
+.cl-acts{display:flex;gap:6px}
+@media (max-width:640px){.cliente-row{grid-template-columns:minmax(0,1fr) auto}.cl-acts{grid-column:1/-1}.cl-acts .btn{flex:1;justify-content:center}}
+.bar .cuenta-btn::before{content:"👤 "}
+.cuenta-form{display:grid;gap:12px}.cuenta-links{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.codigo-6{font:700 26px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;letter-spacing:10px;text-align:center}
+.mis-pedidos{display:grid;gap:8px}.mi-pedido{display:grid;gap:4px;border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--paper)}
+.mp-top{display:flex;justify-content:space-between;gap:8px;align-items:center}.mp-estado{font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;background:#eef2ff;color:#312e81;white-space:nowrap}
+.mp-estado.est-pagado{background:#e7f3ec;color:#14532d}.mp-estado.est-entregado{background:#f1f1f1;color:#333}.mp-estado.est-cancelado{background:#fde8e8;color:#8a1c1c}
+.cuenta-datos{border-top:1px solid var(--line);padding-top:10px}.cuenta-datos[open]{display:grid;gap:10px}.cuenta-datos summary{cursor:pointer;font-weight:700}
+.check{display:flex;gap:8px;align-items:flex-start;font-size:14px}
 main.con-tabs:not([data-tab="confianza"]) [data-sec="confianza"]{display:none!important}
 main.con-tabs:not([data-tab="plan"]) [data-sec="plan"]{display:none!important}
 main.con-tabs:not([data-tab="datos"]) [data-sec="datos"]{display:none!important}
@@ -556,13 +575,14 @@ html,body{overflow-x:clip}
 .l-contacto a{color:var(--ink);font-weight:700}
 .bar .lang{font-weight:700;letter-spacing:.02em}
 .bar .lang::before{content:"🌐 "}
-@media (max-width:520px){.bar .lang{padding:8px 10px;font-size:14px}.bar .brand .stamp{display:none}}
+@media (max-width:520px){.bar .lang,.bar .cuenta-btn{padding:8px 10px;font-size:14px}.bar .brand .stamp{display:none}.bar .cuenta-btn span{display:none}.bar .cuenta-btn::before{content:"👤"}}
 </style>
 </head>
 <body>
 <header class="bar">
   <div class="wrap">
     <div class="brand"><h1 id="shopName">Showroomcito</h1><span class="stamp">Traído de USA</span></div>
+    <button class="btn ghost cuenta-btn" id="cuentaBtn" type="button" hidden><span>Mis pedidos</span></button>
     <button class="btn ghost lang" id="langBtn" type="button" hidden>English</button>
     <div class="contact" id="contact" hidden></div>
     <button class="btn ghost" id="settingsBtn" hidden>Datos de la tienda</button>
@@ -713,6 +733,7 @@ html,body{overflow-x:clip}
   <nav class="vtabs" id="vtabs" hidden aria-label="Secciones de tu tienda">
     <button type="button" data-tab="productos">Productos <span class="vt-n" id="vtN-productos"></span></button>
     <button type="button" data-tab="pedidos">Pedidos <span class="vt-n" id="vtN-pedidos"></span></button>
+    <button type="button" data-tab="clientes">Clientes <span class="vt-n" id="vtN-clientes"></span></button>
     <button type="button" data-tab="confianza">Tiendas de confianza <span class="vt-n" id="vtN-confianza"></span></button>
     <button type="button" data-tab="plan">Plan y cobros <span class="vt-n" id="vtN-plan"></span></button>
     <button type="button" data-tab="datos">Datos de la tienda</button>
@@ -738,6 +759,18 @@ html,body{overflow-x:clip}
     <summary><strong>Pedidos en línea</strong> <span class="cn" id="pedidosCount"></span></summary>
     <div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Productos</th><th>Total</th><th>Pago</th><th>Estado</th><th></th></tr></thead><tbody id="pedidosRows"></tbody></table></div>
   </details>
+
+  <section class="clientes" id="clientesBox" data-sec="clientes">
+    <div class="cl-head"><h2>Mis clientes</h2><span class="note" id="clientesResumen" style="margin:0"></span></div>
+    <p class="note" style="margin:0">Se arma sola: aquí aparece cada persona que te compra pagando en tu tienda (tarjeta o Yape) y quien entra a <b>Mis pedidos</b> con su correo. Los pedidos que llegan solo por WhatsApp no se guardan aquí.</p>
+    <div class="cl-tools" id="clientesTools" hidden>
+      <input id="clientesQ" type="search" placeholder="Buscar por nombre, correo o teléfono" aria-label="Buscar cliente">
+      <select id="clientesFiltro" aria-label="Filtrar clientes"><option value="">Todos</option><option value="frecuentes">Compran seguido (2 o más)</option><option value="sigue">Quieren ofertas</option></select>
+      <button class="btn" type="button" id="clientesCopiar">Copiar correos de los que quieren ofertas</button>
+    </div>
+    <p class="vt-vacio" id="clientesVacio">Todavía no tienes clientes guardados. Cuando alguien te pague desde tu tienda o entre a <b>Mis pedidos</b>, aparecerá aquí con cuántas veces te compró.</p>
+    <div class="clientes-lista" id="clientesLista"></div>
+  </section>
 
   <section class="panel" id="panel" hidden>
     <div class="panel-head"><h2>Panel de la dueña</h2><span class="note" id="panelCount" style="margin:0"></span></div>

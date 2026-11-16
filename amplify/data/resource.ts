@@ -5,6 +5,7 @@ import { pagos } from '../functions/pagos/resource';
 import { fondo } from '../functions/fondo/resource';
 import { asistente } from '../functions/asistente/resource';
 import { confianza } from '../functions/confianza/resource';
+import { clientes } from '../functions/clientes/resource';
 
 /**
  * Aislamiento por vendedora:
@@ -133,6 +134,38 @@ const schema = a.schema({
     })
     .secondaryIndexes((index) => [index('tiendaId').name('pedidosByTienda')])
     .authorization((allow) => [allow.owner().to(['read', 'update']), allow.group('SUPERADMIN')]),
+
+  // Clientes de cada tienda (id = "<tienda>|<correo>"). Los crea la función "clientes" o un pedido con correo.
+  // La vendedora los lee en "Mis clientes"; el código y las sesiones nunca salen de la función.
+  Cliente: a
+    .model({
+      tiendaId: a.string().required(),
+      email: a.string(),
+      nombre: a.string(),
+      telefono: a.string(),
+      sigue: a.boolean(),                  // quiere enterarse de ofertas y novedades
+      verificado: a.boolean(),             // entró con el código de su correo
+      ultimaVez: a.string(),
+      codigoHash: a.string().authorization((allow) => [allow.group('SUPERADMIN')]),
+      codigoVence: a.float().authorization((allow) => [allow.group('SUPERADMIN')]),
+      codigoEnviado: a.float().authorization((allow) => [allow.group('SUPERADMIN')]),
+      intentos: a.integer().authorization((allow) => [allow.group('SUPERADMIN')]),
+      sesiones: a.json().authorization((allow) => [allow.group('SUPERADMIN')]),
+    })
+    .secondaryIndexes((index) => [index('tiendaId').name('clientesByTienda')])
+    .authorization((allow) => [allow.owner().to(['read']), allow.group('SUPERADMIN')]),
+
+  // "Mis pedidos" del cliente: código por correo, sin contraseña. accion = pedirCodigo | entrar | misPedidos | guardarPerfil | salir
+  clienteCuenta: a
+    .mutation()
+    .arguments({
+      accion: a.string().required(), tiendaId: a.string().required(),
+      email: a.string(), codigo: a.string(), token: a.string(), idioma: a.string(),
+      nombre: a.string(), telefono: a.string(), sigue: a.boolean(),
+    })
+    .returns(a.string())
+    .handler(a.handler.function(clientes))
+    .authorization((allow) => [allow.guest(), allow.authenticated()]),
 
   // Relación entre dos tiendas de confianza. id = "tiendaA|tiendaB" (en orden alfabético).
   // Solo la lee y escribe la función "confianza" (y SUPERADMIN); las vendedoras la ven a través de ella.
@@ -280,6 +313,7 @@ const schema = a.schema({
       tiendaId: a.string().required(),
       items: a.string().required(),
       nombre: a.string(),
+      email: a.string(),
       nota: a.string(),
       origen: a.string().required(),
     })

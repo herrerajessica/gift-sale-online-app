@@ -344,8 +344,21 @@ export const estadoCobros = () => llamar('estadoCobros', { tiendaId: TIENDA }, '
 export const confianza = (accion, datos = {}) => llamar('confianza', { tiendaId: TIENDA || '-', accion, datos: JSON.stringify(datos) }, 'userPool');
 export const pedidoYape = (items, nombre, nota, operacion, email) =>
   llamar('pedidoYape', { tiendaId: TIENDA, items: JSON.stringify(items), nombre, nota, operacion, email: email || null }, AUTH);
-export const pagarPedido = (items, nombre, nota) =>
-  llamar('pagarPedido', { tiendaId: TIENDA, items: JSON.stringify(items), nombre, nota, origen: origen() }, AUTH);
+export const pagarPedido = (items, nombre, nota, email) =>
+  llamar('pagarPedido', { tiendaId: TIENDA, items: JSON.stringify(items), nombre, nota, email: email || null, origen: origen() }, AUTH);
+// "Mis pedidos" del cliente (código por correo). accion: pedirCodigo | entrar | misPedidos | guardarPerfil | salir
+export const clienteCuenta = (accion, datos = {}) => llamar('clienteCuenta', { accion, tiendaId: TIENDA, ...datos }, AUTH);
+/** Clientes de la tienda (los que compraron con su correo o entraron a "Mis pedidos"). */
+export async function listarClientes() {
+  const todos = [];
+  let nextToken = null;
+  do {
+    const r = await client.models.Cliente.list({ filter: { tiendaId: { eq: TIENDA } }, authMode: 'userPool', limit: 500, nextToken });
+    todos.push(...(check(r) || []));
+    nextToken = r.nextToken;
+  } while (nextToken);
+  return todos;
+}
 
 export async function miTiendaActual() {
   return check(await client.models.Tienda.get({ id: TIENDA }, { authMode: 'userPool' }));
