@@ -1942,6 +1942,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         el("div",{class:"plan-price"}, pl.precio ? (esUS() ? `$${pl.precioUsd}` : `S/ ${pl.precio}`) : "Gratis", pl.precio ? el("small",null," /mes") : null),
         el("span",null, pl.limite==null ? "Productos ilimitados" : `Hasta ${pl.limite} productos`),
         el("span",null, "Fotos mejoradas automáticamente"),
+        pl.asis ? el("span",null, `Asistente: ${pl.asis} mensajes al día`) : null,
+        pl.cli ? el("span",null, `Chat para tus clientes: ${pl.cli} preguntas al día`) : null,
         pl.extra ? el("span",{class:"extra"}, "+ " + pl.extra) : null, btn));
     }
     card.append(grid, el("p",{class:"note",style:"margin:0"},`Pago mensual con tarjeta a través de Stripe${esUS() ? ", en dólares" : ", en soles"}. Puedes volver a Free cuando quieras.`));

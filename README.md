@@ -160,9 +160,9 @@ Dos vendedoras se conectan (una invita con el enlace de la tienda de la otra y l
 
 | Plan | Productos visibles | Precio |
 |---|---|---|
-| Free | 10 | Gratis |
-| Básico | 30 | S/ 19 al mes |
-| Pro | 150 | S/ 49 al mes |
+| Free | 20 | Gratis |
+| Básico | 50 | S/ 19 al mes |
+| Pro | ilimitados | S/ 49 al mes |
 | Plus | ilimitados + fondo blanco con IA | S/ 99 al mes |
 
 - **Planes:** suscripción mensual con Stripe Checkout. Los productos ocultos no cuentan. El límite se aplica en el servidor (Lambda `catalogo`): si una vendedora supera su plan o deja de pagar (3 días de gracia), los clientes solo ven sus productos más recientes hasta el límite.

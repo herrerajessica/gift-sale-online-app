@@ -54,7 +54,7 @@ const schema = a.schema({
       moneda: a.enum(['USD', 'PEN']),
       // Texto y no enum: Amplify no permite permisos por campo en un enum. Valores: pendiente | aprobada | suspendida
       estado: a.string().authorization(soloLecturaDueña),
-      // Plan: free (10), basico (30), pro (150), plus (ilimitado)
+      // Plan: free (20), basico (50), pro (ilimitado), plus (ilimitado + extras)
       // Valores: free | basico | pro | plus (lo cambian SUPERADMIN o el webhook de Stripe)
       plan: a.string().authorization(soloLecturaDueña),
       planVence: a.float().authorization(soloLecturaDueña),
