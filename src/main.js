@@ -8,7 +8,8 @@ import {
 } from './amplify-adapter.js';
 import { interpretarComando } from './comandos.js';
 import { qrCanvas } from './qr.js';
-import { escucha, vocabulario, corregir, codigosDichos } from './voz.js';
+import { escucha, vocabulario, corregir, codigosDichos, SEPARADOR_PRODUCTOS } from './voz.js';
+import { interpretarPorLotes } from './dictado.js';
 import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, marcaDeTexto, MARCAS } from './rubros.js';
 
 // Lógica de Showroomcito (misma que la versión de Claude).
@@ -1984,7 +1985,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   // ella elige las fotos en el mismo orden, ve una vista previa (productos ocultos) y recién publica.
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   // "siguiente" y lo que suele entender el navegador en su lugar
-  const SEPARADOR = /\b(?:siguientes?|siguiente producto|otro producto|pr[oó]ximo producto|next(?: one| item)?)\b[\s.,;:!]*/i;
+  const SEPARADOR = SEPARADOR_PRODUCTOS;
   // Vocabulario para ayudar al reconocimiento: marcas conocidas y de la tienda, tipos de producto y palabras de sus productos
   let vocabCache = null, vocabClave = "";
   function vocabTienda(){
@@ -2017,6 +2018,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   // Escucha reforzada (src/voz.js): se vuelve a encender sola tras los silencios, no repite frases,
   // se pausa si se apaga la pantalla y corrige marcas y palabras con el vocabulario de la tienda.
   function microfono(on){
+    if(D.finalizando) return;
     if(!SR){ toast("Tu navegador no permite dictar aquí: escribe con el micrófono del teclado"); return; }
     if(!on){ D.pausaSola = false; if(rec) rec.pausar(); D.escuchando=false; D.interino=""; pintarDict(); return; }
     if(rec) rec.pausar();
@@ -2077,13 +2079,20 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         el("button",{class:"btn",type:"button","aria-label":"Quitar producto "+(i+1),onclick:()=>{ D.items.splice(i,1); guardarDict(); pintarDict(); }},"✕")));
     });
     if(D.items.length) card.append(el("strong",null, D.items.length===1 ? "1 producto dictado" : `${D.items.length} productos dictados`), lista);
-    const seguir = el("button",{class:"btn primary",type:"button",onclick:async()=>{
+    const seguir = el("button",{class:"btn primary",type:"button",disabled:!!D.finalizando,onclick:async()=>{
+      if(D.finalizando) return;
+      D.finalizando = true; seguir.disabled = true;
+      try {
+      if(rec) await rec.finalizar();
+      D.escuchando = false; D.interino = "";
       if(D.buffer.trim()) cerrarProductoActual();
       D.items = D.items.filter(Boolean);
       if(!D.items.length){ toast("Dicta o escribe al menos un producto"); return; }
-      microfono(false); seguir.disabled = true; seguir.textContent = "Entendiendo…";
+      seguir.textContent = "Entendiendo…";
       D.datos = await entenderDictado(D.items);
-      D.paso = "revisar"; pintarDict();
+      D.paso = "revisar";
+      } catch(e) { toast(e.message || "No se pudo terminar el dictado. Intenta nuevamente."); }
+      finally { D.finalizando = false; pintarDict(); }
     }}, "Continuar");
     card.append(el("div",{class:"send"}, seguir,
       D.items.length ? (()=>{ const b = el("button",{class:"btn",type:"button"},"Empezar de nuevo"); b.onclick = ()=>{ if(b.dataset.seguro){ D.items=[]; D.buffer=""; guardarDict(); pintarDict(); } else { b.dataset.seguro="1"; b.textContent="¿Borrar todo? Toca otra vez"; } }; return b; })() : null),
@@ -2119,8 +2128,9 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   }
   async function entenderDictado(textos){
     const moneda = enSoles() ? "PEN" : "USD";
-    let ia = [];
-    try{ ia = await interpretarDictado(textos, esUS() ? "en" : "es", moneda, rubroActual()); }catch(e){ console.warn("Detalle técnico:", e); toast("La IA no respondió: completé lo que pude, revisa los datos"); }
+    const { resultados: ia, pendientes } = await interpretarPorLotes(textos,
+      lote => interpretarDictado(lote, esUS() ? "en" : "es", moneda, rubroActual()));
+    D.pendientesIA = pendientes;
     return textos.map((t, i)=>{
       const a = (Array.isArray(ia) && (ia.find(x=>x && Number(x.i)===i))) || {}, b = parsearLocal(t);
       // Tipo y marca: lo que dijo la IA o, si no respondió, lo que se reconoce en las palabras (vestido, Zara…)
@@ -2135,6 +2145,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   }
   function pasoRevisar(card){
     card.append(el("p",{class:"note",style:"margin:0"},"Corrige lo que haga falta. En el siguiente paso eliges las fotos en el mismo orden en que dictaste."));
+    if(D.pendientesIA?.length) card.append(el("p",{role:"alert",class:"note"},
+      `La IA no pudo completar los productos ${D.pendientesIA.join(", ")}. Se usaron reglas básicas: revisa sus datos antes de continuar.`));
     const tabla = el("div",{class:"dict-tabla"});
     D.datos.forEach((d,i)=>{
       const inp = (k, label, extra={}) => { const x = el("input",{value: d[k]==null ? "" : String(d[k]), ...extra}); x.onchange = ()=>{ d[k] = extra.inputmode==="decimal" ? parsePrice(x.value) : extra.inputmode==="numeric" ? parseStock(x.value) : x.value.trim(); }; return el("label",{class:"f"},label,x); };
