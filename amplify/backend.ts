@@ -14,8 +14,9 @@ import { stripeWebhook } from './functions/stripe-webhook/resource';
 import { fondo } from './functions/fondo/resource';
 import { asistente } from './functions/asistente/resource';
 import { confianza } from './functions/confianza/resource';
+import { clientes } from './functions/clientes/resource';
 
-const backend = defineBackend({ auth, data, storage, clasificar, catalogo, pagos, stripeWebhook, fondo, asistente, confianza });
+const backend = defineBackend({ auth, data, storage, clasificar, catalogo, pagos, stripeWebhook, fondo, asistente, confianza, clientes });
 
 const bucket = backend.storage.resources.bucket;
 const tablas = backend.data.resources.tables;
@@ -24,6 +25,7 @@ const tablaProducto = tablas['Producto'];
 const tablaPedido = tablas['Pedido'];
 const tablaConfianza = tablas['Confianza'];
 const tablaReventa = tablas['Reventa'];
+const tablaCliente = tablas['Cliente'];
 
 // CDN para que las fotos carguen rápido y sin URLs firmadas.
 // Se crea en el mismo stack del bucket para evitar referencias circulares.
@@ -169,3 +171,18 @@ backend.confianza.addEnvironment('TIENDA_TABLE', tablaTienda.tableName);
 backend.confianza.addEnvironment('PRODUCTO_TABLE', tablaProducto.tableName);
 backend.confianza.addEnvironment('CONFIANZA_TABLE', tablaConfianza.tableName);
 backend.confianza.addEnvironment('REVENTA_TABLE', tablaReventa.tableName);
+
+// --- Cuentas de clientes ("Mis pedidos" con código por correo) ---
+const clientesFn = backend.clientes.resources.lambda;
+tablaTienda.grantReadData(clientesFn);
+tablaCliente.grantReadWriteData(clientesFn);
+tablaPedido.grantReadData(clientesFn);
+clientesFn.addToRolePolicy(new PolicyStatement({ actions: ['dynamodb:Query'], resources: [`${tablaPedido.tableArn}/index/*`] }));
+backend.clientes.addEnvironment('TIENDA_TABLE', tablaTienda.tableName);
+backend.clientes.addEnvironment('CLIENTE_TABLE', tablaCliente.tableName);
+backend.clientes.addEnvironment('PEDIDO_TABLE', tablaPedido.tableName);
+// Cada pedido con correo (Yape o tarjeta) agrega al cliente a "Mis clientes" de la vendedora.
+tablaCliente.grantReadWriteData(pagosFn);
+backend.pagos.addEnvironment('CLIENTE_TABLE', tablaCliente.tableName);
+tablaCliente.grantReadWriteData(webhookFn);
+backend.stripeWebhook.addEnvironment('CLIENTE_TABLE', tablaCliente.tableName);

@@ -61,6 +61,7 @@ function listaParaIA(productos: Record<string, any>[], pregunta: string, moneda:
   const sim = moneda === 'PEN' ? 'S/ ' : '$';
   return lista.map((p) => {
     const o: Record<string, unknown> = { c: p.codigo, n: p.nombre };
+    if (p.trNombre) o.n2 = p.trNombre;
     if (p.marca) o.m = p.marca;
     o.p = p.precio == null ? 'consultar' : sim + p.precio;
     if (p.precioAntes != null) { o.antes = sim + p.precioAntes; if (p.ofertaHasta) o.ofertaHasta = new Date(p.ofertaHasta).toISOString().slice(0, 10); }
@@ -103,9 +104,10 @@ function leerJson(s: string): { texto?: string; codigos?: unknown } {
   return { texto: limpio.trim(), codigos: [] };
 }
 
-export async function preguntarTienda(cat: Record<string, any>, t: Record<string, any> | undefined, mensajesJson: string): Promise<string> {
+export async function preguntarTienda(cat: Record<string, any>, t: Record<string, any> | undefined, mensajesJson: string, idioma?: string | null): Promise<string> {
   const tienda = cat.tienda || {};
-  const en = tienda.pais === 'US';
+  // El cliente puede elegir el idioma (ES | EN); si no, el de la tienda
+  const en = idioma === 'en' ? true : idioma === 'es' ? false : tienda.pais === 'US';
   const tx = (es: string, eng: string) => (en ? eng : es);
   if (!t || cat.estado !== 'aprobada' || !Array.isArray(cat.productos)) return respuesta(tx('Esta tienda todavía no está abierta.', "This store isn't open yet."), [], { error: true });
   if (t.chatClientes === false) return respuesta(tx('Esta tienda no tiene el asistente activado. Escríbenos por WhatsApp.', "This store's assistant is off. Message us on WhatsApp."), [], { error: true, apagado: true });

@@ -17,14 +17,14 @@ type Identidad = { sub?: string; groups?: string[] | null } | null | undefined;
  * El límite del plan se aplica aquí, en el servidor: solo se muestran los
  * productos más recientes que permite el plan vigente.
  */
-type Evento = { fieldName?: string; info?: { fieldName?: string }; arguments: { slug?: string; mensajes?: string }; identity?: unknown };
+type Evento = { fieldName?: string; info?: { fieldName?: string }; arguments: { slug?: string; mensajes?: string; idioma?: string }; identity?: unknown };
 
 export const handler = async (event: Evento) => {
   const campo = event.fieldName || (event.info && event.info.fieldName);
   if (campo === 'preguntarTienda') {
     // El asistente de clientes usa exactamente lo que el cliente ve en la tienda (sin la vista previa de la dueña).
     const { res, t } = await armarCatalogo({ ...event, identity: null });
-    return preguntarTienda(res, t, String(event.arguments.mensajes || ''));
+    return preguntarTienda(res, t, String(event.arguments.mensajes || ''), event.arguments.idioma);
   }
   return JSON.stringify((await armarCatalogo(event)).res);
 };
@@ -76,7 +76,7 @@ async function armarCatalogo(event: Evento): Promise<{ res: Record<string, unkno
       p = { ...c, stock: o.stock, fotosFull: o.fotosFull, fotosThumb: o.fotosThumb };
     }
     productos.push({
-      id: p.id, codigo: c.codigo || '', nombre: p.nombre, marca: p.marca || '',
+      id: p.id, codigo: c.codigo || '', nombre: p.nombre, trNombre: p.trNombre || '', trDescripcion: p.trDescripcion || '', marca: p.marca || '',
       // Con oferta vigente, "precio" ya es el de oferta (así el carrito, Yape y la tarjeta cobran lo mismo) y "precioAntes" el normal.
       ...(ofertaActiva(p) ? { precio: p.precioOferta, precioAntes: p.precio, ofertaHasta: p.ofertaHasta } : { precio: p.precio ?? null }),
       stock: typeof p.stock === 'number' ? p.stock : null, talla: p.talla || '', condicion: p.condicion || '', categoria: p.categoria || '', tipo: p.tipo || '',
@@ -97,7 +97,8 @@ async function armarCatalogo(event: Evento): Promise<{ res: Record<string, unkno
     vistaPrevia: estado !== 'aprobada',
     tienda: { id: t.id, nombre: t.nombre, pais: t.pais === 'US' ? 'US' : 'PE', moneda: t.pais !== 'US' && t.moneda === 'PEN' ? 'PEN' : 'USD', whatsapp: t.whatsapp || '', tipoCambio: t.tipoCambio ?? null, cobrosActivos: !!t.cobrosActivos,
       descuentoContado: typeof t.descuentoContado === 'number' ? t.descuentoContado : 0,
-      yapeNumero: t.yapeNumero || '', yapeNombre: t.yapeNombre || '', yapeQr: t.yapeQr || '', grupoWhatsapp: t.grupoWhatsapp || '', chatClientes: t.chatClientes !== false },
+      yapeNumero: t.yapeNumero || '', yapeNombre: t.yapeNombre || '', yapeQr: t.yapeQr || '', grupoWhatsapp: t.grupoWhatsapp || '', chatClientes: t.chatClientes !== false,
+      portada: t.portada || '', descripcionTienda: t.descripcionTienda || '', trDescripcionTienda: t.trDescripcionTienda || '' },
     productos: visibles,
     // Solo la dueña ve cuántos productos quedaron fuera por el límite del plan.
     ...(esDuena || esSuper ? { fueraDelPlan } : {}),

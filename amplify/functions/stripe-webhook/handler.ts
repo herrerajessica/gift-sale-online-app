@@ -3,6 +3,7 @@ import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { esPlan } from '../shared/planes';
 import { ddb, PEDIDO, leerTienda, actualizarTienda } from '../shared/tablas';
 import { descontarStock } from '../shared/stock';
+import { registrarCliente } from '../shared/clientes';
 import { avisarPedido } from '../shared/correo';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
@@ -79,13 +80,14 @@ export const handler = async (event: UrlEvent) => {
       case 'checkout.session.completed': {
         const s = ev.data.object as Stripe.Checkout.Session;
         if (s.metadata?.tipo === 'pedido' && s.metadata.pedidoId && s.payment_status === 'paid') {
-          const cambio = await marcarPedido(s.metadata.pedidoId, 'pagado', { email: s.customer_details?.email || undefined, telefono: s.customer_details?.phone || undefined });
+          const cambio = await marcarPedido(s.metadata.pedidoId, 'pagado', { email: s.customer_details?.email ? s.customer_details.email.trim().toLowerCase() : undefined, telefono: s.customer_details?.phone || undefined });
           if (cambio) {
             const { Item } = await ddb.send(new GetCommand({ TableName: PEDIDO(), Key: { id: s.metadata.pedidoId } }));
             await descontarStock(Item?.items, s.metadata.pedidoId);
             // Correo de confirmación al cliente y aviso a la vendedora (si falla, el pago igual queda registrado)
             const t = Item && await leerTienda(String(Item.tiendaId));
             if (t && Item) await avisarPedido(t as any, Item as any, s.customer_details?.email || undefined);
+            if (t && Item) await registrarCliente(t as any, { email: s.customer_details?.email || undefined, nombre: Item.cliente || s.customer_details?.name || undefined, telefono: s.customer_details?.phone || undefined });
           }
         }
         if (s.metadata?.tipo === 'plan' && s.subscription) {
