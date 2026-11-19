@@ -10,6 +10,7 @@ import { interpretarComando } from './comandos.js';
 import { qrCanvas } from './qr.js';
 import { escucha, vocabulario, corregir, codigosDichos, SEPARADOR_PRODUCTOS } from './voz.js';
 import { interpretarPorLotes } from './dictado.js';
+import { prepararUnion, ejecutarUnion } from './juntar-productos.js';
 import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, marcaDeTexto, MARCAS } from './rubros.js';
 
 // Lógica de Showroomcito (misma que la versión de Claude).
@@ -702,6 +703,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     pintarAsisSel();
     $("bulk").hidden = !S.selecting;
     $("bulkCount").textContent = S.sel.size + (S.sel.size===1?" seleccionado":" seleccionados");
+    $("bulkJuntar").disabled = S.sel.size < 2;
     $("bulkApply").disabled = $("bulkDel").disabled = $("bulkAI").disabled = $("bulkShare").disabled = $("bulkMover").disabled = $("bulkUnshare").disabled = !S.sel.size;
   }
   $("selectBtn").onclick = ()=>{ S.selecting=true; S.sel.clear(); render(); $("bulk").scrollIntoView({block:"nearest"}); };
@@ -768,6 +770,57 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   };
   $("bulkDup").onclick = ()=>buscarRepetidos();
   $("bulkTabla").onclick = ()=>{ if(!S.sel.size){ toast("Selecciona productos o toca Todos"); return; } abrirLote([...S.sel], "seleccion"); };
+  $("bulkJuntar").onclick = abrirUnion;
+  function abrirUnion(){
+    if(!S.canEdit) return;
+    const ids = [...S.sel], productos = ids.map(id=>S.products.find(p=>p.id===id)).filter(Boolean);
+    let principalId = ids[0], portada = null, ocupado = false;
+    try { prepararUnion(productos, principalId); } catch(e) { toast(e.message); return; }
+    const firma = JSON.stringify(productos);
+    const ov = $("planOverlay"); ov.hidden=false; delete ov.dataset.dict; delete ov.dataset.conf;
+    const cerrar = ()=>{ if(!ocupado){ ov.hidden=true; ov.textContent=""; } };
+    ov.onclick = e=>{ if(e.target===ov) cerrar(); };
+    function pintar(){
+      const plan = prepararUnion(productos, principalId, portada);
+      ov.textContent="";
+      const selector = el("select",{"aria-label":"Producto principal",disabled:ocupado});
+      productos.forEach(p=>selector.append(el("option",{value:p.id},`${codigoDe(p)} · ${p.nombre}`)));
+      selector.value=principalId;
+      selector.onchange=()=>{ principalId=selector.value; portada=null; pintar(); };
+      const galeria = el("div",{class:"thumbs",style:"flex-wrap:wrap"});
+      plan.fotos.forEach((f,i)=>galeria.append(el("button",{class:"t"+(i===0?" on":""),type:"button",disabled:ocupado,"aria-label":`Usar foto ${i+1} como portada`,"aria-pressed":String(i===0),onclick:()=>{ portada=f.full; pintar(); }},el("img",{src:src(f.thumb),alt:`Foto ${i+1}`,style:"width:80px;height:80px;object-fit:cover"}))));
+      const confirmar = el("button",{class:"btn primary",type:"button",disabled:ocupado,onclick:async()=>{
+        if(ocupado) return;
+        const actuales=ids.map(id=>S.products.find(p=>p.id===id)).filter(Boolean);
+        if(JSON.stringify(actuales)!==firma){ toast("Los productos cambiaron. Cierra y vuelve a seleccionarlos para revisar los datos actuales."); return; }
+        ocupado=true; pintar();
+        try {
+          const resultado = await ejecutarUnion(plan, {
+            copiar:async f=>{
+              const copiarArchivo = async path=>{
+                const foto = await S.assets.download(path);
+                const archivo=await S.assets.upload(foto,{type:"image/jpeg"});
+                return archivo.id;
+              };
+              const full=await copiarArchivo(f.full);
+              return {full,thumb:f.thumb===f.full?full:await copiarArchivo(f.thumb)};
+            },
+            actualizar:(id,patch)=>S.db.doc("productos/"+id).update(patch),
+          });
+          ocupado=false; cerrar(); S.sel.clear(); S.selecting=false; render();
+          if(resultado.fallidos.length) toast(`Las fotos quedaron juntas, pero ${resultado.fallidos.length} producto(s) no se pudieron ocultar. Revísalos antes de continuar.`);
+          else toast(`Listo: un producto con ${plan.fotos.length} fotos. Los otros quedaron ocultos.`);
+          openProduct(plan.principal.id);
+        } catch(e) { ocupado=false; pintar(); toast("No se pudo completar la unión. Revisa el producto principal antes de reintentar. "+errText(e)); }
+      }},ocupado?"Juntando fotos…":"Confirmar unión");
+      ov.append(el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":"Juntar en un producto",style:"width:min(680px,100%)"},
+        el("div",{class:"cart-head"},el("h2",null,"Juntar en un producto"),el("button",{class:"btn",type:"button",disabled:ocupado,onclick:cerrar},"Cancelar")),
+        el("label",{class:"f"},"Conservar los datos de",selector),
+        el("p",{class:"note"},`Se conservarán el código, nombre, precio y cantidad de ${plan.principal.nombre}. Las cantidades no se suman. Los otros ${plan.secundarios.length} productos quedarán ocultos y conservarán sus fotos.`),
+        el("strong",null,`${plan.fotos.length} fotos · Toca una para elegir la portada`),galeria,confirmar));
+    }
+    pintar();
+  }
   $("bulkDel").onclick = ()=>{ $("bulkN").textContent=S.sel.size; $("bulkConfirm").hidden=false; };
   $("bulkDelNo").onclick = ()=>{ $("bulkConfirm").hidden=true; };
   $("bulkDelYes").onclick = async ()=>{
