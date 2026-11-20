@@ -122,12 +122,7 @@ async function interpretarDictado(args: { textos?: (string | null)[] | null; idi
     inferenceConfig: { maxTokens: 4096, temperature: 0 },
   }));
   const texto: string = (res.output?.message?.content ?? []).map((c: { text?: string }) => c.text ?? '').join('');
-  if (res.stopReason === 'max_tokens') throw new Error('Respuesta de dictado incompleta. Reduce el lote.');
-  const resultados = limpiarDictado(leerArreglo(texto), textos.length);
-  if (resultados.length !== textos.length || new Set(resultados.map(r => r.i)).size !== textos.length) {
-    throw new Error('La IA no devolvió todos los productos del dictado.');
-  }
-  return JSON.stringify(resultados);
+  return JSON.stringify(limpiarDictado(leerArreglo(texto), textos.length));
 }
 
 // ---------- Traducción de productos (tienda en dos idiomas) ----------

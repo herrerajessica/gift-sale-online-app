@@ -8,8 +8,6 @@
 const sinTildes = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
 const minus = (s) => sinTildes(s).toLowerCase();
 
-export const SEPARADOR_PRODUCTOS = /\b(?:siguiente producto|siguientes?|otro producto|pr[oó]ximo producto|next(?: one| item)?)\b[\s.,;:!]*/i;
-
 /** Clave "como suena" (español e inglés simplificados): se comparan palabras por su sonido, no por su letra. */
 export function sonido(s) {
   let t = minus(s).replace(/[^a-z0-9ñ ]+/g, ' ').trim();
@@ -116,14 +114,13 @@ export function corregir(texto, vocab) {
       if (n === 1 && COMUNES.has(minus(limpio[0]))) continue;
       if (n > 1 && (COMUNES.has(minus(limpio[0])) || COMUNES.has(minus(limpio[n - 1])))) continue;
       const oido = limpio.join(' '), so = sonido(oido);
-      let mejor = null, mejorD = Infinity, empate = false;
+      let mejor = null, mejorD = Infinity;
       for (const v of vocab) {
         if (Math.abs(v.palabras - n) > 1) continue;
         const d = parecido(so, v);
-        if (d < mejorD) { mejor = v; mejorD = d; empate = false; }
-        else if (Number.isFinite(d) && d === mejorD && v.k !== mejor?.k) empate = true;
+        if (d < mejorD) { mejor = v; mejorD = d; if (d === 0) break; }
       }
-      if (!mejor || empate) continue;
+      if (!mejor) continue;
       // Ya estaba bien escrito (solo cambian mayúsculas o tildes): se deja como lo dijo
       // Ya estaba bien (solo cambian mayúsculas o tildes): se deja como lo dijo, salvo las marcas (levis → Levi's)
       if (minus(oido).replace(/[^a-z0-9ñ]+/g, '') === mejor.k && n === mejor.palabras && (mejor.tipo !== 'marca' || oido === mejor.txt)) { for (let k = a; k < a + n; k++) usado[k] = true; continue; }
@@ -151,7 +148,6 @@ function puntaje(texto, vocab) {
  */
 export function escucha(SR, op) {
   let rec = null, activo = false, reinicios = [], ultimoFinal = '', ultimoCuando = 0, oyoAlgo = false, ocultoPausa = false;
-  let terminar = null, finPendiente = null;
   const vocab = op.vocab || [];
 
   function elegir(resultado) {
@@ -200,8 +196,6 @@ export function escucha(SR, op) {
       // no-speech, aborted, network: se reintenta en onend
     };
     r.onend = () => {
-      r.terminado = true;
-      if (terminar) { const fin = terminar; terminar = null; fin(); }
       op.alInterino && op.alInterino('');
       if (!activo) return;
       // Se cortó solo (silencio o el celular): se vuelve a encender, pero si se corta muchas veces seguidas
@@ -233,23 +227,7 @@ export function escucha(SR, op) {
     try { rec && rec.stop(); } catch { /* ya estaba parado */ }
     op.alEstado && op.alEstado('pausa');
   }
-  // stop() puede entregar un último resultado antes de onend: esperar antes de interpretar.
-  function finalizar() {
-    if (finPendiente) return finPendiente;
-    activo = false; ocultoPausa = false;
-    document.removeEventListener('visibilitychange', alCambiarVista);
-    if (!rec || rec.terminado) return Promise.resolve();
-    finPendiente = new Promise((resolve, reject) => {
-      const reloj = setTimeout(() => {
-        terminar = null; finPendiente = null;
-        reject(new Error('El micrófono aún no terminó. Espera un momento y vuelve a continuar.'));
-      }, 4000);
-      terminar = () => { clearTimeout(reloj); resolve(); };
-      try { rec.stop(); } catch { terminar(); terminar = null; }
-    });
-    return finPendiente;
-  }
-  return { iniciar, pausar, finalizar, activo: () => activo };
+  return { iniciar, pausar, activo: () => activo };
 }
 
 /**
