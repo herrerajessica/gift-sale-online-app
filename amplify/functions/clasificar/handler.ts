@@ -157,6 +157,24 @@ ${JSON.stringify(textos)}`;
 type EventoIA = { fieldName?: string; arguments: { paths?: (string | null)[] | null; idioma?: string | null; textos?: (string | null)[] | null; moneda?: string | null; rubro?: string | null } };
 
 export const handler = async (event: EventoIA) => {
+  if (event.fieldName === 'agruparFotos') {
+    const paths = event.arguments.paths;
+    if (!paths?.length || paths.length > 20 || paths.some(p => !p?.startsWith('productos/'))) throw new Error('Envía entre 1 y 20 fotos de productos.');
+    const imagenes = await Promise.all(paths.map(p => leerFoto(p!)));
+    const res = await bedrock.send(new ConverseCommand({
+      modelId: process.env.MODEL_ID,
+      messages: [{role:'user',content:[
+        ...imagenes.map(bytes=>({image:{format:'jpeg' as const,source:{bytes}}})),
+        {text:'Organiza estas fotos numeradas desde 0 en productos físicos individuales. Agrupa solo fotos que claramente muestran el MISMO artículo desde distintos ángulos. No agrupes solo por categoría o marca: colores, modelos o tallas diferentes son productos distintos. Una etiqueta aislada sin vínculo claro debe quedar fuera. Las fotos ambiguas deben quedar fuera para revisión humana. No supongas grupos de tamaño fijo ni uses el orden como evidencia suficiente. Devuelve SOLO JSON: [{"nombre":"nombre corto en español","indices":[0,2,5]}]. Cada índice puede aparecer una sola vez. Incluye grupos de una foto si claramente muestran un producto.'},
+      ]}],
+      inferenceConfig:{maxTokens:4096,temperature:0},
+    }));
+    if(res.stopReason==='max_tokens') throw new Error('La agrupación quedó incompleta. Organiza manualmente o reintenta.');
+    const texto=(res.output?.message?.content??[]).map(c=>'text' in c?c.text:'').join('');
+    const arr=leerArreglo(texto);
+    if(!Array.isArray(arr)) throw new Error('Respuesta de agrupación inválida');
+    return JSON.stringify(arr);
+  }
   if (event.fieldName === 'interpretarDictado') return interpretarDictado(event.arguments);
   if (event.fieldName === 'traducirTextos') return traducirTextos(event.arguments as { textos?: (string | null)[] | null; a?: string | null });
   const paths = (event.arguments.paths ?? []).filter((p): p is string => !!p).slice(0, MAX_FOTOS);

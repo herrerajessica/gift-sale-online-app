@@ -1,5 +1,5 @@
 import {
-  FOTOS_BASE, db, assets, ai, sesion, usarModoPublico, usarModoVendedora, estadoCatalogo,
+  FOTOS_BASE, db, assets, ai, agruparFotos, sesion, usarModoPublico, usarModoVendedora, estadoCatalogo,
   miTienda, crearTienda, listarTiendas, cambiarEstadoTienda, limpiarSlug, SLUG_RE,
   signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn, resetPassword, confirmResetPassword, updatePassword,
   googleDisponible, entrarConGoogle, alVolverDeGoogle, cerrarSesion,
@@ -11,6 +11,9 @@ import { qrCanvas } from './qr.js';
 import { escucha, vocabulario, corregir, codigosDichos, SEPARADOR_PRODUCTOS } from './voz.js';
 import { interpretarPorLotes } from './dictado.js';
 import { prepararUnion, ejecutarUnion } from './juntar-productos.js';
+import { arrastrable } from './arrastrar.js';
+import { abrirOrganizador } from './organizador-fotos.js';
+import './organizador.css';
 import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, marcaDeTexto, MARCAS } from './rubros.js';
 
 // Lógica de Showroomcito (misma que la versión de Claude).
@@ -419,7 +422,22 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
   }
 
   // ---------- Subida en bloque ----------
-  async function handleFiles(list){
+  function abrirOrganizadorFotos(list){
+    if(!S.canEdit || !S.assets || !S.db) return;
+    const files=[...list].filter(f=>f.type.startsWith('image/')||/\.(heic|heif)$/i.test(f.name));
+    if(!files.length){toast('Selecciona al menos una foto');return;}
+    abrirOrganizador(files,{
+      preparar:async f=>{const foto=await processPhoto(f,modoGuardado()||'mejorar');delete foto._blob;return foto;},
+      limpiar:deletePhotos,
+      agrupar:agruparFotos,
+      permitir:n=>{if(n>usoPlan().libres){toast('Los grupos superan los productos disponibles en tu plan');return false;}return true;},
+      referencia:()=>S.db.collection('productos').doc(),
+      guardar:(ref,nombre,fotos)=>ref.set({nombre,marca:'',precio:null,stock:null,categoria:'',publico:'',descripcion:'',condicion:'',estado:'oculto',fotos,creado:Date.now()}),
+      terminar:ids=>{toast('Productos guardados como ocultos. Revisa los datos antes de publicarlos.');abrirLote(ids,'subida');},
+    });
+  }
+  async function handleFiles(list, organizado=false){
+    if(S.mode==='group' && !organizado) { abrirOrganizadorFotos(list); return; }
     const files = [...list].filter(f => f.type.startsWith("image/") || /\.(heic|heif)$/i.test(f.name));
     if(!files.length){ toast("Ninguno de esos archivos es una foto"); return; }
     if(!S.assets || !S.db){ toast("Solo quien administra la vitrina puede subir fotos"); return; }
@@ -679,6 +697,15 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       const cover = p.fotos && p.fotos[0];
       const st = p.estado||"disponible";
       const card = el("div",{class:"card "+st+(p.stock===0?" agotado":"")+(S.sel.has(p.id)?" sel":"")});
+      card.dataset.producto=p.id;
+      if(S.canEdit && S.selecting){
+        const asa=el('button',{class:'drag-asa',type:'button','aria-label':'Arrastrar '+nom(p)+' para juntar'},'⠿ Arrastrar para juntar');
+        card.append(asa);
+        arrastrable(asa,{destino:'.card[data-producto]',soltar:destino=>{
+          const otro=destino.dataset.producto; if(otro===p.id) return;
+          S.sel=new Set([otro,p.id]); abrirUnion();
+        }});
+      }
       const open = el("button",{class:"open",type:"button","aria-label":(S.selecting?"Seleccionar ":tx("Ver ","View "))+(nom(p)||tx("producto","product")),onclick:()=>{ if(S.selecting){ toggleSel(p.id); } else openProduct(p.id); }});
       const ph = el("div",{class:"ph"});
       if(cover) ph.append(el("img",{src:src(cover.thumb||cover.full),alt:"",loading:"lazy",decoding:"async",onerror:function(){this.remove();}}));
@@ -784,7 +811,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   };
   $("bulkDup").onclick = ()=>buscarRepetidos();
   $("bulkTabla").onclick = ()=>{ if(!S.sel.size){ toast("Selecciona productos o toca Todos"); return; } abrirLote([...S.sel], "seleccion"); };
-  $("bulkJuntar").onclick = abrirUnion;
+  $("bulkJuntar").onclick = ()=>abrirUnion();
   function abrirUnion(){
     if(!S.canEdit) return;
     const ids = [...S.sel], productos = ids.map(id=>S.products.find(p=>p.id===id)).filter(Boolean);
