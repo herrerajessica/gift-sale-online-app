@@ -31,6 +31,17 @@ export function alVolverDeGoogle(ok, error) {
     if (payload.event === 'signInWithRedirect_failure') error(payload.data && payload.data.error);
   });
 }
+/**
+ * Cerrar sesión. Si entró con Google, Amplify además lleva a Cognito a cerrar su propia sesión
+ * (si no, la próxima vez "Continuar con Google" entraría directo sin preguntar la cuenta).
+ * Devuelve true cuando la página se va a Cognito y vuelve sola.
+ */
+export async function cerrarSesion() {
+  let conGoogle = false;
+  try { const s = await fetchAuthSession(); conGoogle = !!(s.tokens && s.tokens.idToken && s.tokens.idToken.payload.identities); } catch { /* sin sesión */ }
+  await signOut();
+  return conGoogle;
+}
 export { signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn, resetPassword, confirmResetPassword, updatePassword };
 
 // ---------- Sesión ----------

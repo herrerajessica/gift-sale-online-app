@@ -2,7 +2,7 @@ import {
   FOTOS_BASE, db, assets, ai, sesion, usarModoPublico, usarModoVendedora, estadoCatalogo,
   miTienda, crearTienda, listarTiendas, cambiarEstadoTienda, limpiarSlug, SLUG_RE,
   signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn, resetPassword, confirmResetPassword, updatePassword,
-  googleDisponible, entrarConGoogle, alVolverDeGoogle,
+  googleDisponible, entrarConGoogle, alVolverDeGoogle, cerrarSesion,
   PLANES, planVigente, tieneFondoIA, pagarPlan, quitarFondo, asistente, interpretarDictado, cancelarPlan, conectarCobros, estadoCobros, pagarPedido, pedidoYape,
   miTiendaActual, listarPedidos, cambiarEstadoPedido, cambiarPlanTienda, confianza, refrescarProductos, preguntarTienda, traducirTextos, clienteCuenta, listarClientes,
 } from './amplify-adapter.js';
@@ -1618,7 +1618,14 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   $("olvideBtn").onclick = ()=>{ pasoAuth("olvido",ti("Escribe el correo de tu cuenta y te enviaremos un código para crear una contraseña nueva.","Enter your account email and we'll send you a code to create a new password.")); $("loginEmail").focus(); };
   $("verNewPass").onclick = ()=>{ const ver = $("newPass").type==="password"; $("newPass").type = ver ? "text" : "password"; $("verNewPass").setAttribute("aria-pressed", String(ver)); $("verNewPass").setAttribute("aria-label", ver ? "Ocultar contraseña" : "Mostrar contraseña"); $("verNewPass").textContent = ver ? "🙈" : "👁"; };
   $("loginCancel").onclick = ()=>{ show("login", false); if(!slugPublico) show("landing", true); };
-  $("logoutBtn").onclick = async ()=>{ try{ await signOut(); }finally{ location.href = location.pathname; } };
+  $("logoutBtn").onclick = async ()=>{
+    $("logoutBtn").disabled = true;
+    let conGoogle = false;
+    try{ conGoogle = await cerrarSesion(); }catch(e){ console.warn("Cerrar sesión:", e); }
+    // Con Google la página va a Cognito a cerrar su sesión y vuelve sola; si no, se recarga aquí.
+    if(conGoogle) setTimeout(()=>{ location.href = location.pathname; }, 8000);
+    else location.href = location.pathname;
+  };
   $("resendCode").onclick = async ()=>{ try{ if(paso==="reset") await resetPassword({ username: correoPendiente }); else await resendSignUpCode({ username: correoPendiente }); toast("Te enviamos un código nuevo"); }catch(e){ loginErr(errAuth(e)); } };
   const errAuth = err => { const n = err && err.name;
     return n==="NotAuthorizedException"||n==="UserNotFoundException" ? ti("Correo o contraseña incorrectos","Wrong email or password")
