@@ -288,6 +288,11 @@ export const assets = {
 };
 
 // ---------- IA: función "clasificar" (Claude en Bedrock) ----------
+export async function agruparFotos(paths) {
+  const r=await client.queries.agruparFotos({paths}, {authMode:'userPool'});
+  const d=check(r);
+  return typeof d==='string'?JSON.parse(d):d;
+}
 export const ai = {
   async json(_prompt, opts) {
     const paths = [].concat((opts && opts.images) || []).filter((p) => typeof p === 'string');

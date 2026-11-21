@@ -232,6 +232,13 @@ const schema = a.schema({
     .handler(a.handler.function(clasificar))
     .authorization((allow) => [allow.authenticated()]),
 
+  agruparFotos: a
+    .query()
+    .arguments({ paths: a.string().array().required() })
+    .returns(a.string())
+    .handler(a.handler.function(clasificar))
+    .authorization((allow) => [allow.authenticated()]),
+
   // Traduce nombres y descripciones de productos (para la tienda en dos idiomas)
   traducirTextos: a
     .query()
