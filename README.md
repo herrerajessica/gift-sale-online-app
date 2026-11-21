@@ -221,6 +221,8 @@ Mientras `GOOGLE_LOGIN` no sea `si`, el botón no aparece y el despliegue no nec
 
 **Cuentas unidas:** si una vendedora ya tenía cuenta con correo y contraseña y entra con Google con el mismo correo, el disparador *pre sign-up* (`amplify/auth/pre-sign-up`) enlaza Google a su cuenta de siempre (misma tienda). La primera vez Cognito responde con un error al enlazar; la web reintenta sola una vez y ya entra. El disparador solo se agrega cuando `GOOGLE_LOGIN` = `si`.
 
+**Elegir la cuenta:** el botón pide a Google la lista de cuentas (`prompt: SELECT_ACCOUNT`). Cognito solo pasa ese pedido a Google con el inicio de sesión *managed login* (versión 2), así que `amplify/backend.ts` cambia el dominio de Cognito a esa versión y crea su estilo por defecto (`EstiloLoginGoogle`) cuando `GOOGLE_LOGIN` = `si`. Las cuentas y las sesiones no cambian.
+
 Para encenderlo por rama: en *Environment variables*, `GOOGLE_LOGIN` = `no` para todas las ramas y una anulación `si` solo en la rama que lo usa; `SITE_URL` igual, con la URL de cada rama. Cada rama tiene su propio dominio de Cognito: agrega los dos (origen y `/oauth2/idpresponse`) en el cliente de Google.
 
 ## Publicar en AWS (primera vez)
