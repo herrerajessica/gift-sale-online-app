@@ -26,10 +26,17 @@ export const googleDisponible = !!(outputs.auth && outputs.auth.oauth
 export const entrarConGoogle = () => signInWithRedirect({ provider: 'Google', options: { prompt: 'SELECT_ACCOUNT' } });
 /** Al volver de Google: avisa cuando la sesión quedó lista o si falló. */
 export function alVolverDeGoogle(ok, error) {
-  return Hub.listen('auth', ({ payload }) => {
-    if (payload.event === 'signInWithRedirect') ok();
-    if (payload.event === 'signInWithRedirect_failure') error(payload.data && payload.data.error);
+  let listo = false;
+  const fin = (f, x) => { if (!listo) { listo = true; f(x); } };
+  const quitar = Hub.listen('auth', ({ payload }) => {
+    if (payload.event === 'signInWithRedirect') fin(ok);
+    if (payload.event === 'signInWithRedirect_failure') fin(error, payload.data && payload.data.error);
   });
+  // Si Amplify terminó antes de empezar a escuchar, el aviso ya pasó: se revisa si ya hay sesión.
+  const revisar = setInterval(async () => {
+    try { const s = await fetchAuthSession(); if (s.tokens && s.tokens.idToken) fin(ok); } catch { /* aún no */ }
+  }, 400);
+  return () => { listo = true; clearInterval(revisar); quitar(); };
 }
 /**
  * Cerrar sesión. Si entró con Google, Amplify además lleva a Cognito a cerrar su propia sesión
