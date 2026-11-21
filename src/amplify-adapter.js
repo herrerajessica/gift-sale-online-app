@@ -4,7 +4,7 @@
 // y del panel de la dueña.
 import { Amplify } from 'aws-amplify';
 import { generateClient } from 'aws-amplify/data';
-import { uploadData, remove } from 'aws-amplify/storage';
+import { uploadData, downloadData, remove } from 'aws-amplify/storage';
 import {
   signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn, fetchAuthSession, signInWithRedirect,
   resetPassword, confirmResetPassword, updatePassword,
@@ -264,6 +264,11 @@ export const db = {
 
 // ---------- Fotos: cada vendedora en su carpeta productos/<identityId>/ ----------
 export const assets = {
+  async download(path) {
+    if (typeof path !== 'string' || !path.startsWith('productos/')) throw new Error('Ruta de foto no permitida');
+    const resultado = await downloadData({ path }).result;
+    return resultado.body.blob();
+  },
   async upload(blob) {
     const nombre = `${crypto.randomUUID()}.jpg`;
     let path;

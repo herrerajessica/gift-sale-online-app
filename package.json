@@ -8,6 +8,8 @@
     "preview": "vite preview",
     "sandbox": "ampx sandbox",
     "test": "playwright test",
+    "test:voz": "node --test scripts/voz-regresion.test.cjs",
+    "test:juntar": "node --test scripts/juntar-productos.test.cjs",
     "test:headed": "playwright test --headed",
     "test:req": "playwright test --grep",
     "report": "playwright show-report",
