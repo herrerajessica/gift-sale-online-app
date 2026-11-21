@@ -1,4 +1,5 @@
 import { defineAuth, secret } from '@aws-amplify/backend';
+import { preSignUp } from './pre-sign-up/resource';
 
 /**
  * Vendedoras: se registran con su correo (código de verificación por email)
@@ -37,4 +38,6 @@ export const auth = defineAuth({
       : {}),
   },
   groups: ['SUPERADMIN'],
+  // Con Google: une la cuenta de Google con la de correo y contraseña si tienen el mismo correo
+  ...(conGoogle ? { triggers: { preSignUp } } : {}),
 });

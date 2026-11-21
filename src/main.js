@@ -2,7 +2,7 @@ import {
   FOTOS_BASE, db, assets, ai, sesion, usarModoPublico, usarModoVendedora, estadoCatalogo,
   miTienda, crearTienda, listarTiendas, cambiarEstadoTienda, limpiarSlug, SLUG_RE,
   signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn, resetPassword, confirmResetPassword, updatePassword,
-  googleDisponible, entrarConGoogle, alVolverDeGoogle,
+  googleDisponible, entrarConGoogle, alVolverDeGoogle, cerrarSesion,
   PLANES, planVigente, tieneFondoIA, pagarPlan, quitarFondo, asistente, interpretarDictado, cancelarPlan, conectarCobros, estadoCobros, pagarPedido, pedidoYape,
   miTiendaActual, listarPedidos, cambiarEstadoPedido, cambiarPlanTienda, confianza, refrescarProductos, preguntarTienda, traducirTextos, clienteCuenta, listarClientes,
 } from './amplify-adapter.js';
@@ -1618,7 +1618,14 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   $("olvideBtn").onclick = ()=>{ pasoAuth("olvido",ti("Escribe el correo de tu cuenta y te enviaremos un código para crear una contraseña nueva.","Enter your account email and we'll send you a code to create a new password.")); $("loginEmail").focus(); };
   $("verNewPass").onclick = ()=>{ const ver = $("newPass").type==="password"; $("newPass").type = ver ? "text" : "password"; $("verNewPass").setAttribute("aria-pressed", String(ver)); $("verNewPass").setAttribute("aria-label", ver ? "Ocultar contraseña" : "Mostrar contraseña"); $("verNewPass").textContent = ver ? "🙈" : "👁"; };
   $("loginCancel").onclick = ()=>{ show("login", false); if(!slugPublico) show("landing", true); };
-  $("logoutBtn").onclick = async ()=>{ try{ await signOut(); }finally{ location.href = location.pathname; } };
+  $("logoutBtn").onclick = async ()=>{
+    $("logoutBtn").disabled = true;
+    let conGoogle = false;
+    try{ conGoogle = await cerrarSesion(); }catch(e){ console.warn("Cerrar sesión:", e); }
+    // Con Google la página va a Cognito a cerrar su sesión y vuelve sola; si no, se recarga aquí.
+    if(conGoogle) setTimeout(()=>{ location.href = location.pathname; }, 8000);
+    else location.href = location.pathname;
+  };
   $("resendCode").onclick = async ()=>{ try{ if(paso==="reset") await resetPassword({ username: correoPendiente }); else await resendSignUpCode({ username: correoPendiente }); toast("Te enviamos un código nuevo"); }catch(e){ loginErr(errAuth(e)); } };
   const errAuth = err => { const n = err && err.name;
     return n==="NotAuthorizedException"||n==="UserNotFoundException" ? ti("Correo o contraseña incorrectos","Wrong email or password")
@@ -2993,8 +3000,25 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
 
   // ----- Arranque -----
   (async ()=>{
+    // Regreso desde Google con error. La primera vez que alguien entra con Google y ya tenía
+    // cuenta con ese correo, Cognito enlaza las dos cuentas pero responde con un error:
+    // se reintenta una sola vez y ya entra a su cuenta de siempre.
+    if(params.has("error_description") || params.has("error")){
+      const detalle = String(params.get("error_description") || params.get("error") || "");
+      history.replaceState(null, "", location.pathname);
+      let reintentado = false; try{ reintentado = sessionStorage.getItem("google-reintento") === "1"; }catch(e){}
+      if(/already found an entry|presignup|pre ?sign ?up/i.test(detalle) && !reintentado){
+        try{ sessionStorage.setItem("google-reintento", "1"); }catch(e){}
+        toast(ti("Uniendo tu cuenta de Google con tu cuenta de Showroomcito…","Linking your Google account to your Showroomcito account…"));
+        try{ await entrarConGoogle(); return; }catch(e){}
+      }
+      try{ sessionStorage.removeItem("google-reintento"); }catch(e){}
+      console.warn("Google:", detalle);
+      setTimeout(()=>toast(ti("No se pudo entrar con Google. Intenta de nuevo o entra con tu correo.","Couldn't sign in with Google. Try again or use your email.")), 600);
+    }
     // Regreso desde Google: esperar a que Amplify termine de abrir la sesión.
     if(params.has("code") && params.has("state")){
+      try{ sessionStorage.removeItem("google-reintento"); }catch(e){}
       show("landing", false); show("vitrina", false);
       toast("Entrando con tu cuenta de Google…");
       await new Promise(res=>{
@@ -3021,7 +3045,7 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
     if(!ses.logged){ show("landing", true); show("vitrina", false); show("langBtn", true); aplicarIdiomaInicio(); pintarPlanesLanding(monedaLanding); { const st = document.querySelector(".brand .stamp"); if(st) st.hidden = true; } if(location.hash==="#entrar") abrirAuth("login"); return; }
 
     let tienda = null;
-    try{ tienda = await miTienda(ses.sub); }catch(e){
+    try{ tienda = await miTienda(ses.sub, ses.usuario, ses.superadmin); }catch(e){
       // Antes solo salía un aviso y la página quedaba en blanco: ahora el motivo queda a la vista con un botón para reintentar.
       show("vitrina", true); show("upload", false); show("empty", true);
       $("emptyTitle").textContent = "No se pudo cargar tu cuenta";
@@ -3039,13 +3063,14 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
       $("onboard").addEventListener("submit", async e=>{
         e.preventDefault(); const er=$("obErr"); er.hidden=true;
         const nombre=$("obName").value.trim(), slug=limpiarSlug($("obSlug").value), whatsapp=$("obWa").value.trim(), pais=$("obPais").value==="US"?"US":"PE";
-        if(!nombre){ er.textContent="Escribe el nombre de tu tienda"; er.hidden=false; return; }
-        if(!SLUG_RE.test(slug)){ er.textContent="El enlace debe tener entre 3 y 40 letras, números o guiones"; er.hidden=false; return; }
-        $("obBtn").disabled=true;
+        const fallo = m=>{ er.textContent=m; er.hidden=false; er.scrollIntoView({block:"center"}); toast(m); };
+        if(!nombre){ fallo("Escribe el nombre de tu tienda"); $("obName").focus(); return; }
+        if(!SLUG_RE.test(slug)){ fallo("El enlace debe tener entre 3 y 40 letras, números o guiones"); $("obSlug").focus(); return; }
+        $("obBtn").disabled=true; $("obBtn").textContent="Creando tu vitrina…";
         const rubro = ($("obRubros").querySelector('[aria-pressed="true"]')||{}).dataset?.rubro || "moda";
-        try{ await crearTienda({ slug, nombre, whatsapp, email: ses.email, pais, moneda: pais==="US" ? "USD" : "PEN", rubro }); location.reload(); }
-        catch(err){ er.textContent = err && err.code==="exists" ? "Ese enlace ya lo usa otra tienda. Prueba con otro." : err && err.code==="invalid" ? "Ese enlace no está permitido. Prueba con otro." : "No se pudo crear la vitrina: "+((err&&err.message)||""); er.hidden=false; }
-        finally{ $("obBtn").disabled=false; }
+        try{ await crearTienda({ slug, nombre, whatsapp, email: ses.email, pais, moneda: pais==="US" ? "USD" : "PEN", rubro }); toast("¡Vitrina creada!"); location.reload(); return; }
+        catch(err){ console.warn("Crear vitrina:", err); fallo(err && err.code==="exists" ? "Ese enlace ya lo usa otra tienda. Prueba con otro." : err && err.code==="invalid" ? "Ese enlace no está permitido. Prueba con otro." : "No se pudo crear la vitrina: "+((err&&err.message)||"intenta de nuevo")); }
+        $("obBtn").disabled=false; $("obBtn").textContent="Crear vitrina";
       });
       return;
     }
