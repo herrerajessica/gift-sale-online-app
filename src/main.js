@@ -1626,6 +1626,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     if(conGoogle) setTimeout(()=>{ location.href = location.pathname; }, 8000);
     else location.href = location.pathname;
   };
+  // En "Crea tu vitrina": si entró con la cuenta equivocada, sale y vuelve a elegir.
+  $("obOtra").onclick = ()=>$("logoutBtn").click();
   $("resendCode").onclick = async ()=>{ try{ if(paso==="reset") await resetPassword({ username: correoPendiente }); else await resendSignUpCode({ username: correoPendiente }); toast("Te enviamos un código nuevo"); }catch(e){ loginErr(errAuth(e)); } };
   const errAuth = err => { const n = err && err.name;
     return n==="NotAuthorizedException"||n==="UserNotFoundException" ? ti("Correo o contraseña incorrectos","Wrong email or password")
