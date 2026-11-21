@@ -21,7 +21,9 @@ export const FOTOS_BASE = (outputs.custom && outputs.custom.fotosUrl) || '';
 // ---------- Inicio de sesión con Google ----------
 export const googleDisponible = !!(outputs.auth && outputs.auth.oauth
   && (outputs.auth.oauth.identity_providers || []).includes('GOOGLE'));
-export const entrarConGoogle = () => signInWithRedirect({ provider: 'Google' });
+// prompt SELECT_ACCOUNT: Google siempre muestra la lista de cuentas (útil si en el equipo hay varias
+// o si lo comparten dos personas), aunque ya haya una sesión abierta.
+export const entrarConGoogle = () => signInWithRedirect({ provider: 'Google', options: { prompt: 'SELECT_ACCOUNT' } });
 /** Al volver de Google: avisa cuando la sesión quedó lista o si falló. */
 export function alVolverDeGoogle(ok, error) {
   return Hub.listen('auth', ({ payload }) => {
