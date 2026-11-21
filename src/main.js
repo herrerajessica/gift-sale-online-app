@@ -2993,8 +2993,25 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
 
   // ----- Arranque -----
   (async ()=>{
+    // Regreso desde Google con error. La primera vez que alguien entra con Google y ya tenía
+    // cuenta con ese correo, Cognito enlaza las dos cuentas pero responde con un error:
+    // se reintenta una sola vez y ya entra a su cuenta de siempre.
+    if(params.has("error_description") || params.has("error")){
+      const detalle = String(params.get("error_description") || params.get("error") || "");
+      history.replaceState(null, "", location.pathname);
+      let reintentado = false; try{ reintentado = sessionStorage.getItem("google-reintento") === "1"; }catch(e){}
+      if(/already found an entry|presignup|pre ?sign ?up/i.test(detalle) && !reintentado){
+        try{ sessionStorage.setItem("google-reintento", "1"); }catch(e){}
+        toast(ti("Uniendo tu cuenta de Google con tu cuenta de Showroomcito…","Linking your Google account to your Showroomcito account…"));
+        try{ await entrarConGoogle(); return; }catch(e){}
+      }
+      try{ sessionStorage.removeItem("google-reintento"); }catch(e){}
+      console.warn("Google:", detalle);
+      setTimeout(()=>toast(ti("No se pudo entrar con Google. Intenta de nuevo o entra con tu correo.","Couldn't sign in with Google. Try again or use your email.")), 600);
+    }
     // Regreso desde Google: esperar a que Amplify termine de abrir la sesión.
     if(params.has("code") && params.has("state")){
+      try{ sessionStorage.removeItem("google-reintento"); }catch(e){}
       show("landing", false); show("vitrina", false);
       toast("Entrando con tu cuenta de Google…");
       await new Promise(res=>{
