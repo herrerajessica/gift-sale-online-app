@@ -7,7 +7,7 @@ const assert=require('node:assert/strict');
       const context=await browser.newContext({viewport:{width:movil?390:1100,height:850},isMobile:movil,hasTouch:movil});
       const page=await context.newPage();
       await page.route('**/qa-organizador',route=>route.fulfill({contentType:'text/html',body:'<html><head><link rel="stylesheet" href="/src/organizador.css"><style>.overlay{position:fixed;inset:0;display:grid;place-items:center}.cart{padding:15px;background:white}.cart-head{display:flex}</style></head><body></body></html>'}));
-      await page.goto('http://127.0.0.1:5173/qa-organizador');
+      await page.goto((process.env.ORGANIZADOR_URL || 'http://127.0.0.1:5173')+'/qa-organizador');
       await page.evaluate(async()=>{
         const {abrirOrganizador}=await import('/src/organizador-fotos.js');
         window.guardados=[];window.ids=[];
