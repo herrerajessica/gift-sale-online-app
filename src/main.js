@@ -3038,7 +3038,7 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
     if(!ses.logged){ show("landing", true); show("vitrina", false); show("langBtn", true); aplicarIdiomaInicio(); pintarPlanesLanding(monedaLanding); { const st = document.querySelector(".brand .stamp"); if(st) st.hidden = true; } if(location.hash==="#entrar") abrirAuth("login"); return; }
 
     let tienda = null;
-    try{ tienda = await miTienda(ses.sub); }catch(e){
+    try{ tienda = await miTienda(ses.sub, ses.usuario, ses.superadmin); }catch(e){
       // Antes solo salía un aviso y la página quedaba en blanco: ahora el motivo queda a la vista con un botón para reintentar.
       show("vitrina", true); show("upload", false); show("empty", true);
       $("emptyTitle").textContent = "No se pudo cargar tu cuenta";
@@ -3056,13 +3056,14 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
       $("onboard").addEventListener("submit", async e=>{
         e.preventDefault(); const er=$("obErr"); er.hidden=true;
         const nombre=$("obName").value.trim(), slug=limpiarSlug($("obSlug").value), whatsapp=$("obWa").value.trim(), pais=$("obPais").value==="US"?"US":"PE";
-        if(!nombre){ er.textContent="Escribe el nombre de tu tienda"; er.hidden=false; return; }
-        if(!SLUG_RE.test(slug)){ er.textContent="El enlace debe tener entre 3 y 40 letras, números o guiones"; er.hidden=false; return; }
-        $("obBtn").disabled=true;
+        const fallo = m=>{ er.textContent=m; er.hidden=false; er.scrollIntoView({block:"center"}); toast(m); };
+        if(!nombre){ fallo("Escribe el nombre de tu tienda"); $("obName").focus(); return; }
+        if(!SLUG_RE.test(slug)){ fallo("El enlace debe tener entre 3 y 40 letras, números o guiones"); $("obSlug").focus(); return; }
+        $("obBtn").disabled=true; $("obBtn").textContent="Creando tu vitrina…";
         const rubro = ($("obRubros").querySelector('[aria-pressed="true"]')||{}).dataset?.rubro || "moda";
-        try{ await crearTienda({ slug, nombre, whatsapp, email: ses.email, pais, moneda: pais==="US" ? "USD" : "PEN", rubro }); location.reload(); }
-        catch(err){ er.textContent = err && err.code==="exists" ? "Ese enlace ya lo usa otra tienda. Prueba con otro." : err && err.code==="invalid" ? "Ese enlace no está permitido. Prueba con otro." : "No se pudo crear la vitrina: "+((err&&err.message)||""); er.hidden=false; }
-        finally{ $("obBtn").disabled=false; }
+        try{ await crearTienda({ slug, nombre, whatsapp, email: ses.email, pais, moneda: pais==="US" ? "USD" : "PEN", rubro }); toast("¡Vitrina creada!"); location.reload(); return; }
+        catch(err){ console.warn("Crear vitrina:", err); fallo(err && err.code==="exists" ? "Ese enlace ya lo usa otra tienda. Prueba con otro." : err && err.code==="invalid" ? "Ese enlace no está permitido. Prueba con otro." : "No se pudo crear la vitrina: "+((err&&err.message)||"intenta de nuevo")); }
+        $("obBtn").disabled=false; $("obBtn").textContent="Crear vitrina";
       });
       return;
     }

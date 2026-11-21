@@ -48,7 +48,8 @@ export async function sesion() {
     if (!s.tokens) return { logged: false };
     const p = s.tokens.idToken ? s.tokens.idToken.payload : s.tokens.accessToken.payload;
     const g = s.tokens.accessToken.payload['cognito:groups'];
-    return { logged: true, sub: p.sub, email: p.email || '', superadmin: Array.isArray(g) && g.includes('SUPERADMIN') };
+    const usuario = s.tokens.accessToken.payload.username || p['cognito:username'] || '';
+    return { logged: true, sub: p.sub, usuario, email: p.email || '', superadmin: Array.isArray(g) && g.includes('SUPERADMIN') };
   } catch { return { logged: false }; }
 }
 export function usarModoPublico(slug, logged) { MODO = 'publico'; TIENDA = slug; AUTH = logged ? 'userPool' : 'identityPool'; }
@@ -71,10 +72,20 @@ export function limpiarSlug(s) {
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
 }
 
-export async function miTienda(sub) {
-  const r = await client.models.Tienda.list({ authMode: 'userPool', limit: 1000 });
-  const items = check(r) || [];
-  return items.find((t) => String(t.owner || '').split('::')[0] === sub) || null;
+export async function miTienda(sub, usuario = '', superadmin = false) {
+  const items = [];
+  let nextToken = null;
+  do {
+    const r = await client.models.Tienda.list({ authMode: 'userPool', limit: 1000, nextToken });
+    items.push(...(check(r) || []));
+    nextToken = r.nextToken;
+  } while (nextToken);
+  // El dueño se guarda como "<sub>::<usuario>". Con Google el usuario es "google_…":
+  // se acepta cualquiera de las dos partes. La lista ya viene filtrada por dueña (salvo SUPERADMIN).
+  const partes = (t) => String(t.owner || '').split('::');
+  return items.find((t) => partes(t)[0] === sub)
+    || (usuario && items.find((t) => partes(t).includes(usuario)))
+    || (!superadmin && items.length === 1 ? items[0] : null);
 }
 
 export async function crearTienda({ slug, nombre, whatsapp, email, pais = 'PE', moneda, rubro = 'moda' }) {
