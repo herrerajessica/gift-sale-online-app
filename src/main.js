@@ -37,6 +37,20 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
   // Nombre y descripción en el idioma que ve el cliente (traducción automática si existe)
   const traducido = p => !S.canEdit && (EN() ? "en" : "es") !== idiomaBase();
   const nom = p => (traducido(p) && p.trNombre) || p.nombre || "";
+  // Página de inicio y cuenta (antes de entrar): en español salvo que elija English (o abra con ?lang=en)
+  const enInicio = () => S.idioma === "en";
+  const ti = (es, en) => enInicio() ? en : es;
+  function aplicarIdiomaInicio(){
+    const en = enInicio();
+    document.querySelectorAll("#landing [data-en], #login [data-en]").forEach(x=>{
+      if(x.dataset.es === undefined) x.dataset.es = x.innerHTML;
+      x.innerHTML = en ? x.dataset.en : x.dataset.es;
+    });
+    document.querySelectorAll(".foot .legales a").forEach((a,i)=>{ a.textContent = en ? ["Privacy","Terms"][i] : ["Privacidad","Términos"][i]; });
+    const ad = document.getElementById("adminLink"); if(ad) ad.textContent = en ? "Have things to sell? Create your showroom" : "¿Tienes cosas para vender? Crea tu showroom";
+    document.documentElement.lang = en ? "en" : "es";
+    const lb = $("langBtn"); lb.textContent = en ? "Español" : "English"; lb.setAttribute("aria-label", en ? "Ver en español" : "See in English");
+  }
   const descr = p => (traducido(p) && p.trDescripcion) || p.descripcion || "";
   const tx = (es, en) => EN() ? en : es;
   const CAT_EN = { "Ropa":"Clothing", "Zapatos":"Shoes", "Carteras y bolsos":"Bags", "Accesorios":"Accessories", "Relojes y joyería":"Watches & jewelry", "Perfumes y belleza":"Beauty & fragrance", "Electrónica":"Electronics", "Hogar":"Home", "Juguetes":"Toys", "Otros":"Other" };
@@ -1361,6 +1375,14 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   }
   $("cuentaBtn").onclick = openCuenta;
   $("langBtn").onclick = ()=>{
+    // Página de inicio y cuenta (sin tienda abierta)
+    if(!slugPublico && !S.canEdit){
+      S.idioma = enInicio() ? "es" : "en";
+      try{ localStorage.setItem(IDIOMA_KEY, S.idioma); }catch(e){}
+      aplicarIdiomaInicio(); pintarPlanesLanding(monedaLanding);
+      if(!$("login").hidden) pasoAuth(paso, paso==="signup" ? ti("Crea tu cuenta con tu correo. Te enviaremos un código para confirmar que es tuyo.","Create your account with your email. We'll send you a code to confirm it's yours.") : "");
+      return;
+    }
     S.idioma = EN() ? "es" : "en";
     try{ localStorage.setItem(IDIOMA_KEY, S.idioma); }catch(e){}
     renderConfig(); if(cartOpen) drawCart(); if(cuentaOpen) drawCuenta(); if(!$("cli").hidden) pintarCli();
@@ -1528,13 +1550,15 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   const loginErr = m=>{ const e=$("loginErr"); e.textContent=m; e.hidden=!m; };
   function pasoAuth(p, hint){
     paso = p; loginErr("");
-    const t = { login:["Entrar","Entrar"], signup:["Crear cuenta","Crear cuenta"], confirm:["Verifica tu correo","Verificar"], newPassword:["Nueva contraseña","Guardar y entrar"], olvido:["Recuperar contraseña","Enviarme un código"], reset:["Crea tu nueva contraseña","Guardar y entrar"] }[p];
+    const t = (enInicio()
+      ? { login:["Sign in","Sign in"], signup:["Create account","Create account"], confirm:["Check your email","Verify"], newPassword:["New password","Save and sign in"], olvido:["Reset password","Send me a code"], reset:["Create your new password","Save and sign in"] }
+      : { login:["Entrar","Entrar"], signup:["Crear cuenta","Crear cuenta"], confirm:["Verifica tu correo","Verificar"], newPassword:["Nueva contraseña","Guardar y entrar"], olvido:["Recuperar contraseña","Enviarme un código"], reset:["Crea tu nueva contraseña","Guardar y entrar"] })[p];
     $("authTitle").textContent = t[0]; $("loginBtn").textContent = t[1];
     show("emailRow", p==="login"||p==="signup"||p==="olvido"); show("passRow", p==="login"||p==="signup");
     show("codeRow", p==="confirm"||p==="reset"); show("resendCode", p==="confirm"||p==="reset"); show("newPassRow", p==="newPassword"||p==="reset");
     show("authSwitch", p!=="confirm" && p!=="newPassword"); show("olvideBtn", p==="login");
     show("googleBox", googleDisponible && (p==="login"||p==="signup"));
-    $("authSwitch").textContent = p==="signup" ? "Ya tengo cuenta" : p==="login" ? "Crear una cuenta" : "Volver a entrar";
+    $("authSwitch").textContent = p==="signup" ? ti("Ya tengo cuenta","I already have an account") : p==="login" ? ti("Crear una cuenta","Create an account") : ti("Volver a entrar","Back to sign in");
     $("loginPass").autocomplete = p==="signup" ? "new-password" : "current-password";
     // Crear cuenta: lista de requisitos que se marca sola y "repite la contraseña".
     show("reqPass", p==="signup" || p==="newPassword" || p==="reset"); show("pass2Row", p==="signup"); show("passIgual", false);
@@ -1548,7 +1572,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const v = (paso==="newPassword" || paso==="reset") ? $("newPass").value : $("loginPass").value;
     document.querySelectorAll("#reqPass li").forEach(li=>li.classList.toggle("ok", REQS[li.dataset.r](v)));
     const v2 = $("loginPass2").value, igual = $("passIgual");
-    if(paso==="signup" && v2){ igual.hidden = false; const ok = v2===$("loginPass").value; igual.className = "pass-igual " + (ok?"ok":"no"); igual.textContent = ok ? "✓ Las contraseñas coinciden" : "Las contraseñas todavía no coinciden"; }
+    if(paso==="signup" && v2){ igual.hidden = false; const ok = v2===$("loginPass").value; igual.className = "pass-igual " + (ok?"ok":"no"); igual.textContent = ok ? ti("✓ Las contraseñas coinciden","✓ Passwords match") : ti("Las contraseñas todavía no coinciden","Passwords don't match yet"); }
     else igual.hidden = true;
     // En cuanto la contraseña cumple todo (y coincide), se borra el aviso anterior.
     if(passCumple(v) && (paso!=="signup" || v2===v)) loginErr("");
@@ -1560,55 +1584,57 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     $("verPass").setAttribute("aria-pressed", String(ver)); $("verPass").setAttribute("aria-label", ver ? "Ocultar contraseña" : "Mostrar contraseña");
     $("verPass").textContent = ver ? "🙈" : "👁";
   };
-  function abrirAuth(p){ show("landing", false); show("login", true); pasoAuth(p, p==="signup" ? "Crea tu cuenta con tu correo. Te enviaremos un código para confirmar que es tuyo." : ""); $("login").scrollIntoView({block:"start"}); (p==="confirm"?$("loginCode"):$("loginEmail")).focus(); }
+  function abrirAuth(p){ show("landing", false); show("login", true); pasoAuth(p, p==="signup" ? ti("Crea tu cuenta con tu correo. Te enviaremos un código para confirmar que es tuyo.","Create your account with your email. We'll send you a code to confirm it's yours.") : ""); $("login").scrollIntoView({block:"start"}); (p==="confirm"?$("loginCode"):$("loginEmail")).focus(); }
   $("googleBtn").onclick = async ()=>{
     $("googleBtn").disabled = true; loginErr("");
     try{ await entrarConGoogle(); }   // la página se va a Google y vuelve sola
-    catch(e){ $("googleBtn").disabled = false; loginErr(e && e.name==="UserAlreadyAuthenticatedException" ? "Ya tienes una sesión abierta. Recarga la página." : "No se pudo abrir Google. Intenta de nuevo."); }
+    catch(e){ $("googleBtn").disabled = false; loginErr(e && e.name==="UserAlreadyAuthenticatedException" ? ti("Ya tienes una sesión abierta. Recarga la página.","You're already signed in. Reload the page.") : ti("No se pudo abrir Google. Intenta de nuevo.","Couldn't open Google. Please try again.")); }
   };
   $("adminLink").onclick = ()=>abrirAuth("signup");
   $("goSignup").onclick = ()=>abrirAuth("signup");
   // ----- Página principal: planes en soles o dólares y botones para crear la cuenta -----
   document.querySelectorAll('[data-ir="signup"]').forEach(b=>b.onclick = ()=>abrirAuth("signup"));
+  let monedaLanding = "PEN";
   function pintarPlanesLanding(moneda){
+    monedaLanding = moneda;
     const box = $("lPlanes"); if(!box) return; box.textContent = "";
     document.querySelectorAll(".l-moneda .chip").forEach(b=>b.setAttribute("aria-pressed", String(b.dataset.moneda===moneda)));
     for(const pl of PLANES){
       const precio = moneda==="USD" ? pl.precioUsd : pl.precio;
       box.append(el("div",{class:"plan-card"+(pl.id==="basico"?" on":"")},
         el("strong",null, pl.nombre),
-        el("div",{class:"plan-price"}, precio ? (moneda==="USD" ? `$${precio}` : `S/ ${precio}`) : "Gratis", precio ? el("small",null," /mes") : null),
-        el("span",null, pl.limite==null ? "Productos ilimitados" : `Hasta ${pl.limite} productos`),
-        el("span",null, "IA, voz, WhatsApp, Yape y tarjeta"),
-        pl.id!=="free" ? el("span",null, "Asistente y tiendas de confianza") : el("span",null, "Ideal para probar"),
-        pl.extra ? el("span",{class:"extra"}, "+ " + pl.extra) : null,
-        el("button",{class:"btn"+(pl.id==="free"?" primary":""),type:"button",onclick:()=>abrirAuth("signup")}, pl.id==="free" ? "Empezar gratis" : "Empezar")));
+        el("div",{class:"plan-price"}, precio ? (moneda==="USD" ? `$${precio}` : `S/ ${precio}`) : ti("Gratis","Free"), precio ? el("small",null,ti(" /mes"," /month")) : null),
+        el("span",null, pl.limite==null ? ti("Productos ilimitados","Unlimited products") : ti(`Hasta ${pl.limite} productos`,`Up to ${pl.limite} products`)),
+        el("span",null, ti("IA, voz, WhatsApp, Yape y tarjeta","AI, voice, WhatsApp, Yape and card")),
+        pl.id!=="free" ? el("span",null, ti("Asistente y tiendas de confianza","Assistant and trusted stores")) : el("span",null, ti("Ideal para probar","Great to try it out")),
+        pl.extra ? el("span",{class:"extra"}, "+ " + ti(pl.extra, "Coming soon: white-background photos (AI)")) : null,
+        el("button",{class:"btn"+(pl.id==="free"?" primary":""),type:"button",onclick:()=>abrirAuth("signup")}, pl.id==="free" ? ti("Empezar gratis","Start free") : ti("Empezar","Start"))));
     }
   }
   document.querySelectorAll(".l-moneda .chip").forEach(b=>b.onclick = ()=>pintarPlanesLanding(b.dataset.moneda));
   pintarPlanesLanding(/^en-US/i.test(navigator.language||"") ? "USD" : "PEN");
   $("goLogin").onclick = ()=>abrirAuth("login");
   $("authSwitch").onclick = ()=>pasoAuth(paso==="login"?"signup":"login");
-  $("olvideBtn").onclick = ()=>{ pasoAuth("olvido","Escribe el correo de tu cuenta y te enviaremos un código para crear una contraseña nueva."); $("loginEmail").focus(); };
+  $("olvideBtn").onclick = ()=>{ pasoAuth("olvido",ti("Escribe el correo de tu cuenta y te enviaremos un código para crear una contraseña nueva.","Enter your account email and we'll send you a code to create a new password.")); $("loginEmail").focus(); };
   $("verNewPass").onclick = ()=>{ const ver = $("newPass").type==="password"; $("newPass").type = ver ? "text" : "password"; $("verNewPass").setAttribute("aria-pressed", String(ver)); $("verNewPass").setAttribute("aria-label", ver ? "Ocultar contraseña" : "Mostrar contraseña"); $("verNewPass").textContent = ver ? "🙈" : "👁"; };
   $("loginCancel").onclick = ()=>{ show("login", false); if(!slugPublico) show("landing", true); };
   $("logoutBtn").onclick = async ()=>{ try{ await signOut(); }finally{ location.href = location.pathname; } };
   $("resendCode").onclick = async ()=>{ try{ if(paso==="reset") await resetPassword({ username: correoPendiente }); else await resendSignUpCode({ username: correoPendiente }); toast("Te enviamos un código nuevo"); }catch(e){ loginErr(errAuth(e)); } };
   const errAuth = err => { const n = err && err.name;
-    return n==="NotAuthorizedException"||n==="UserNotFoundException" ? "Correo o contraseña incorrectos"
-      : n==="UsernameExistsException" ? "Ya existe una cuenta con ese correo. Toca \"Ya tengo cuenta\"."
-      : n==="InvalidPasswordException" ? "La contraseña necesita 8 caracteres con mayúscula, minúscula, número y símbolo"
-      : n==="CodeMismatchException" ? "El código no es correcto. Revísalo o pide uno nuevo."
-      : n==="ExpiredCodeException" ? "El código venció. Toca \"Reenviar código\"."
-      : n==="UserNotConfirmedException" ? "Falta verificar tu correo."
-      : n==="LimitExceededException"||n==="TooManyRequestsException" ? "Hiciste muchos intentos seguidos. Espera unos minutos y vuelve a intentar."
+    return n==="NotAuthorizedException"||n==="UserNotFoundException" ? ti("Correo o contraseña incorrectos","Wrong email or password")
+      : n==="UsernameExistsException" ? ti("Ya existe una cuenta con ese correo. Toca \"Ya tengo cuenta\".","An account with that email already exists. Tap \"I already have an account\".")
+      : n==="InvalidPasswordException" ? ti("La contraseña necesita 8 caracteres con mayúscula, minúscula, número y símbolo","Password needs 8 characters with an uppercase, a lowercase, a number and a symbol")
+      : n==="CodeMismatchException" ? ti("El código no es correcto. Revísalo o pide uno nuevo.","Wrong code. Check it or ask for a new one.")
+      : n==="ExpiredCodeException" ? ti("El código venció. Toca \"Reenviar código\".","The code expired. Tap \"Resend code\".")
+      : n==="UserNotConfirmedException" ? ti("Falta verificar tu correo.","You still need to verify your email.")
+      : n==="LimitExceededException"||n==="TooManyRequestsException" ? ti("Hiciste muchos intentos seguidos. Espera unos minutos y vuelve a intentar.","Too many attempts. Wait a few minutes and try again.")
       : n==="InvalidParameterException" && paso==="olvido" ? "Esa cuenta todavía no verificó su correo o entra con Google: no se puede recuperar la contraseña así."
-      : ((err && err.message) || "No se pudo completar. Intenta de nuevo."); };
+      : ((err && err.message) || ti("No se pudo completar. Intenta de nuevo.","Something went wrong. Please try again.")); };
   async function trasLogin(r){
     if(r.isSignedIn){ location.href = location.pathname; return; }
     const step = r.nextStep && r.nextStep.signInStep;
     if(step==="CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED") return pasoAuth("newPassword","Es tu primer ingreso: crea una contraseña nueva.");
-    if(step==="CONFIRM_SIGN_UP"){ correoPendiente=$("loginEmail").value.trim(); try{ await resendSignUpCode({username:correoPendiente}); }catch(e){} return pasoAuth("confirm", `Te enviamos un código a ${correoPendiente}.`); }
+    if(step==="CONFIRM_SIGN_UP"){ correoPendiente=$("loginEmail").value.trim(); try{ await resendSignUpCode({username:correoPendiente}); }catch(e){} return pasoAuth("confirm", ti(`Te enviamos un código a ${correoPendiente}.`,`We sent a code to ${correoPendiente}.`)); }
     loginErr("Falta un paso para entrar: " + (step||"desconocido"));
   }
   $("login").addEventListener("submit", async e=>{
@@ -2992,7 +3018,7 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
       iniciarVitrina();
       return;
     }
-    if(!ses.logged){ show("landing", true); show("vitrina", false); { const st = document.querySelector(".brand .stamp"); if(st) st.hidden = true; } if(location.hash==="#entrar") abrirAuth("login"); return; }
+    if(!ses.logged){ show("landing", true); show("vitrina", false); show("langBtn", true); aplicarIdiomaInicio(); pintarPlanesLanding(monedaLanding); { const st = document.querySelector(".brand .stamp"); if(st) st.hidden = true; } if(location.hash==="#entrar") abrirAuth("login"); return; }
 
     let tienda = null;
     try{ tienda = await miTienda(ses.sub); }catch(e){
