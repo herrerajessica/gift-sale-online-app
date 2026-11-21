@@ -1,10 +1,12 @@
 import { defineBackend } from '@aws-amplify/backend';
 import { Stack } from 'aws-cdk-lib';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
+import { CfnManagedLoginBranding, CfnUserPoolDomain } from 'aws-cdk-lib/aws-cognito';
 import { FunctionUrlAuthType } from 'aws-cdk-lib/aws-lambda';
 import { CachePolicy, Distribution, ResponseHeadersPolicy, ViewerProtocolPolicy } from 'aws-cdk-lib/aws-cloudfront';
 import { S3BucketOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
 import { auth } from './auth/resource';
+import { preSignUp } from './auth/pre-sign-up/resource';
 import { data } from './data/resource';
 import { storage } from './storage/resource';
 import { clasificar } from './functions/clasificar/resource';
@@ -16,7 +18,7 @@ import { asistente } from './functions/asistente/resource';
 import { confianza } from './functions/confianza/resource';
 import { clientes } from './functions/clientes/resource';
 
-const backend = defineBackend({ auth, data, storage, clasificar, catalogo, pagos, stripeWebhook, fondo, asistente, confianza, clientes });
+const backend = defineBackend({ auth, data, storage, clasificar, catalogo, pagos, stripeWebhook, fondo, asistente, confianza, clientes, preSignUp });
 
 const bucket = backend.storage.resources.bucket;
 const tablas = backend.data.resources.tables;
@@ -186,3 +188,29 @@ tablaCliente.grantReadWriteData(pagosFn);
 backend.pagos.addEnvironment('CLIENTE_TABLE', tablaCliente.tableName);
 tablaCliente.grantReadWriteData(webhookFn);
 backend.stripeWebhook.addEnvironment('CLIENTE_TABLE', tablaCliente.tableName);
+
+// --- Pre sign-up (Google): buscar la cuenta con el mismo correo y enlazarla ---
+// Sin el ARN exacto del grupo de usuarios para no crear una dependencia circular (el grupo usa esta función).
+const preSignUpFn = backend.preSignUp.resources.lambda;
+preSignUpFn.addToRolePolicy(new PolicyStatement({
+  actions: ['cognito-idp:ListUsers', 'cognito-idp:AdminLinkProviderForUser'],
+  resources: [`arn:aws:cognito-idp:${Stack.of(preSignUpFn).region}:${Stack.of(preSignUpFn).account}:userpool/*`],
+}));
+
+// --- "Continuar con Google" siempre muestra la lista de cuentas ---
+// Cognito solo pasa prompt=select_account a Google con el inicio de sesión "managed login"
+// (versión 2); con el inicio clásico lo ignora y Google entra directo con la última cuenta.
+// Solo cambia la página de Cognito (no las cuentas ni las sesiones de las vendedoras).
+if (process.env.GOOGLE_LOGIN === 'si') {
+  const authStack = Stack.of(backend.auth.resources.userPool);
+  const dominios = authStack.node.findAll().filter((c): c is CfnUserPoolDomain => c instanceof CfnUserPoolDomain);
+  dominios.forEach((d) => { d.managedLoginVersion = 2; });
+  if (dominios.length) {
+    const estilo = new CfnManagedLoginBranding(authStack, 'EstiloLoginGoogle', {
+      userPoolId: backend.auth.resources.userPool.userPoolId,
+      clientId: backend.auth.resources.userPoolClient.userPoolClientId,
+      useCognitoProvidedValues: true,
+    });
+    dominios.forEach((d) => estilo.addDependency(d));
+  }
+}
