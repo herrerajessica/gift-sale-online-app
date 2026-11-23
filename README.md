@@ -245,6 +245,8 @@ Mantén presionado **Mover foto** para arrastrarla entre grupos en celular, o us
 
 En **Editar varios**, mantén presionado **Arrastrar para juntar** y suelta sobre otro producto. Se agregan a la selección temporal sin abrir el modal: puedes seguir arrastrando más productos, tocar una tarjeta para quitarla o usar **Cancelar grupo**. El botón **Juntar los N productos** abre la confirmación; no se guarda hasta confirmar. Los productos vendidos, apartados, compartidos o de otras tiendas no se pueden unir.
 
+Al confirmar una unión, primero se guardan copias independientes de todas las fotos en el producto principal y después se eliminan las fichas secundarias, sin sumar cantidades. Si alguna eliminación falla, se informa para borrar la ficha pendiente sin repetir la unión. Las uniones anteriores no se eliminan retroactivamente.
+
 La agrupación automática necesita desplegar la consulta `agruparFotos` y actualizar `amplify_outputs.json` del entorno utilizado. Sin esa consulta, el organizador manual sigue disponible. Las pruebas de lógica se ejecutan con `npm run test:grupos`; con Vite en `http://127.0.0.1:5173`, `node scripts/organizador-browser.cjs` prueba mouse y touch usando Chrome instalado y servicios simulados, sin escribir en AWS.
 
 ```bash

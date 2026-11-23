@@ -19,16 +19,16 @@ export function prepararUnion(productos, principalId, portada) {
   return { principal, secundarios:productos.filter(p => p.id !== principalId), fotos };
 }
 
-// Copias independientes: borrar después un producto oculto no rompe la galería principal.
-export async function ejecutarUnion(plan, {copiar, actualizar}) {
+// Copias independientes: eliminar las fichas secundarias no rompe la galería principal.
+export async function ejecutarUnion(plan, {copiar, actualizar, borrar}) {
   const fotos = [];
   for (const foto of plan.fotos) fotos.push(await copiar(foto));
-  // Nunca ocultar antes de confirmar que la galería principal quedó guardada.
+  // Nunca eliminar antes de confirmar que la galería principal quedó guardada.
   const unidosDesde=[...new Set([...(plan.principal.unidosDesde||[]),...plan.secundarios.flatMap(p=>[p.id,...(p.unidosDesde||[])])])];
   await actualizar(plan.principal.id, {fotos, huella:'', unidosDesde});
   const fallidos = [];
   for (const p of plan.secundarios) {
-    try { await actualizar(p.id, {estado:'oculto',unidoA:plan.principal.id}); } catch { fallidos.push(p.id); }
+    try { await borrar(p.id); } catch { fallidos.push(p.id); }
   }
   return {fallidos};
 }

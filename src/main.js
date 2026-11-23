@@ -863,23 +863,23 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
               return {full,thumb:f.thumb===f.full?full:await copiarArchivo(f.thumb)};
             },
             actualizar:(id,patch)=>S.db.doc("productos/"+id).update(patch),
+            borrar:id=>S.db.doc("productos/"+id).delete(),
           });
           const unidosDesde=[...new Set([...(plan.principal.unidosDesde||[]),...plan.secundarios.flatMap(p=>[p.id,...(p.unidosDesde||[])])])];
           const principalLocal=S.products.find(p=>p.id===plan.principal.id);
           if(principalLocal) principalLocal.unidosDesde=unidosDesde;
-          plan.secundarios.filter(p=>!resultado.fallidos.includes(p.id)).forEach(p=>{
-            const local=S.products.find(x=>x.id===p.id);if(local){local.unidoA=plan.principal.id;local.estado='oculto';}
-          });
+          const eliminados=new Set(plan.secundarios.filter(p=>!resultado.fallidos.includes(p.id)).map(p=>p.id));
+          S.products=S.products.filter(p=>!eliminados.has(p.id));
           ocupado=false; cerrar(); S.sel.clear(); S.selecting=false; render();
-          if(resultado.fallidos.length) toast(`Las fotos quedaron juntas, pero ${resultado.fallidos.length} producto(s) no se pudieron ocultar. Revísalos antes de continuar.`);
-          else toast(`Listo: un producto con ${plan.fotos.length} fotos. Los otros quedaron ocultos.`);
+          if(resultado.fallidos.length) toast(`Las fotos quedaron juntas, pero ${resultado.fallidos.length} ficha(s) secundaria(s) no se pudieron eliminar. Puedes borrarlas sin volver a unir sus fotos.`);
+          else toast(`Listo: queda un solo producto con ${plan.fotos.length} fotos.`);
           openProduct(plan.principal.id);
         } catch(e) { ocupado=false; pintar(); toast("No se pudo completar la unión. Revisa el producto principal antes de reintentar. "+errText(e)); }
       }},ocupado?"Juntando fotos…":"Confirmar unión");
       ov.append(el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":"Juntar en un producto",style:"width:min(680px,100%)"},
         el("div",{class:"cart-head"},el("h2",null,"Juntar en un producto"),el("button",{class:"btn",type:"button",disabled:ocupado,onclick:cerrar},"Cancelar")),
         el("label",{class:"f"},"Conservar los datos de",selector),
-        el("p",{class:"note"},`Se conservarán el código, nombre, precio y cantidad de ${plan.principal.nombre}. Las cantidades no se suman. Los otros ${plan.secundarios.length} productos quedarán ocultos y conservarán sus fotos.`),
+        el("p",{class:"note"},`Se conservarán el código, nombre, precio y cantidad de ${plan.principal.nombre}. Las cantidades no se suman. Después de guardar todas las fotos en el principal, se eliminarán las otras ${plan.secundarios.length} fichas. Esta eliminación no se puede deshacer.`),
         el("strong",null,`${plan.fotos.length} fotos · Toca una para elegir la portada`),galeria,confirmar));
     }
     pintar();

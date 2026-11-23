@@ -29,18 +29,20 @@ test('rechaza vendidos, apartados, compartidos y productos de otras tiendas',asy
   assert.throws(()=>prepararUnion(productos(),'inexistente'),/principal/);
 });
 
-test('guarda copias independientes antes de ocultar y conserva los datos principales',async()=>{
+test('guarda copias independientes antes de eliminar y deja una sola ficha',async()=>{
   const {prepararUnion,ejecutarUnion}=await modulo;
-  const lista=productos(), cambios=[];
+  const lista=productos(), cambios=[], restantes=new Set(lista.map(p=>p.id));
   await ejecutarUnion(prepararUnion(lista,'a'),{
     copiar:async f=>({full:'copia-'+f.full,thumb:'copia-'+f.thumb}),
     actualizar:async(id,patch)=>cambios.push({id,patch}),
+    borrar:async id=>{assert.equal(cambios[0].id,'a');restantes.delete(id);},
   });
   assert.equal(cambios[0].id,'a');
   assert.deepEqual(Object.keys(cambios[0].patch).sort(),['fotos','huella','unidosDesde']);
   assert.deepEqual(cambios[0].patch.unidosDesde,['b','c']);
   assert.ok(cambios[0].patch.fotos.every(f=>f.full.startsWith('copia-')));
-  assert.deepEqual(cambios.slice(1),[{id:'b',patch:{estado:'oculto',unidoA:'a'}},{id:'c',patch:{estado:'oculto',unidoA:'a'}}]);
+  assert.equal(cambios.length,1);
+  assert.deepEqual([...restantes],['a']);
   assert.equal(lista[0].stock,2);
 });
 
@@ -52,29 +54,30 @@ test('impide reutilizar secundarios unidos y repetir una unión parcialmente gua
   assert.throws(()=>prepararUnion(lista,'a'),/ya se juntaron/);
 });
 
-test('si falla una foto no modifica ni oculta productos',async()=>{
+test('si falla una foto no modifica ni elimina productos',async()=>{
   const {prepararUnion,ejecutarUnion}=await modulo;
   let cambios=0;
   await assert.rejects(ejecutarUnion(prepararUnion(productos(),'a'),{
-    copiar:async()=>{throw Error('sin conexión');},actualizar:async()=>cambios++,
+    copiar:async()=>{throw Error('sin conexión');},actualizar:async()=>cambios++,borrar:async()=>cambios++,
   }),/sin conexión/);
   assert.equal(cambios,0);
 });
 
-test('si falla el guardado principal no oculta secundarios',async()=>{
+test('si falla el guardado principal no elimina secundarios',async()=>{
   const {prepararUnion,ejecutarUnion}=await modulo;
   const ids=[];
   await assert.rejects(ejecutarUnion(prepararUnion(productos(),'a'),{
     copiar:async f=>f, actualizar:async id=>{ids.push(id);throw Error('falló guardado');},
+    borrar:async id=>ids.push(id),
   }));
   assert.deepEqual(ids,['a']);
 });
 
-test('informa los secundarios que no pudo ocultar y continúa con los restantes',async()=>{
+test('informa los secundarios que no pudo eliminar y continúa con los restantes',async()=>{
   const {prepararUnion,ejecutarUnion}=await modulo;
   const ids=[];
   const resultado=await ejecutarUnion(prepararUnion(productos(),'a'),{
-    copiar:async f=>f,actualizar:async id=>{ids.push(id);if(id==='b')throw Error('falló');},
+    copiar:async f=>f,actualizar:async id=>ids.push(id),borrar:async id=>{ids.push(id);if(id==='b')throw Error('falló');},
   });
   assert.deepEqual(ids,['a','b','c']);
   assert.deepEqual(resultado.fallidos,['b']);
