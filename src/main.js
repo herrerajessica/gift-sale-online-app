@@ -703,7 +703,12 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         card.append(asa);
         arrastrable(asa,{destino:'.card[data-producto]',soltar:destino=>{
           const otro=destino.dataset.producto; if(otro===p.id) return;
-          S.sel=new Set([otro,p.id]); abrirUnion();
+          const seleccion = new Set([...S.sel,otro,p.id]);
+          const productos = [...seleccion].map(id=>S.products.find(x=>x.id===id));
+          if(productos.some(x=>!x)){toast('Algún producto ya no está disponible. Revisa la selección.');return;}
+          try{prepararUnion(productos,[...seleccion][0]);}catch(e){toast(e.message);return;}
+          S.sel=seleccion; render();
+          toast(`${seleccion.size} productos preparados. Puedes agregar más o tocar Juntar.`);
         }});
       }
       const open = el("button",{class:"open",type:"button","aria-label":(S.selecting?"Seleccionar ":tx("Ver ","View "))+(nom(p)||tx("producto","product")),onclick:()=>{ if(S.selecting){ toggleSel(p.id); } else openProduct(p.id); }});
@@ -745,6 +750,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     $("bulk").hidden = !S.selecting;
     $("bulkCount").textContent = S.sel.size + (S.sel.size===1?" seleccionado":" seleccionados");
     $("bulkJuntar").disabled = S.sel.size < 2;
+    $("bulkJuntar").textContent = S.sel.size >= 2 ? `Juntar los ${S.sel.size} productos` : 'Juntar en un producto';
+    $("bulkCancelarUnion").hidden = S.sel.size < 2;
     $("bulkApply").disabled = $("bulkDel").disabled = $("bulkAI").disabled = $("bulkShare").disabled = $("bulkMover").disabled = $("bulkUnshare").disabled = !S.sel.size;
   }
   $("selectBtn").onclick = ()=>{ S.selecting=true; S.sel.clear(); render(); $("bulk").scrollIntoView({block:"nearest"}); };
@@ -812,6 +819,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   $("bulkDup").onclick = ()=>buscarRepetidos();
   $("bulkTabla").onclick = ()=>{ if(!S.sel.size){ toast("Selecciona productos o toca Todos"); return; } abrirLote([...S.sel], "seleccion"); };
   $("bulkJuntar").onclick = ()=>abrirUnion();
+  $("bulkCancelarUnion").onclick = ()=>{S.sel.clear();render();toast('Grupo cancelado. No se modificó ningún producto.');};
   function abrirUnion(){
     if(!S.canEdit) return;
     const ids = [...S.sel], productos = ids.map(id=>S.products.find(p=>p.id===id)).filter(Boolean);

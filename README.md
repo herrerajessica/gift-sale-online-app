@@ -243,7 +243,7 @@ En **Productos con varias fotos**, selecciona el lote y usa **Sugerir grupos con
 
 Mantén presionado **Mover foto** para arrastrarla entre grupos en celular, o usa el mouse en computadora. **Mover a…** ofrece la misma operación con teclado o sin arrastrar. Puedes crear grupos nuevos, juntar grupos, elegir portada y quitar fotos del lote. El guardado crea productos **ocultos** y abre la tabla para revisar sus datos antes de publicarlos. Un reintento conserva los productos ya guardados.
 
-En **Editar varios**, mantén presionado **Arrastrar para juntar** y suelta sobre otro producto. Se abre la confirmación de unión existente: no se guarda hasta confirmar. Los productos vendidos, apartados, compartidos o de otras tiendas no se pueden unir.
+En **Editar varios**, mantén presionado **Arrastrar para juntar** y suelta sobre otro producto. Se agregan a la selección temporal sin abrir el modal: puedes seguir arrastrando más productos, tocar una tarjeta para quitarla o usar **Cancelar grupo**. El botón **Juntar los N productos** abre la confirmación; no se guarda hasta confirmar. Los productos vendidos, apartados, compartidos o de otras tiendas no se pueden unir.
 
 La agrupación automática necesita desplegar la consulta `agruparFotos` y actualizar `amplify_outputs.json` del entorno utilizado. Sin esa consulta, el organizador manual sigue disponible. Las pruebas de lógica se ejecutan con `npm run test:grupos`; con Vite en `http://127.0.0.1:5173`, `node scripts/organizador-browser.cjs` prueba mouse y touch usando Chrome instalado y servicios simulados, sin escribir en AWS.
 
