@@ -37,10 +37,19 @@ test('guarda copias independientes antes de ocultar y conserva los datos princip
     actualizar:async(id,patch)=>cambios.push({id,patch}),
   });
   assert.equal(cambios[0].id,'a');
-  assert.deepEqual(Object.keys(cambios[0].patch).sort(),['fotos','huella']);
+  assert.deepEqual(Object.keys(cambios[0].patch).sort(),['fotos','huella','unidosDesde']);
+  assert.deepEqual(cambios[0].patch.unidosDesde,['b','c']);
   assert.ok(cambios[0].patch.fotos.every(f=>f.full.startsWith('copia-')));
-  assert.deepEqual(cambios.slice(1),[{id:'b',patch:{estado:'oculto'}},{id:'c',patch:{estado:'oculto'}}]);
+  assert.deepEqual(cambios.slice(1),[{id:'b',patch:{estado:'oculto',unidoA:'a'}},{id:'c',patch:{estado:'oculto',unidoA:'a'}}]);
   assert.equal(lista[0].stock,2);
+});
+
+test('impide reutilizar secundarios unidos y repetir una unión parcialmente guardada',async()=>{
+  const {prepararUnion}=await modulo;
+  const lista=productos();lista[1].unidoA='a';
+  assert.throws(()=>prepararUnion(lista,'a'),/ya se unió/);
+  delete lista[1].unidoA;lista[0].unidosDesde=['b'];
+  assert.throws(()=>prepararUnion(lista,'a'),/ya se juntaron/);
 });
 
 test('si falla una foto no modifica ni oculta productos',async()=>{

@@ -697,11 +697,15 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       const cover = p.fotos && p.fotos[0];
       const st = p.estado||"disponible";
       const card = el("div",{class:"card "+st+(p.stock===0?" agotado":"")+(S.sel.has(p.id)?" sel":"")});
-      card.dataset.producto=p.id;
+      if(!p.unidoA) card.dataset.producto=p.id;
+      if(S.canEdit && p.unidoA) card.append(el('span',{class:'union-etiqueta'},'Ya unido a otro producto'));
+      else if(S.canEdit && S.selecting && S.sel.has(p.id)) card.append(el('span',{class:'union-etiqueta'},'En el grupo · toca para quitar'));
       if(S.canEdit && S.selecting){
         const asa=el('button',{class:'drag-asa',type:'button','aria-label':'Arrastrar '+nom(p)+' para juntar'},'⠿ Arrastrar para juntar');
+        asa.disabled=!!p.unidoA || S.sel.has(p.id);
+        asa.textContent=p.unidoA?'Ya unido':S.sel.has(p.id)?'Agregado al grupo':'⠿ Arrastrar para juntar';
         card.append(asa);
-        arrastrable(asa,{destino:'.card[data-producto]',soltar:destino=>{
+        if(!asa.disabled) arrastrable(asa,{destino:'.card[data-producto]',soltar:destino=>{
           const otro=destino.dataset.producto; if(otro===p.id) return;
           const seleccion = new Set([...S.sel,otro,p.id]);
           const productos = [...seleccion].map(id=>S.products.find(x=>x.id===id));
@@ -744,7 +748,11 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   }
 
   // ---------- Selección en bloque ----------
-  function toggleSel(id){ S.sel.has(id)?S.sel.delete(id):S.sel.add(id); render(); }
+  function toggleSel(id){
+    const p=S.products.find(x=>x.id===id);
+    if(p?.unidoA){toast('Este producto ya está unido. Usa su producto principal.');return;}
+    S.sel.has(id)?S.sel.delete(id):S.sel.add(id); render();
+  }
   function renderBulk(){
     pintarAsisSel();
     $("bulk").hidden = !S.selecting;
@@ -756,7 +764,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   }
   $("selectBtn").onclick = ()=>{ S.selecting=true; S.sel.clear(); render(); $("bulk").scrollIntoView({block:"nearest"}); };
   $("bulkDone").onclick = ()=>{ S.selecting=false; S.sel.clear(); $("bulkConfirm").hidden=true; render(); };
-  $("bulkAll").onclick = ()=>{ const ids=filtered().map(p=>p.id); const all=ids.every(id=>S.sel.has(id)); ids.forEach(id=>all?S.sel.delete(id):S.sel.add(id)); render(); };
+  $("bulkAll").onclick = ()=>{ const ids=filtered().filter(p=>!p.unidoA).map(p=>p.id); const all=ids.every(id=>S.sel.has(id)); ids.forEach(id=>all?S.sel.delete(id):S.sel.add(id)); render(); };
   async function runPool(ids, fn){ let i=0, fails=0; await Promise.all(Array.from({length:Math.min(4,ids.length)},async()=>{ while(i<ids.length){ const id=ids[i++]; try{ await fn(id); }catch(e){ fails++; } } })); return fails; }
   $("bulkApply").onclick = async ()=>{
     const patch={}; const pv=$("bulkPrice").value.trim(), cv=$("bulkCat").value.trim(), sv=$("bulkStatus").value, pb=$("bulkPub").value, mv=$("bulkMarca").value.trim(), qv=$("bulkStock").value.trim(), cdv=$("bulkCond").value, mg=parseMargen($("bulkMargen").value);
@@ -855,6 +863,12 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
               return {full,thumb:f.thumb===f.full?full:await copiarArchivo(f.thumb)};
             },
             actualizar:(id,patch)=>S.db.doc("productos/"+id).update(patch),
+          });
+          const unidosDesde=[...new Set([...(plan.principal.unidosDesde||[]),...plan.secundarios.flatMap(p=>[p.id,...(p.unidosDesde||[])])])];
+          const principalLocal=S.products.find(p=>p.id===plan.principal.id);
+          if(principalLocal) principalLocal.unidosDesde=unidosDesde;
+          plan.secundarios.filter(p=>!resultado.fallidos.includes(p.id)).forEach(p=>{
+            const local=S.products.find(x=>x.id===p.id);if(local){local.unidoA=plan.principal.id;local.estado='oculto';}
           });
           ocupado=false; cerrar(); S.sel.clear(); S.selecting=false; render();
           if(resultado.fallidos.length) toast(`Las fotos quedaron juntas, pero ${resultado.fallidos.length} producto(s) no se pudieron ocultar. Revísalos antes de continuar.`);

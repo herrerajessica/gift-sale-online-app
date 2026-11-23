@@ -1,4 +1,13 @@
 .drag-asa{touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;cursor:grab;min-height:44px}
+.drag-asa:disabled{cursor:default;opacity:.7;touch-action:pan-y}
+.card.sel{border:3px solid #17834c!important;background:#e4f7eb!important;box-shadow:0 0 0 2px #17834c33}
+.card.sel .check{background:#17834c!important;border-color:#17834c!important}
+.union-etiqueta{display:block;background:#d8f2e2;color:#155b36;padding:8px;font-weight:700;font-size:12px}
+.bulk-seccion{flex-basis:100%;width:100%;border-top:1px solid var(--line,#ddd);padding-top:8px}
+.bulk-seccion>summary{cursor:pointer;font-weight:700;min-height:44px;padding:10px}
+.bulk-controles{display:flex;flex-wrap:wrap;gap:8px;padding:6px 0 10px;align-items:center}
+.bulk-controles>.note{flex-basis:100%;margin:0}
+#bulk{position:static}
 .card>.drag-asa{position:relative;z-index:2;width:100%;background:var(--surface,#fff);border:1px dashed var(--accent,#2454da);border-radius:10px;padding:8px}
 .drag-destino{outline:4px solid var(--accent,#2454da)!important;outline-offset:-4px;background:#dfeaff!important}
 .drag-fantasma{position:fixed!important;z-index:10000;pointer-events:none;transform:translate(-50%,-50%);opacity:.85;max-width:180px;background:white;padding:12px;border-radius:12px;box-shadow:0 6px 24px #0005}

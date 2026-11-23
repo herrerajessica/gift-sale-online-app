@@ -109,6 +109,8 @@ const schema = a.schema({
       // Lo llena la función "confianza"; el catálogo y los pagos lo verifican en el servidor
       // y nunca lo muestran al cliente (para el cliente, el producto es de la revendedora).
       origenId: a.string(),
+      unidoA: a.string(), // Producto principal al que se trasladaron sus fotos.
+      unidosDesde: a.string().array(), // Evita volver a copiar los mismos productos.
       origenTienda: a.string(),
     })
     .secondaryIndexes((index) => [index('tiendaId').name('byTienda')])

@@ -170,6 +170,8 @@ const toProducto = (it) => ({
   ofertaHasta: typeof it.ofertaHasta === 'number' ? it.ofertaHasta : null,
   precioAntes: typeof it.precioAntes === 'number' ? it.precioAntes : null,
   origenId: it.origenId || '',
+  unidoA: it.unidoA || '',
+  unidosDesde: it.unidosDesde || [],
   origenTienda: it.origenTienda || '',
   fotos: (it.fotosFull || []).map((full, i) => ({ full, thumb: (it.fotosThumb || [])[i] || full })),
 });
