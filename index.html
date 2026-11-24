@@ -903,6 +903,8 @@ html,body{overflow-x:clip}
     <button class="btn" id="bulkAll">Todos</button>
     <button class="btn" id="bulkDone">Terminar edición</button>
     <details class="bulk-seccion" open><summary>Juntar productos</summary><div class="bulk-controles">
+    <div id="unionGrupos" class="union-leyenda" role="group" aria-label="Grupos de unión"></div>
+    <button class="btn" type="button" id="unionNuevo">+ Nuevo grupo</button>
     <p class="note">Los marcados en verde forman el grupo. Puedes agregar más o tocar una tarjeta para quitarla.</p>
     <button class="btn primary" id="bulkJuntar" disabled>Juntar en un producto</button>
     <button class="btn" id="bulkCancelarUnion" hidden>Cancelar grupo</button>
@@ -977,7 +979,10 @@ html,body{overflow-x:clip}
   <div class="asis-log" id="asisLog" aria-live="polite"></div>
   <p class="asis-sel" id="asisSel"></p>
   <div class="asis-sug" id="asisSug"></div>
+  <div id="asisAdjuntos" class="asis-adjuntos" aria-label="Fotos adjuntas" hidden></div>
+  <input id="asisFotos" type="file" accept="image/*" multiple hidden>
   <form class="asis-form" id="asisForm" novalidate>
+    <button class="btn" type="button" id="asisAdjuntar" aria-label="Adjuntar fotos de productos" title="Adjuntar fotos de productos">📎</button>
     <textarea id="asisInput" rows="1" maxlength="1500" placeholder="Escribe aquí…" aria-label="Mensaje para el asistente"></textarea>
     <button class="btn" type="button" id="asisMic" aria-label="Hablar con el asistente" title="Habla y revisa el texto antes de enviarlo" hidden>🎙️</button>
     <button class="btn primary" type="submit" id="asisEnviar">Enviar</button>

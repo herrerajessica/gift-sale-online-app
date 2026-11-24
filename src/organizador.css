@@ -3,6 +3,17 @@
 .card.sel{border:3px solid #17834c!important;background:#e4f7eb!important;box-shadow:0 0 0 2px #17834c33}
 .card.sel .check{background:#17834c!important;border-color:#17834c!important}
 .union-etiqueta{display:block;background:#d8f2e2;color:#155b36;padding:8px;font-weight:700;font-size:12px}
+.card.en-grupo-union,.card.en-grupo-union.sel{border:3px solid var(--grupo-color)!important;background:color-mix(in srgb,var(--grupo-color) 12%,white)!important;box-shadow:0 0 0 2px color-mix(in srgb,var(--grupo-color) 20%,transparent)}
+.grupo-etiqueta{display:block;background:var(--grupo-color);color:#fff;padding:8px;font-size:13px;font-weight:700}
+.union-leyenda{display:flex;gap:8px;flex-wrap:wrap;width:100%}
+.grupo-leyenda{border-left:8px solid var(--grupo-color)!important}
+.grupo-leyenda[aria-pressed=true]{outline:2px solid var(--grupo-color)}
+.card.en-grupo-union>select{width:100%;min-height:44px}
+.asis-adjuntos{display:flex;gap:8px;flex-wrap:wrap;padding:10px 14px;max-height:170px;overflow:auto;flex-shrink:0}
+.asis-adjunto{width:80px;display:grid;gap:3px}.asis-adjunto img{height:65px;width:80px;object-fit:cover;border-radius:8px}
+.asis-adjunto button{font-size:12px;min-height:35px}.asis-adjuntos .note{flex-basis:100%;margin:0}
+.instrucciones-fotos{max-height:80px;overflow:auto;overflow-wrap:anywhere}
+@media(max-width:600px){#asisForm{flex-wrap:wrap}#asisInput{flex-basis:100%}#asisForm button{min-height:44px}}
 .bulk-seccion{flex-basis:100%;width:100%;border-top:1px solid var(--line,#ddd);padding-top:8px}
 .bulk-seccion>summary{cursor:pointer;font-weight:700;min-height:44px;padding:10px}
 .bulk-controles{display:flex;flex-wrap:wrap;gap:8px;padding:6px 0 10px;align-items:center}

@@ -85,7 +85,10 @@ export function abrirOrganizador(files, op){
     }
     cuerpo.append(zonaNueva);
     const ia=boton('Sugerir grupos con IA',sugerir);ia.disabled=ocupado||guardados.size>0;
-    card.append(head,estado,ia,cuerpo,boton('Guardar productos ocultos y revisar',guardar));ov.append(card);
+    card.append(head,estado);
+    if(op.instrucciones)card.append(el('p','Tus indicaciones: '+op.instrucciones,'note instrucciones-fotos'));
+    card.append(ia,cuerpo,boton('Guardar productos ocultos y revisar',guardar));ov.append(card);
   }
   pintar();
+  if(op.autoSugerir)sugerir();
 }

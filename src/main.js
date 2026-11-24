@@ -14,6 +14,8 @@ import { prepararUnion, ejecutarUnion } from './juntar-productos.js';
 import { arrastrable } from './arrastrar.js';
 import { abrirOrganizador } from './organizador-fotos.js';
 import './organizador.css';
+import { crearGruposUnion } from './grupos-union.js';
+const gruposUnion=crearGruposUnion();
 import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, marcaDeTexto, MARCAS } from './rubros.js';
 
 // Lógica de Showroomcito (misma que la versión de Claude).
@@ -424,18 +426,31 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
   }
 
   // ---------- Subida en bloque ----------
-  function abrirOrganizadorFotos(list){
+  function abrirOrganizadorFotos(list, opciones={}){
     if(!S.canEdit || !S.assets || !S.db) return;
     const files=[...list].filter(f=>f.type.startsWith('image/')||/\.(heic|heif)$/i.test(f.name));
     if(!files.length){toast('Selecciona al menos una foto');return;}
     abrirOrganizador(files,{
+      autoSugerir:!!opciones.asistente,
+      instrucciones:opciones.texto||'',
       preparar:async f=>{const foto=await processPhoto(f,modoGuardado()||'mejorar');delete foto._blob;return foto;},
       limpiar:deletePhotos,
       agrupar:agruparFotos,
       permitir:n=>{if(n>usoPlan().libres){toast('Los grupos superan los productos disponibles en tu plan');return false;}return true;},
       referencia:()=>S.db.collection('productos').doc(),
-      guardar:(ref,nombre,fotos)=>ref.set({nombre,marca:'',precio:null,stock:null,categoria:'',publico:'',descripcion:'',condicion:'',estado:'oculto',fotos,creado:Date.now()}),
-      terminar:ids=>{toast('Productos guardados como ocultos. Revisa los datos antes de publicarlos.');abrirLote(ids,'subida');},
+      guardar:async(ref,nombre,fotos)=>{
+        let visual={},dictado={};
+        if(opciones.asistente){
+          try{const r=await ai.json('',{images:[fotos[0].thumb],idioma:esUS()?'en':'es',rubro:rubroActual()});visual=r?.[0]||{};}catch(e){console.warn('No se completaron datos de la foto',e);}
+          if(opciones.texto)try{const r=await interpretarDictado([`Producto: ${nombre}. Extrae solamente datos de este producto presentes en estas indicaciones; si se refieren a otro producto, deja esos campos vacíos: ${opciones.texto}`],esUS()?'en':'es',enSoles()?'PEN':'USD',rubroActual());dictado=r?.[0]||{};}catch(e){console.warn('No se interpretaron las indicaciones',e);}
+        }
+        let precio=dictado.precio??null;
+        const moneda=enSoles()?'PEN':'USD';if(precio!=null&&dictado.moneda&&dictado.moneda!==moneda&&tipoCambio())precio=moneda==='PEN'?Math.round(precio*tipoCambio()*100)/100:Math.round(precio/tipoCambio()*100)/100;
+        const datos={nombre,marca:dictado.marca||visual.marca||'',precio,stock:dictado.stock??null,talla:dictado.talla||visual.talla||'',categoria:dictado.categoria||visual.categoria||'',publico:dictado.publico||visual.publico||'',descripcion:dictado.descripcion||visual.descripcion||'',condicion:dictado.condicion||visual.condicion||'',estado:'oculto',fotos,creado:Date.now()};
+        await ref.set(datos);
+        if(!S.products.some(p=>p.id===ref.id))S.products.push({id:ref.id,...datos});
+      },
+      terminar:ids=>{render();toast('Productos guardados como ocultos. Revisa los datos antes de publicarlos.');abrirLote(ids,'subida');},
     });
   }
   async function handleFiles(list, organizado=false){
@@ -699,23 +714,32 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       const cover = p.fotos && p.fotos[0];
       const st = p.estado||"disponible";
       const card = el("div",{class:"card "+st+(p.stock===0?" agotado":"")+(S.sel.has(p.id)?" sel":"")});
+      const grupoUnion=S.selecting?gruposUnion.propietario(p.id):null;
+      if(grupoUnion){card.classList.add('en-grupo-union');card.style.setProperty('--grupo-color',gruposUnion.color(grupoUnion.id));card.append(el('span',{class:'grupo-etiqueta'},grupoUnion.nombre));}
       if(!p.unidoA) card.dataset.producto=p.id;
       if(S.canEdit && p.unidoA) card.append(el('span',{class:'union-etiqueta'},'Ya unido a otro producto'));
       else if(S.canEdit && S.selecting && S.sel.has(p.id)) card.append(el('span',{class:'union-etiqueta'},'En el grupo · toca para quitar'));
       if(S.canEdit && S.selecting){
         const asa=el('button',{class:'drag-asa',type:'button','aria-label':'Arrastrar '+nom(p)+' para juntar'},'⠿ Arrastrar para juntar');
-        asa.disabled=!!p.unidoA || S.sel.has(p.id);
-        asa.textContent=p.unidoA?'Ya unido':S.sel.has(p.id)?'Agregado al grupo':'⠿ Arrastrar para juntar';
+        asa.disabled=!!p.unidoA || !!grupoUnion;
+        asa.textContent=p.unidoA?'Ya unido':grupoUnion?grupoUnion.nombre:'⠿ Arrastrar para juntar';
         card.append(asa);
         if(!asa.disabled) arrastrable(asa,{destino:'.card[data-producto]',soltar:destino=>{
           const otro=destino.dataset.producto; if(otro===p.id) return;
+          const destinoGrupo=gruposUnion.propietario(otro);
+          if(destinoGrupo)S.sel=gruposUnion.activar(destinoGrupo.id);
           const seleccion = new Set([...S.sel,otro,p.id]);
           const productos = [...seleccion].map(id=>S.products.find(x=>x.id===id));
           if(productos.some(x=>!x)){toast('Algún producto ya no está disponible. Revisa la selección.');return;}
           try{prepararUnion(productos,[...seleccion][0]);}catch(e){toast(e.message);return;}
-          S.sel=seleccion; render();
+          S.sel=gruposUnion.asignar(seleccion); render();
           toast(`${seleccion.size} productos preparados. Puedes agregar más o tocar Juntar.`);
         }});
+      }
+      if(S.canEdit&&S.selecting&&grupoUnion){
+        const mover=el('select',{'aria-label':'Grupo de '+nom(p)});
+        gruposUnion.grupos.forEach(g=>mover.append(el('option',{value:g.id},g.nombre)));mover.value=grupoUnion.id;
+        mover.onchange=()=>{S.sel=gruposUnion.activar(Number(mover.value));S.sel.add(p.id);S.sel=gruposUnion.asignar(S.sel);render();};card.append(mover);
       }
       const open = el("button",{class:"open",type:"button","aria-label":(S.selecting?"Seleccionar ":tx("Ver ","View "))+(nom(p)||tx("producto","product")),onclick:()=>{ if(S.selecting){ toggleSel(p.id); } else openProduct(p.id); }});
       const ph = el("div",{class:"ph"});
@@ -753,9 +777,14 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   function toggleSel(id){
     const p=S.products.find(x=>x.id===id);
     if(p?.unidoA){toast('Este producto ya está unido. Usa su producto principal.');return;}
-    S.sel.has(id)?S.sel.delete(id):S.sel.add(id); render();
+    const anterior=gruposUnion.propietario(id);
+    if(anterior&&anterior.id!==gruposUnion.activo){S.sel=gruposUnion.activar(anterior.id);render();return;}
+    S.sel.has(id)?S.sel.delete(id):S.sel.add(id);S.sel=gruposUnion.asignar(S.sel); render();
   }
   function renderBulk(){
+    gruposUnion.asignar(S.sel);
+    const leyenda=$('unionGrupos');leyenda.textContent='';
+    gruposUnion.grupos.forEach(g=>leyenda.append(el('button',{class:'btn grupo-leyenda',type:'button',style:`--grupo-color:${gruposUnion.color(g.id)}`,'aria-pressed':String(g.id===gruposUnion.activo),onclick:()=>{S.sel=gruposUnion.activar(g.id);render();}},`${g.nombre} · ${g.ids.size} productos`)));
     pintarAsisSel();
     $("bulk").hidden = !S.selecting;
     $("bulkCount").textContent = S.sel.size + (S.sel.size===1?" seleccionado":" seleccionados");
@@ -764,9 +793,10 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     $("bulkCancelarUnion").hidden = S.sel.size < 2;
     $("bulkApply").disabled = $("bulkDel").disabled = $("bulkAI").disabled = $("bulkShare").disabled = $("bulkMover").disabled = $("bulkUnshare").disabled = !S.sel.size;
   }
-  $("selectBtn").onclick = ()=>{ S.selecting=true; S.sel.clear(); render(); $("bulk").scrollIntoView({block:"nearest"}); };
-  $("bulkDone").onclick = ()=>{ S.selecting=false; S.sel.clear(); $("bulkConfirm").hidden=true; render(); };
-  $("bulkAll").onclick = ()=>{ const ids=filtered().filter(p=>!p.unidoA).map(p=>p.id); const all=ids.every(id=>S.sel.has(id)); ids.forEach(id=>all?S.sel.delete(id):S.sel.add(id)); render(); };
+  $('unionNuevo').onclick=()=>{S.sel=gruposUnion.nuevo();render();};
+  $("selectBtn").onclick = ()=>{ S.selecting=true; gruposUnion.limpiar();S.sel.clear(); render(); $("bulk").scrollIntoView({block:"nearest"}); };
+  $("bulkDone").onclick = ()=>{ S.selecting=false;gruposUnion.limpiar(); S.sel.clear(); $("bulkConfirm").hidden=true; render(); };
+  $("bulkAll").onclick = ()=>{ const ids=filtered().filter(p=>!p.unidoA&&(!gruposUnion.propietario(p.id)||gruposUnion.propietario(p.id).id===gruposUnion.activo)).map(p=>p.id); const all=ids.every(id=>S.sel.has(id)); ids.forEach(id=>all?S.sel.delete(id):S.sel.add(id)); render(); };
   async function runPool(ids, fn){ let i=0, fails=0; await Promise.all(Array.from({length:Math.min(4,ids.length)},async()=>{ while(i<ids.length){ const id=ids[i++]; try{ await fn(id); }catch(e){ fails++; } } })); return fails; }
   $("bulkApply").onclick = async ()=>{
     const patch={}; const pv=$("bulkPrice").value.trim(), cv=$("bulkCat").value.trim(), sv=$("bulkStatus").value, pb=$("bulkPub").value, mv=$("bulkMarca").value.trim(), qv=$("bulkStock").value.trim(), cdv=$("bulkCond").value, mg=parseMargen($("bulkMargen").value);
@@ -829,8 +859,9 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   $("bulkDup").onclick = ()=>buscarRepetidos();
   $("bulkTabla").onclick = ()=>{ if(!S.sel.size){ toast("Selecciona productos o toca Todos"); return; } abrirLote([...S.sel], "seleccion"); };
   $("bulkJuntar").onclick = ()=>abrirUnion();
-  $("bulkCancelarUnion").onclick = ()=>{S.sel.clear();render();toast('Grupo cancelado. No se modificó ningún producto.');};
+  $("bulkCancelarUnion").onclick = ()=>{S.sel=gruposUnion.quitarGrupo(gruposUnion.activo);render();toast('Grupo cancelado. No se modificó ningún producto.');};
   function abrirUnion(){
+    const grupoId=gruposUnion.activo;
     if(!S.canEdit) return;
     const ids = [...S.sel], productos = ids.map(id=>S.products.find(p=>p.id===id)).filter(Boolean);
     let principalId = ids[0], portada = null, ocupado = false;
@@ -873,7 +904,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
           if(principalLocal) principalLocal.unidosDesde=unidosDesde;
           const eliminados=new Set(plan.secundarios.filter(p=>!resultado.fallidos.includes(p.id)).map(p=>p.id));
           S.products=S.products.filter(p=>!eliminados.has(p.id));
-          ocupado=false; cerrar(); S.sel.clear(); S.selecting=false; render();
+          ocupado=false; cerrar();S.sel=gruposUnion.quitarGrupo(grupoId); S.selecting=gruposUnion.grupos.some(g=>g.ids.size);render();
           if(resultado.fallidos.length) toast(`Las fotos quedaron juntas, pero ${resultado.fallidos.length} ficha(s) secundaria(s) no se pudieron eliminar. Puedes borrarlas sin volver a unir sus fotos.`);
           else toast(`Listo: queda un solo producto con ${plan.fotos.length} fotos.`);
           openProduct(plan.principal.id);
@@ -2952,7 +2983,17 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
     log.scrollTop = log.scrollHeight;
   }
   async function enviarAsis(texto){
-    texto = String(texto||"").trim(); if(!texto || asisOcupado) return;
+    texto = String(texto||"").trim(); if(asisOcupado) return;
+    if(asisFotosPendientes.length){
+      if(!S.canEdit)return;
+      const fotos=[...asisFotosPendientes];
+      asisLog.push({role:'user',text:`${texto||'Crear productos a partir de estas fotos'} · ${fotos.length} fotos adjuntas`},
+        {role:'assistant',text:'Voy a preparar grupos con tus fotos. Revisa los grupos y sus datos antes de guardar. Los productos se crean ocultos; no busco en internet ni invento precio o stock.'});
+      limpiarAsisInput(texto);guardarAsis();pintarAsis();cerrarAsis();
+      asisFotosPendientes=[];pintarAdjuntosAsis();
+      abrirOrganizadorFotos(fotos,{asistente:true,texto});return;
+    }
+    if(!texto)return;
     // Órdenes rápidas (palabras clave): se entienden sin IA, al instante y siempre igual.
     if(/^(ordenes rapidas|ordenes|comandos|ayuda)\.?$/i.test(texto.normalize("NFD").replace(/[\u0300-\u036f]/g,""))){
       asisLog.push({ role:"user", text:texto }, { role:"assistant", text: AYUDA_ORDENES }); limpiarAsisInput(texto); guardarAsis(); pintarAsis(); return;
@@ -3013,7 +3054,23 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
   function cerrarAsis(){ $("asis").hidden = true; $("asisBtn").hidden = !S.canEdit; }
   $("asisBtn").onclick = abrirAsis;
   $("asisCerrar").onclick = cerrarAsis;
-  $("asisNuevo").onclick = ()=>{ asisLog = []; guardarAsis(); pintarAsis(); };
+  $("asisNuevo").onclick = ()=>{ asisLog = []; asisFotosPendientes=[];pintarAdjuntosAsis(); guardarAsis(); pintarAsis(); };
+  let asisFotosPendientes=[], asisFotosUrls=[];
+  function pintarAdjuntosAsis(){
+    asisFotosUrls.forEach(u=>URL.revokeObjectURL(u));asisFotosUrls=[];
+    const zona=$('asisAdjuntos');zona.textContent='';zona.hidden=!asisFotosPendientes.length;
+    asisFotosPendientes.forEach((f,i)=>{
+      const url=URL.createObjectURL(f);asisFotosUrls.push(url);
+      zona.append(el('div',{class:'asis-adjunto'},el('img',{src:url,alt:f.name}),el('button',{type:'button',class:'btn','aria-label':'Quitar foto '+(i+1),onclick:()=>{asisFotosPendientes.splice(i,1);pintarAdjuntosAsis();}},'Quitar')));
+    });
+    if(asisFotosPendientes.length)zona.append(el('p',{class:'note'},`${asisFotosPendientes.length} fotos · escribe o dicta las indicaciones y toca Enviar`));
+  }
+  $('asisAdjuntar').onclick=()=>{if(S.canEdit&&!asisOcupado)$('asisFotos').click();};
+  $('asisFotos').onchange=e=>{
+    if(!S.canEdit)return;
+    asisFotosPendientes.push(...[...e.target.files].filter(f=>f.type.startsWith('image/')||/\.(heic|heif)$/i.test(f.name)));
+    e.target.value='';pintarAdjuntosAsis();
+  };
   $("asisForm").addEventListener("submit", e=>{ e.preventDefault(); enviarAsis($("asisInput").value); });
   // Hablarle al asistente para actualizar la tienda ("bájale 10 soles a las carteras"). El texto queda
   // en la caja para revisarlo; el asistente igual muestra los cambios y la vendedora los confirma.

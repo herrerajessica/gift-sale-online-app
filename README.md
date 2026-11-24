@@ -239,6 +239,12 @@ Cada merge a `main` vuelve a desplegar backend y web.
 
 ### Organizar varios productos con varias fotos
 
+**Grupos de unión:** en Editar varios, la leyenda muestra cada grupo con su color y cantidad. Usa Nuevo grupo para preparar otra unión, toca la leyenda para cambiar el grupo activo y usa el selector de la tarjeta para trasladarla a otro grupo. Cada producto pertenece a un solo grupo. Confirma cada grupo por separado para elegir su principal y portada; las otras uniones pendientes se conservan.
+
+**Fotos en el asistente:** el clip permite adjuntar imágenes, revisar miniaturas y quitar adjuntos. Escribe o dicta indicaciones y toca Enviar para abrir el organizador con agrupación automática. Antes de guardar, revisa los grupos y las indicaciones. Al guardar se propone marca, talla, categoría y descripción a partir de fotos, y precio/stock solo a partir de las indicaciones. Los productos se guardan ocultos y abren la revisión en tabla. No hay consulta a internet. Nueva conversación limpia también los adjuntos pendientes.
+
+`npm run test:grupos-union` verifica la separación entre grupos. Con Vite activo, `node scripts/grupos-chat-browser.cjs` prueba la interfaz real en tamaños de web y celular con agrupación, clasificación y persistencia simuladas; no modifica datos en AWS.
+
 En **Productos con varias fotos**, selecciona el lote y usa **Sugerir grupos con IA** o crea grupos manualmente. La IA analiza hasta 20 fotos por intento; las restantes y las ambiguas quedan en **Por organizar**. Revisa siempre las propuestas: no se presupone un número fijo de fotos por producto.
 
 Mantén presionado **Mover foto** para arrastrarla entre grupos en celular, o usa el mouse en computadora. **Mover a…** ofrece la misma operación con teclado o sin arrastrar. Puedes crear grupos nuevos, juntar grupos, elegir portada y quitar fotos del lote. El guardado crea productos **ocultos** y abre la tabla para revisar sus datos antes de publicarlos. Un reintento conserva los productos ya guardados.
