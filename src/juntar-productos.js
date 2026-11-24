@@ -1,3 +1,9 @@
+export function verificarModeloUnion(campos) {
+  if (!campos?.unidoA || !campos?.unidosDesde) {
+    throw Object.assign(new Error('La configuración de unión está desactualizada. Actualiza el backend y el archivo amplify_outputs.json del mismo entorno antes de volver a intentar.'), {code:'union_desactualizada'});
+  }
+}
+
 export function prepararUnion(productos, principalId, portada) {
   if (productos.length < 2 || new Set(productos.map(p => p.id)).size !== productos.length) throw new Error('Selecciona al menos dos productos distintos.');
   if (productos.some(p => p.origenId || p.compartido || !['disponible', 'oculto'].includes(p.estado))) {

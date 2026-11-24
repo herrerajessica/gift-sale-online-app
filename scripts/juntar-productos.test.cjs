@@ -9,6 +9,13 @@ const productos = () => [
   {id:'c',nombre:'Etiqueta',stock:1,estado:'oculto',fotos:[{full:'etiqueta'}]},
 ];
 
+test('detecta la configuración antigua antes de copiar o modificar fotos',async()=>{
+  const {verificarModeloUnion}=await modulo;
+  assert.throws(()=>verificarModeloUnion({nombre:{}}),{code:'union_desactualizada'});
+  assert.throws(()=>verificarModeloUnion(undefined),{code:'union_desactualizada'});
+  assert.doesNotThrow(()=>verificarModeloUnion({unidoA:{},unidosDesde:{}}));
+});
+
 test('junta tres fichas, elimina fotos repetidas y respeta la portada elegida',async()=>{
   const {prepararUnion}=await modulo;
   const originales=productos(), antes=JSON.stringify(originales);

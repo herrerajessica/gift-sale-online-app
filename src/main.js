@@ -1,5 +1,5 @@
 import {
-  FOTOS_BASE, db, assets, ai, agruparFotos, sesion, usarModoPublico, usarModoVendedora, estadoCatalogo,
+  FOTOS_BASE, db, assets, ai, agruparFotos, verificarConfiguracionUnion, sesion, usarModoPublico, usarModoVendedora, estadoCatalogo,
   miTienda, crearTienda, listarTiendas, cambiarEstadoTienda, limpiarSlug, SLUG_RE,
   signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn, resetPassword, confirmResetPassword, updatePassword,
   googleDisponible, entrarConGoogle, alVolverDeGoogle, cerrarSesion,
@@ -269,6 +269,8 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
   function errText(e){
     const c = e && e.code, m = String((e && e.message) || "");
     if(e) console.warn("Detalle técnico:", e);
+    if(c==='union_desactualizada') return m;
+    if(/not defined for input object type.*UpdateProductoInput|field.*not.*defined.*UpdateProductoInput/i.test(m)) return 'el backend de este entorno no está actualizado para unir productos; revisa el despliegue y amplify_outputs.json';
     if(c==="too_large") return "la foto es demasiado grande";
     if(c==="quota_or_state") return "se llenó el espacio de tu tienda; borra productos que ya no vendes";
     if(c==="rate_limited" || /throttl|too many|rate/i.test(m)) return "hubo muchas subidas seguidas; reintenta en un minuto";
@@ -848,6 +850,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       plan.fotos.forEach((f,i)=>galeria.append(el("button",{class:"t"+(i===0?" on":""),type:"button",disabled:ocupado,"aria-label":`Usar foto ${i+1} como portada`,"aria-pressed":String(i===0),onclick:()=>{ portada=f.full; pintar(); }},el("img",{src:src(f.thumb),alt:`Foto ${i+1}`,style:"width:80px;height:80px;object-fit:cover"}))));
       const confirmar = el("button",{class:"btn primary",type:"button",disabled:ocupado,onclick:async()=>{
         if(ocupado) return;
+        try { verificarConfiguracionUnion(); } catch(e) { toast(errText(e)); return; }
         const actuales=ids.map(id=>S.products.find(p=>p.id===id)).filter(Boolean);
         if(JSON.stringify(actuales)!==firma){ toast("Los productos cambiaron. Cierra y vuelve a seleccionarlos para revisar los datos actuales."); return; }
         ocupado=true; pintar();

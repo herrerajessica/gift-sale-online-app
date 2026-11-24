@@ -12,6 +12,9 @@ import {
 import { Hub } from 'aws-amplify/utils';
 import 'aws-amplify/auth/enable-oauth-listener';
 import outputs from '../amplify_outputs.json';
+import { verificarModeloUnion } from './juntar-productos.js';
+
+export const verificarConfiguracionUnion = () => verificarModeloUnion(outputs.data?.model_introspection?.models?.Producto?.fields);
 
 Amplify.configure(outputs);
 const client = generateClient();
