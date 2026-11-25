@@ -3027,7 +3027,11 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
   // Las tablas Markdown (| a | b |) se muestran como tabla, igual que la tarjeta de cambios.
   function negritas(t){
     const out = [];
-    String(t).replace(/<br\s*\/?>/gi, "\n").split(/\*\*(.+?)\*\*/s).forEach((parte, i)=>{ if(parte) out.push(i % 2 ? el("strong",{}, parte) : document.createTextNode(parte)); });
+    // Enlaces (las fuentes de las búsquedas en internet) se abren en otra pestaña.
+    const conEnlaces = txt => String(txt).split(/(https?:\/\/[^\s<>()"]+[^\s<>()".,;:!?])/).map((p, j)=> j % 2
+      ? el("a",{href:p, target:"_blank", rel:"noopener noreferrer"}, (()=>{ try{ const u = new URL(p); return u.hostname.replace(/^www\./,"") + (u.pathname.length > 1 ? u.pathname.slice(0, 40) + (u.pathname.length > 40 ? "…" : "") : ""); }catch(e){ return p; } })())
+      : document.createTextNode(p));
+    String(t).replace(/<br\s*\/?>/gi, "\n").split(/\*\*(.+?)\*\*/s).forEach((parte, i)=>{ if(parte) out.push(...(i % 2 ? [el("strong",{}, parte)] : conEnlaces(parte))); });
     return out;
   }
   function textoAsis(t){

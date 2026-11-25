@@ -84,6 +84,14 @@ Al crear la tienda, en la misma pantalla, la vendedora toca **¿Qué vendes?**: 
 - Órdenes rápidas por tipo: "todas las faldas 20 % de descuento hoy".
 - Próximo: rubros sin fotos (Frutas y verduras, Abarrotes) con unidad (kg, atado) y productos de inicio.
 
+### Buscar en internet (Amazon Nova Web Grounding)
+
+Si la vendedora lo pide ("busca en internet la CAR-001", "completa con internet las carteras nuevas"), el asistente usa la herramienta `buscar_en_internet`: una llamada aparte a Nova 2 Lite con la herramienta de sistema `nova_grounding` (perfil `us.amazon.nova-2-lite-v1:0`, solo regiones de EE. UU.). Con lo que encuentra propone descripción, material, medidas o colores en la tarjeta de antes y después; el precio en EE. UU. es solo referencia. Las fuentes se agregan siempre al final de la respuesta (AWS lo exige).
+
+- Límite: `LIMITE_WEB` en `amplify/functions/asistente/herramientas.ts` (10 por día y por tienda, de prueba) y 3 por mensaje (`WEB_POR_MENSAJE`). El contador está en `Tienda.webDia` / `Tienda.webUsos`.
+- Costo: cada búsqueda se cobra aparte de los tokens. Para ver el precio real: AWS Billing › Cost Explorer, servicio Amazon Bedrock, al día siguiente de probar.
+- Permiso: `bedrock:InvokeTool` sobre `system-tool/amazon.nova_grounding` (en `amplify/backend.ts`).
+
 ## Asistente de compras para clientes
 
 En la tienda pública, el botón **¿Buscas algo?** abre un chat donde el cliente pregunta ("regalos para niño de 5 años", "¿qué ofertas hay?", "algo para mamá menos de S/ 100"). La consulta `preguntarTienda` (función `catalogo`, archivo `catalogo/cliente.ts`) arma la misma lista que ve el cliente (sin ocultos, vendidos ni agotados, sin costos ni origen) y le pide a Nova 2 Lite una respuesta corta con hasta 6 códigos. La tienda muestra tarjetas con foto, código y precio; al tocar una se abre el producto para agregarlo al pedido. El cierre sigue siendo por WhatsApp, Yape o tarjeta.

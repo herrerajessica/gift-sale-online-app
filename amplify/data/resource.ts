@@ -66,6 +66,9 @@ const schema = a.schema({
       // Uso del asistente por día (límite según el plan)
       asistenteDia: a.string().authorization(soloLecturaDueña),
       asistenteUsos: a.integer().authorization(soloLecturaDueña),
+      // Búsquedas en internet del asistente por día (cada una tiene costo aparte en AWS)
+      webDia: a.string().authorization(soloLecturaDueña),
+      webUsos: a.integer().authorization(soloLecturaDueña),
     })
     .authorization((allow) => [allow.owner(), allow.group('SUPERADMIN')]),
 

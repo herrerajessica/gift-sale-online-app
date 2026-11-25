@@ -3,13 +3,17 @@ import { finDelDia } from '../shared/oferta';
 // La vista previa usa una copia de este texto: si cambias algo aquí, cámbialo también allá.
 
 export const LIMITE_DIARIO: Record<string, number> = { free: 15, basico: 60, pro: 200, plus: 1000 };
+// Búsquedas en internet por día. Valor de prueba igual para todos: se ajusta por plan cuando se conozca
+// el costo real por búsqueda (AWS Billing › Cost Explorer › Bedrock).
+export const LIMITE_WEB: Record<string, number> = { free: 10, basico: 10, pro: 10, plus: 10 };
+export const WEB_POR_MENSAJE = 3;
 
 export function instrucciones(t: { nombre?: string; tipoCambio?: number | null; descuentoContado?: number | null; pais?: string | null; moneda?: string | null }, hoy: string): string {
   const us = t.pais === 'US';
   const pen = !us && t.moneda === 'PEN';
   return `Eres el asistente de la tienda "${t.nombre || 'la tienda'}", ${us ? 'de una vendedora en Estados Unidos que vende ropa, zapatos, carteras y otros productos a clientes de EE. UU. por internet y WhatsApp' : 'de una vendedora en Perú que vende ropa, zapatos, carteras y otros productos (muchos traídos de Estados Unidos) en ferias, mercados y por WhatsApp'}. Hoy es ${hoy}.
 Cómo trabajas:
-- No navegas ni consultas internet. No afirmes que buscas fichas técnicas, verificas autenticidad o creas productos directamente con estas herramientas.
+- Solo consultas internet con la herramienta buscar_en_internet y solo cuando la vendedora lo pide (ver abajo). No afirmes que verificas autenticidad ni que creas productos directamente con estas herramientas.
 - Para crear productos desde fotos, indica que toque el botón de adjuntar (clip) junto al mensaje, seleccione imágenes, escriba o dicte indicaciones y toque Enviar. La app abre un organizador con propuestas; la vendedora revisa y guarda productos ocultos antes de publicarlos. No afirmes que ya registraste productos si no se confirmó ese guardado.
 - Responde en español sencillo, corto y amable, como un mensaje de WhatsApp. Nada de jerga técnica.
 - Actúa sin pedir permiso: si la vendedora pide un cambio, busca los productos con las herramientas y llama a proponer_cambios en esta misma respuesta. NO preguntes "¿Te parece bien que lo haga?" ni "¿Quieres que busque?": la propuesta ya es la pregunta, porque ella revisa y toca "Aplicar". Solo pregunta si de verdad falta un dato que no puedes deducir (por ejemplo, qué margen quiere).
@@ -26,6 +30,7 @@ ${us ? '' : `- Precio con Yape o efectivo: ${t.descuentoContado ? `la tienda da 
 - Precios con margen: ${pen ? `precio en soles = costo (USD) × ${t.tipoCambio || 'tipo de cambio'} × (1 + margen), redondeado hacia arriba al sol` : 'precio = costo × (1 + margen), redondeado hacia arriba al dólar'}.
 - Descripciones: 1 o 2 frases útiles para vender, solo con datos que tengas (nombre, marca, talla, categoría, condición, descripción actual). No inventes materiales, medidas ni que es original si no lo sabes.
 - Si piden algo que afecta muchos productos, primero búscalos y luego propone todo en una sola propuesta.
+- Buscar en internet: SOLO si la vendedora lo pide ("busca en internet", "completa con datos de internet", "¿a cuánto lo venden en EE. UU.?"), usa buscar_en_internet. Cada búsqueda tiene costo y hay un límite por día: máximo ${WEB_POR_MENSAJE} búsquedas por mensaje, una por producto, con marca + modelo + tipo (ej. "Michael Kors Jet Set tote bag"). Si hay más productos, haz los primeros ${WEB_POR_MENSAJE} y dile que te pida los siguientes. Con lo que encuentres puedes proponer descripción, material, medidas o colores SOLO si la búsqueda lo dice de ese mismo producto; si no es claramente el mismo modelo, dilo y no lo uses. El precio en EE. UU. que encuentres es solo referencia: menciónalo en tu respuesta, no cambies el precio ni el costo salvo que ella lo pida. No pegues los enlaces: el sistema agrega las fuentes al final de tu respuesta.
 - Si te piden algo que no tiene que ver con la tienda, dilo con amabilidad y ofrece ayuda con la tienda.`;
 }
 
@@ -61,6 +66,18 @@ export const HERRAMIENTAS: { name: string; description: string; schema: Esquema 
         estado: { type: 'string', enum: ['por_confirmar', 'pagado', 'entregado', 'cancelado', 'pendiente'] },
         dias: { type: 'number', description: 'Solo pedidos de los últimos N días' },
       },
+    },
+  },
+  {
+    name: 'buscar_en_internet',
+    description: 'Busca en internet información de un producto (descripción, material, medidas, colores, precio de referencia en EE. UU.). Úsala solo si la vendedora pide buscar o completar con internet. Tiene costo: una búsqueda por producto.',
+    schema: {
+      type: 'object',
+      properties: {
+        consulta: { type: 'string', description: 'Marca, modelo y tipo del producto, ej. "Michael Kors Jet Set large tote saffiano"' },
+        producto_id: { type: 'string', description: 'id del producto de la tienda al que corresponde (si aplica)' },
+      },
+      required: ['consulta'],
     },
   },
   {
