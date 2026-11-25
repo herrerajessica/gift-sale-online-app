@@ -374,6 +374,9 @@ const origen = () => location.origin;
 
 // Asistente de la vendedora: manda la conversación (solo texto) y recibe respuesta + cambios propuestos.
 export const asistente = (mensajes, seleccion = []) => llamar('asistente', { tiendaId: TIENDA, mensajes: JSON.stringify(mensajes), seleccion: JSON.stringify(seleccion.slice(0, 100)) }, 'userPool');
+// Busca en internet la ficha de un producto (descripción, material, medidas, colores, precio en EE. UU. y fuentes).
+// Usa el mismo asistente con un modo aparte; tiene su propio límite por día.
+export const buscarInternet = (consulta) => llamar('asistente', { tiendaId: TIENDA, mensajes: JSON.stringify({ modo: 'web', consulta }), seleccion: '[]' }, 'userPool');
 // Quita el fondo de una foto ya subida; devuelve un PNG transparente en base64.
 export const quitarFondo = (path) => llamar('quitarFondo', { tiendaId: TIENDA, path }, 'userPool');
 export const pagarPlan = (plan) => llamar('pagarPlan', { tiendaId: TIENDA, plan, origen: origen() }, 'userPool');

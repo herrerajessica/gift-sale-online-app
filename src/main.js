@@ -3,7 +3,7 @@ import {
   miTienda, crearTienda, listarTiendas, cambiarEstadoTienda, limpiarSlug, SLUG_RE,
   signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn, resetPassword, confirmResetPassword, updatePassword,
   googleDisponible, entrarConGoogle, alVolverDeGoogle, cerrarSesion,
-  PLANES, planVigente, tieneFondoIA, pagarPlan, quitarFondo, asistente, interpretarDictado, cancelarPlan, conectarCobros, estadoCobros, pagarPedido, pedidoYape,
+  PLANES, planVigente, tieneFondoIA, pagarPlan, quitarFondo, asistente, buscarInternet, interpretarDictado, cancelarPlan, conectarCobros, estadoCobros, pagarPedido, pedidoYape,
   miTiendaActual, listarPedidos, cambiarEstadoPedido, cambiarPlanTienda, confianza, refrescarProductos, preguntarTienda, traducirTextos, clienteCuenta, listarClientes,
 } from './amplify-adapter.js';
 import { interpretarComando } from './comandos.js';
@@ -430,6 +430,9 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
     if(!S.canEdit || !S.assets || !S.db) return;
     const files=[...list].filter(f=>f.type.startsWith('image/')||/\.(heic|heif)$/i.test(f.name));
     if(!files.length){toast('Selecciona al menos una foto');return;}
+    // "Completa con internet": primero se lee la foto y con esa marca y nombre se busca la ficha en internet.
+    const conInternet = !!(opciones.asistente && S.buscarInternet && /internet|\bweb\b|google|en l[ií]nea|busca|investiga/i.test(opciones.texto||''));
+    const web = { hechos: [], sinDatos: [], limite: false, error: false };
     abrirOrganizador(files,{
       autoSugerir:!!opciones.asistente,
       instrucciones:opciones.texto||'',
@@ -444,14 +447,52 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
           try{const r=await ai.json('',{images:[fotos[0].thumb],idioma:esUS()?'en':'es',rubro:rubroActual()});visual=r?.[0]||{};}catch(e){console.warn('No se completaron datos de la foto',e);}
           if(opciones.texto)try{const r=await interpretarDictado([`Producto: ${nombre}. Extrae solamente datos de este producto presentes en estas indicaciones; si se refieren a otro producto, deja esos campos vacíos: ${opciones.texto}`],esUS()?'en':'es',enSoles()?'PEN':'USD',rubroActual());dictado=r?.[0]||{};}catch(e){console.warn('No se interpretaron las indicaciones',e);}
         }
+        let extraWeb = '';
+        if(conInternet && !web.limite){
+          // Marca + nombre leído de la foto + tipo, sin repetir palabras que ya están en el nombre.
+          const base=String(visual.nombre||nombre||''), tiene=w=>base.toLowerCase().includes(String(w).toLowerCase());
+          const marca=dictado.marca||visual.marca, tipo=visual.tipo||'';
+          const consulta=[marca&&!tiene(marca)?marca:'', base, tipo&&!tiene(tipo)?tipo:''].filter(Boolean).join(' ').trim();
+          if(consulta.length>2){
+            try{
+              const r=await S.buscarInternet(consulta);
+              if(r && r.limite) web.limite=true;
+              else if(r && r.ok && r.encontrado){
+                extraWeb=[r.descripcion, r.material&&('Material: '+r.material+'.'), r.medidas&&('Medidas: '+r.medidas+'.'), r.colores&&('Colores: '+r.colores+'.')].filter(Boolean).join(' ');
+                web.hechos.push({nombre:visual.nombre||nombre, modelo:r.modelo, precio:r.precio_usd, fuentes:r.fuentes||[]});
+              } else if(r && r.ok) web.sinDatos.push(visual.nombre||nombre);
+              else web.error=true;
+            }catch(e){console.warn('No se buscó en internet',e);web.error=true;}
+          }
+        }
         let precio=dictado.precio??null;
         const moneda=enSoles()?'PEN':'USD';if(precio!=null&&dictado.moneda&&dictado.moneda!==moneda&&tipoCambio())precio=moneda==='PEN'?Math.round(precio*tipoCambio()*100)/100:Math.round(precio/tipoCambio()*100)/100;
-        const datos={nombre,marca:dictado.marca||visual.marca||'',precio,stock:dictado.stock??null,talla:dictado.talla||visual.talla||'',categoria:dictado.categoria||visual.categoria||'',publico:dictado.publico||visual.publico||'',descripcion:dictado.descripcion||visual.descripcion||'',condicion:dictado.condicion||visual.condicion||'',estado:'oculto',fotos,creado:Date.now()};
+        const datos={nombre,marca:dictado.marca||visual.marca||'',precio,stock:dictado.stock??null,talla:dictado.talla||visual.talla||'',categoria:dictado.categoria||visual.categoria||'',publico:dictado.publico||visual.publico||'',descripcion:(extraWeb||dictado.descripcion||visual.descripcion||'').slice(0,600),condicion:dictado.condicion||visual.condicion||'',estado:'oculto',fotos,creado:Date.now()};
         await ref.set(datos);
         if(!S.products.some(p=>p.id===ref.id))S.products.push({id:ref.id,...datos});
       },
-      terminar:ids=>{render();toast('Productos guardados como ocultos. Revisa los datos antes de publicarlos.');abrirLote(ids,'subida');},
+      terminar:ids=>{
+        render();toast('Productos guardados como ocultos. Revisa los datos antes de publicarlos.');
+        if(conInternet) avisoWeb(web);
+        abrirLote(ids,'subida');
+      },
     });
+  }
+  // Resumen de lo que se completó con internet, con sus fuentes, en el chat del asistente.
+  function avisoWeb(web){
+    const l=[];
+    if(web.hechos.length){
+      l.push(`Completé con internet la descripción de ${web.hechos.length} producto${web.hechos.length===1?'':'s'}. Revísala antes de publicar:`);
+      web.hechos.forEach(h=>l.push(`- **${h.nombre}**${h.modelo&&h.modelo!==h.nombre?` (${h.modelo})`:''}${h.precio?` · en EE. UU. cuesta unos $${h.precio}`:''}`));
+    }
+    if(web.sinDatos.length) l.push(`No encontré en internet ese mismo modelo para: ${web.sinDatos.join(', ')}. Les dejé lo que se ve en la foto.`);
+    if(web.limite) l.push('Se acabaron las búsquedas en internet de hoy; los demás productos quedaron con lo que se ve en la foto. Mañana se renuevan.');
+    if(web.error) l.push('Algunas búsquedas en internet no respondieron; esos productos quedaron con lo que se ve en la foto.');
+    const fuentes=[...new Set(web.hechos.flatMap(h=>h.fuentes.map(f=>f.url)))].slice(0,10);
+    if(fuentes.length) l.push('', 'Fuentes de internet:', ...fuentes.map(u=>'- '+u));
+    if(!l.length) return;
+    cargarAsis(); asisLog.push({role:'assistant',text:l.join('\n')}); guardarAsis();
+    if(!$('asis').hidden) pintarAsis(); else setTimeout(()=>toast('Te dejé en el Asistente lo que encontré en internet, con las fuentes.'), 2500);
   }
   async function handleFiles(list, organizado=false){
     if(S.mode==='group' && !organizado) { abrirOrganizadorFotos(list); return; }
@@ -2988,7 +3029,9 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
       if(!S.canEdit)return;
       const fotos=[...asisFotosPendientes];
       asisLog.push({role:'user',text:`${texto||'Crear productos a partir de estas fotos'} · ${fotos.length} fotos adjuntas`},
-        {role:'assistant',text:'Voy a preparar grupos con tus fotos. Revisa los grupos y sus datos antes de guardar. Los productos se crean ocultos; no busco en internet ni invento precio o stock.'});
+        {role:'assistant',text:/internet|\bweb\b|google|en l[ií]nea|busca|investiga/i.test(texto||'') && S.buscarInternet
+          ? 'Voy a preparar grupos con tus fotos. Primero leo cada foto y con esa marca y modelo busco la descripción en internet. Los productos se crean ocultos para que los revises; no invento precio ni stock.'
+          : 'Voy a preparar grupos con tus fotos. Revisa los grupos y sus datos antes de guardar. Los productos se crean ocultos; no invento precio ni stock. Si quieres que complete la descripción con internet, dímelo al enviar las fotos.'});
       limpiarAsisInput(texto);guardarAsis();pintarAsis();cerrarAsis();
       asisFotosPendientes=[];pintarAdjuntosAsis();
       abrirOrganizadorFotos(fotos,{asistente:true,texto});return;
@@ -3192,7 +3235,7 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
 
     // Vitrina de la vendedora: solo sus productos y sus fotos
     usarModoVendedora(tienda.id);
-    S.db = db; S.assets = assets; S.ai = ai; S.aiMax = 8; S.canEdit = true; S.quitarFondo = quitarFondo; S.asistente = asistente;
+    S.db = db; S.assets = assets; S.ai = ai; S.aiMax = 8; S.canEdit = true; S.quitarFondo = quitarFondo; S.asistente = asistente; S.buscarInternet = typeof buscarInternet === 'function' ? buscarInternet : null;
     show("asisBtn", true);
     pintarModoFoto();
     $("modoFotoCambiar").onclick = ()=>{ try{ localStorage.removeItem(MODO_KEY); }catch(e){} pintarModoFoto(); toast("Te preguntaremos en la próxima subida"); };

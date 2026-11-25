@@ -105,6 +105,37 @@ async function buscarWeb(consulta: string, us: boolean) {
   return { resumen: texto.trim().slice(0, 1500), fuentes: fuentes.slice(0, 6) };
 }
 
+/** Ficha de un producto desde internet, para completar productos recién subidos desde fotos. */
+async function fichaWeb(consulta: string, us: boolean) {
+  const res = await bedrock.send(new ConverseCommand({
+    modelId: process.env.WEB_MODEL_ID || 'us.amazon.nova-2-lite-v1:0',
+    system: [{ text: `Busca en internet el producto indicado. Responde SOLO con un objeto JSON, sin texto antes ni después, con estas claves: "encontrado" (true solo si encontraste ese mismo modelo), "modelo" (nombre exacto del modelo), "descripcion" (1 o 2 frases para vender, ${us ? 'en inglés' : 'en español'}, solo con datos encontrados), "material", "medidas", "colores", "precio_usd" (número, precio en tiendas de EE. UU., o null). Si un dato no aparece, usa "" o null. No inventes.` }],
+    messages: [{ role: 'user', content: [{ text: `Producto: ${consulta}` }] }],
+    toolConfig: { tools: [{ systemTool: { name: 'nova_grounding' } } as any] },
+    inferenceConfig: { maxTokens: 700 },
+  }));
+  let texto = '';
+  const fuentes: { url: string; dominio: string }[] = [];
+  for (const c of (res.output?.message?.content || []) as any[]) {
+    if (c.text) texto += c.text;
+    for (const ci of c.citationsContent?.citations || []) {
+      const url = ci?.location?.web?.url;
+      if (url && !fuentes.some((f) => f.url === url)) fuentes.push({ url: String(url), dominio: String(ci.location.web.domain || '') });
+    }
+  }
+  let d: Record<string, any> = {};
+  try { const m = texto.match(/\{[\s\S]*\}/); d = m ? JSON.parse(m[0]) : {}; } catch { d = {}; }
+  const txt = (v: unknown, n: number) => (typeof v === 'string' ? v.trim().slice(0, n) : '');
+  const precio = Number(d.precio_usd);
+  return {
+    encontrado: d.encontrado === true && !!txt(d.descripcion, 600),
+    modelo: txt(d.modelo, 120), descripcion: txt(d.descripcion, 600), material: txt(d.material, 120),
+    medidas: txt(d.medidas, 120), colores: txt(d.colores, 160),
+    precio_usd: precio > 0 && precio < 100000 ? Math.round(precio * 100) / 100 : null,
+    fuentes: fuentes.slice(0, 5),
+  };
+}
+
 const resumirProducto = (p: Record<string, any>) => ({
   id: p.id, codigo: p.codigo || '', nombre: p.nombre, marca: p.marca || '', precio: p.precio ?? null, costo: p.costo ?? null,
   stock: typeof p.stock === 'number' ? p.stock : null, talla: p.talla || '', condicion: p.condicion || '', categoria: p.categoria || '', tipo: p.tipo || '',
@@ -117,6 +148,21 @@ export const handler = async (event: Evento) => {
   const sub = event.identity?.sub;
   const t = await leerTienda(String(tiendaId || ''));
   if (!t || !sub || subDe(t.owner) !== sub) throw new Error('No autorizado');
+
+  // Completar con internet un producto recién creado desde fotos (no cuenta como mensaje del asistente).
+  let pedido: unknown = null;
+  try { pedido = JSON.parse(String(mensajes || 'null')); } catch { /* se valida abajo */ }
+  if (pedido && !Array.isArray(pedido) && (pedido as any).modo === 'web') {
+    const consulta = String((pedido as any).consulta || '').trim().slice(0, 200);
+    if (consulta.length < 3) throw new Error('Falta qué buscar');
+    if (!(await contarWeb(t))) return JSON.stringify({ ok: false, limite: true, limiteDia: LIMITE_WEB[planVigente(t)] ?? 0 });
+    try {
+      return JSON.stringify({ ok: true, ...(await fichaWeb(consulta, t.pais === 'US')) });
+    } catch (e) {
+      console.error('fichaWeb', e);
+      return JSON.stringify({ ok: false, error: 'La búsqueda en internet no respondió' });
+    }
+  }
 
   // Conversación que guarda el navegador: solo texto, últimos turnos.
   let historial: { role: 'user' | 'assistant'; text: string }[] = [];
