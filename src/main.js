@@ -447,11 +447,16 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
           try{const r=await ai.json('',{images:[fotos[0].thumb],idioma:esUS()?'en':'es',rubro:rubroActual()});visual=r?.[0]||{};}catch(e){console.warn('No se completaron datos de la foto',e);}
           if(opciones.texto)try{const r=await interpretarDictado([`Producto: ${nombre}. Extrae solamente datos de este producto presentes en estas indicaciones; si se refieren a otro producto, deja esos campos vacíos: ${opciones.texto}`],esUS()?'en':'es',enSoles()?'PEN':'USD',rubroActual());dictado=r?.[0]||{};}catch(e){console.warn('No se interpretaron las indicaciones',e);}
         }
+        // El nombre del grupo lo revisó la vendedora: si dice qué es ("Porta cosméticos beige"), eso manda
+        // sobre lo que la IA creyó ver en la foto. Los nombres por defecto ("Producto 3") no cuentan.
+        const nombrePropio = !/^producto \d+$/i.test(String(nombre||'').trim());
+        const tipoNombre = nombrePropio ? tipoDeTexto(nombre, rubroActual()) : '';
+        const marcaNombre = nombrePropio ? marcaDeTexto(nombre) : '';
         let extraWeb = '';
         if(conInternet && !web.limite){
           // Marca + nombre leído de la foto + tipo, sin repetir palabras que ya están en el nombre.
-          const base=String(visual.nombre||nombre||''), tiene=w=>base.toLowerCase().includes(String(w).toLowerCase());
-          const marca=dictado.marca||visual.marca, tipo=visual.tipo||'';
+          const base=String(nombrePropio ? nombre : (visual.nombre||nombre||'')), tiene=w=>base.toLowerCase().includes(String(w).toLowerCase());
+          const marca=marcaNombre||dictado.marca||visual.marca, tipo=nombrePropio ? '' : (visual.tipo||'');
           const consulta=[marca&&!tiene(marca)?marca:'', base, tipo&&!tiene(tipo)?tipo:''].filter(Boolean).join(' ').trim();
           if(consulta.length>2){
             try{
@@ -459,15 +464,16 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
               if(r && r.limite) web.limite=true;
               else if(r && r.ok && r.encontrado){
                 extraWeb=[r.descripcion, r.material&&('Material: '+r.material+'.'), r.medidas&&('Medidas: '+r.medidas+'.'), r.colores&&('Colores: '+r.colores+'.')].filter(Boolean).join(' ');
-                web.hechos.push({nombre:visual.nombre||nombre, modelo:r.modelo, precio:r.precio_usd, fuentes:r.fuentes||[]});
-              } else if(r && r.ok) web.sinDatos.push(visual.nombre||nombre);
+                web.hechos.push({nombre:nombrePropio?nombre:(visual.nombre||nombre), modelo:r.modelo, precio:r.precio_usd, fuentes:r.fuentes||[]});
+              } else if(r && r.ok) web.sinDatos.push(nombrePropio?nombre:(visual.nombre||nombre));
               else web.error=true;
             }catch(e){console.warn('No se buscó en internet',e);web.error=true;}
           }
         }
         let precio=dictado.precio??null;
         const moneda=enSoles()?'PEN':'USD';if(precio!=null&&dictado.moneda&&dictado.moneda!==moneda&&tipoCambio())precio=moneda==='PEN'?Math.round(precio*tipoCambio()*100)/100:Math.round(precio/tipoCambio()*100)/100;
-        const datos={nombre,marca:dictado.marca||visual.marca||'',precio,stock:dictado.stock??null,talla:dictado.talla||visual.talla||'',categoria:dictado.categoria||visual.categoria||'',publico:dictado.publico||visual.publico||'',descripcion:(extraWeb||dictado.descripcion||visual.descripcion||'').slice(0,600),condicion:dictado.condicion||visual.condicion||'',estado:'oculto',fotos,creado:Date.now()};
+        const tipoFinal = tipoNombre || visual.tipo || '';
+        const datos={nombre,...(tipoFinal?{tipo:tipoFinal}:{}),marca:marcaNombre||dictado.marca||visual.marca||'',precio,stock:dictado.stock??null,talla:dictado.talla||visual.talla||'',categoria:(tipoNombre&&categoriaDeTipo(tipoNombre))||dictado.categoria||visual.categoria||'',publico:dictado.publico||visual.publico||'',descripcion:(extraWeb||dictado.descripcion||visual.descripcion||'').slice(0,600),condicion:dictado.condicion||visual.condicion||'',estado:'oculto',fotos,creado:Date.now()};
         await ref.set(datos);
         if(!S.products.some(p=>p.id===ref.id))S.products.push({id:ref.id,...datos});
       },

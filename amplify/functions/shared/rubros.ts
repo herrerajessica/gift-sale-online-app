@@ -26,6 +26,7 @@ export const TIPOS: [string, string][] = [
   ['Bolso', 'Carteras y bolsos'],
   ['Mochila', 'Carteras y bolsos'],
   ['Billetera', 'Carteras y bolsos'],
+  ['Neceser', 'Carteras y bolsos'],
   ['Lentes de sol', 'Accesorios'],
   ['Gorra', 'Accesorios'],
   ['Correa', 'Accesorios'],
