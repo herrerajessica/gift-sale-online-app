@@ -3,7 +3,7 @@
 // Cobra la revendedora; la app anota cuánto le debe a la dueña (el pago entre ellas es por fuera).
 import { randomUUID } from 'node:crypto';
 import { DeleteCommand, GetCommand, PutCommand, QueryCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { ddb, PRODUCTO, CONFIANZA, REVENTA, leerTienda, subDe } from '../shared/tablas';
+import { ddb, PRODUCTO, CONFIANZA, REVENTA, TIENDA, leerTienda, subDe } from '../shared/tablas';
 import { parDe, monedaDe, leerRelacion, leerProductos, originalVendible, registrarReventa } from '../shared/reventa';
 import { enviarCorreo } from '../shared/correo';
 
@@ -236,12 +236,38 @@ async function liberarSeparado(t: Item, d: Item) {
 }
 
 // ---------- Invitar, aceptar y cortar ----------
+/** Busca tiendas aprobadas por nombre o por su código (enlace), para invitarlas. */
+async function buscar(t: Item, d: Item) {
+  const sinTildes = (x: unknown) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  const q = sinTildes(d.q).slice(0, 60);
+  if (q.length < 2) return { tiendas: [] };
+  const items: Item[] = [];
+  let ExclusiveStartKey: Record<string, unknown> | undefined;
+  do {
+    const r = await ddb.send(new ScanCommand({ TableName: TIENDA(), ProjectionExpression: 'id, nombre, estado, pais, moneda, portada', ExclusiveStartKey }));
+    items.push(...((r.Items || []) as Item[]));
+    ExclusiveStartKey = r.LastEvaluatedKey;
+  } while (ExclusiveStartKey && items.length < 5000);
+  const palabras = q.split(/\s+/).filter(Boolean);
+  const tiendas = items
+    .filter((x) => x.id !== t.id && x.estado !== 'suspendida' && monedaDe(x) === monedaDe(t))
+    .map((x) => ({ x, h: sinTildes(`${x.nombre} ${x.id} ${String(x.id).replace(/-/g, ' ')}`) }))
+    .filter(({ x, h }) => x.id === q || palabras.every((w) => h.includes(w)))
+    .sort((a, b) => Number(b.x.id === q) - Number(a.x.id === q) || String(a.x.nombre).localeCompare(String(b.x.nombre)))
+    .slice(0, 8)
+    .map(({ x }) => ({ slug: x.id, nombre: x.nombre || x.id, portada: x.portada || '' }));
+  return { tiendas };
+}
+
 async function invitar(t: Item, d: Item) {
-  const slug = limpiarSlug(d.slug);
+  // Acepta el código (maria-importados) o el enlace completo pegado (…/?tienda=maria-importados o …/maria-importados).
+  const crudo = String(d.slug || '').trim();
+  const m = /[?&]tienda=([^&#\s]+)/i.exec(crudo) || /showroomcito\.com\/([a-z0-9-]+)\/?$/i.exec(crudo);
+  const slug = limpiarSlug(m ? decodeURIComponent(m[1]) : crudo);
   if (!slug) fallo('Escribe el enlace de la tienda (por ejemplo, lucia-store)');
   if (slug === t.id) fallo('Esa es tu propia tienda');
   const otra = await leerTienda(slug);
-  if (!otra) fallo('No encontramos esa tienda. Revisa el enlace.');
+  if (!otra) fallo('No encontramos esa tienda. Búscala por su nombre o pídele el código de su tienda.');
   if (monedaDe(otra!) !== monedaDe(t)) fallo('Solo puedes conectarte con tiendas que usan la misma moneda que tú');
   const r = await leerRelacion(t.id, slug);
   if (r && r.estado === 'aceptada') fallo('Ya son tiendas de confianza');
@@ -380,6 +406,7 @@ export const handler = async (event: Evento) => {
   const t = await miTienda(String(a.tiendaId || ''), ident);
   switch (accion) {
     case 'listar': res = await listar(t); break;
+    case 'buscar': res = await buscar(t, d); break;
     case 'invitar': res = await invitar(t, d); break;
     case 'aceptar': res = await aceptar(t, d); break;
     case 'cortar': res = await cortar(t, d); break;

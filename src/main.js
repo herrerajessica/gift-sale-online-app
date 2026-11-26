@@ -468,9 +468,10 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
       agrupar:agruparFotos,
       permitir:n=>{if(n>usoPlan().libres){toast('Los grupos superan los productos disponibles en tu plan');return false;}return true;},
       referencia:()=>S.db.collection('productos').doc(),
-      guardar:async(ref,nombre,fotos)=>{
+      guardar:async(ref,nombre,fotos,info={})=>{
         let visual={},dictado={};
-        const nombreGenerico = /^producto( \d+| nuevo)?$/i.test(String(nombre||'').trim());
+        // Un nombre puesto por la IA al agrupar es solo una pista: manda la lectura de la foto.
+        const nombreGenerico = !!info.nombreIA || /^producto( \d+| nuevo)?$/i.test(String(nombre||'').trim());
         // La IA lee las fotos (hasta 3: la de la caja o la etiqueta suele traer la marca) cuando viene del
         // asistente o cuando el producto todavía no tiene un nombre de verdad ("Producto 7").
         if(opciones.asistente || opciones.ia || nombreGenerico){
@@ -1275,7 +1276,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const editaFotos = S.canEdit && !esCopia(p);   // las fotos de un producto de confianza las maneja la otra tienda
     ov.textContent="";
     const gal = el("div",{class:"gal"});
-    if(fotos[photoIdx]) gal.append(el("img",{class:"main",src:src(fotos[photoIdx].full),alt:nom(p)}));
+    // Mientras carga la foto grande se ve la miniatura (ya está en caché), en vez de un recuadro en blanco.
+    if(fotos[photoIdx]) gal.append(el("img",{class:"main",src:src(fotos[photoIdx].full),alt:nom(p),style:`background:#f1f3f5 url("${src(fotos[photoIdx].thumb||fotos[photoIdx].full)}") center/contain no-repeat`}));
     const th = el("div",{class:"thumbs"});
     fotos.forEach((f,i)=>{
       const t = el("button",{class:"t"+(i===photoIdx?" on":""),type:"button","aria-label":tx("Foto ","Photo ")+(i+1),onclick:()=>{photoIdx=i;drawSheet();}}, el("img",{src:src(f.thumb||f.full),alt:""}));
@@ -2787,14 +2789,39 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     card.append(sec); ov.append(card);
   }
   function tabTiendas(sec, c){
-    const inp = el("input",{placeholder:"Enlace de su tienda, ej. lucia-store",autocapitalize:"off",spellcheck:"false","aria-label":"Enlace de la tienda que quieres invitar",style:"flex:1;min-width:180px"});
-    const b = el("button",{class:"btn primary",type:"button"},"Invitar");
-    b.onclick = ()=>{ const slug = inp.value.trim(); if(!slug){ toast("Escribe el enlace de su tienda"); inp.focus(); return; } accionConf(b,"invitar",{slug}, r=>r && r.estado==="aceptada" ? "¡Listo! Ya son tiendas de confianza" : "Invitación enviada. Le avisamos por correo."); };
-    inp.onkeydown = e=>{ if(e.key==="Enter"){ e.preventDefault(); b.click(); } };
+    // Buscar la tienda por su nombre o su código (también se puede pegar el enlace completo).
+    const inp = el("input",{type:"search",placeholder:"Nombre o código de su tienda",autocapitalize:"off",spellcheck:"false","aria-label":"Buscar la tienda que quieres invitar",class:"conf-buscar"});
+    const res = el("div",{class:"conf-resultados","aria-live":"polite"});
+    let reloj = null, ultima = "";
+    const invitar = (slug, btn)=>accionConf(btn,"invitar",{slug}, r=>r && r.estado==="aceptada" ? "¡Listo! Ya son tiendas de confianza" : "Invitación enviada. Le avisamos por correo.");
+    const buscar = async ()=>{
+      const q = inp.value.trim(); ultima = q; res.textContent = "";
+      if(q.length < 2) return;
+      // Enlace pegado: se invita directo, sin buscar.
+      if(/showroomcito\.com|[?&]tienda=/i.test(q)){ const b = el("button",{class:"btn primary",type:"button"},"Invitar esta tienda"); b.onclick = ()=>invitar(q, b); res.append(el("div",{class:"conf-tienda"}, el("span",null,"Enlace pegado"), b)); return; }
+      res.append(el("p",{class:"note",style:"margin:0"},"Buscando…"));
+      try{
+        const r = await confianza("buscar",{q}); if(ultima !== q) return;
+        res.textContent = "";
+        const lista = (r && r.tiendas) || [];
+        if(!lista.length){ res.append(el("p",{class:"note",style:"margin:0"},`No encontramos tiendas con "${q}". Pídele el código de su tienda: es lo que va al final de su enlace (por ejemplo, maria-importados).`)); return; }
+        for(const t of lista){
+          const ya = c.relaciones.find(x=>x.tienda===t.slug);
+          const b = el("button",{class:"btn primary",type:"button",disabled:!!ya}, ya ? (ya.estado==="aceptada" ? "Ya conectadas" : ya.invitaYo ? "Invitación enviada" : "Te invitó: acepta abajo") : "Invitar");
+          b.onclick = ()=>invitar(t.slug, b);
+          res.append(el("div",{class:"conf-tienda"},
+            t.portada ? el("img",{src:src(t.portada),alt:""}) : el("span",{class:"conf-tienda-ini","aria-hidden":"true"}, String(t.nombre||"?").charAt(0).toUpperCase()),
+            el("div",null, el("strong",null,t.nombre), el("span",{class:"note",style:"margin:0"}, "Código: "+t.slug)), b));
+        }
+      }catch(e){ if(ultima===q){ res.textContent=""; res.append(el("p",{class:"note",style:"margin:0"}, msgConf(e))); } }
+    };
+    inp.oninput = ()=>{ clearTimeout(reloj); reloj = setTimeout(buscar, 400); };
+    inp.onkeydown = e=>{ if(e.key==="Enter"){ e.preventDefault(); clearTimeout(reloj); buscar(); } };
     sec.append(
       el("p",{class:"note",style:"margin:0"},"Conéctate con vendedoras en quienes confías. Cada una elige qué productos comparte, y la otra los puede vender en su tienda como suyos, con su propio precio. Sus clientes nunca ven de qué tienda vienen."),
-      el("div",{style:"display:flex;gap:8px;flex-wrap:wrap"}, inp, b),
-      el("span",{class:"note",style:"margin:0"},"Pídele el enlace de su tienda (lo que va después de ?tienda=). Solo entre tiendas que usan la misma moneda."));
+      el("strong",null,"Invitar a una tienda"),
+      inp, res,
+      el("span",{class:"note",style:"margin:0"},`Escribe el nombre de su tienda o su código. El código de tu tienda es ${S.config&&S.config.id||""}: compártelo para que te encuentren. Solo entre tiendas que usan la misma moneda.`));
     if(!c.relaciones.length) sec.append(el("p",{class:"note",style:"margin:0"},"Todavía no tienes tiendas de confianza."));
     const grupos = [["Te invitaron", r=>r.estado==="pendiente" && !r.invitaYo],["Tus tiendas de confianza", r=>r.estado==="aceptada"],["Invitaciones que enviaste", r=>r.estado==="pendiente" && r.invitaYo]];
     for(const [titulo, f] of grupos){
@@ -2913,6 +2940,14 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const ov=$("planOverlay"); ov.textContent=""; ov.hidden=false; delete ov.dataset.conf;
     const cerrar = ()=>{ ov.hidden=true; ov.textContent=""; };
     ov.onclick = e=>{ if(e.target===ov) cerrar(); };
+    // Sin tiendas de confianza todavía: primero hay que invitar a una (antes se compartía igual y el aviso llegaba después).
+    if(S.conf && !S.conf.relaciones.some(r=>r.estado==="aceptada")){
+      ov.append(el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":"Compartir con tiendas de confianza"},
+        el("div",{class:"cart-head"}, el("h2",null,"Primero invita a una tienda"), el("button",{class:"btn",type:"button",onclick:cerrar},"Cerrar")),
+        el("p",{style:"margin:0"}, "Compartir sirve para que otras vendedoras de confianza revendan tus productos. Todavía no tienes ninguna conectada."),
+        el("button",{class:"btn primary",type:"button",onclick:()=>{ cerrar(); abrirConfianza("tiendas"); }},"Buscar e invitar una tienda")));
+      return;
+    }
     const desc = el("input",{inputmode:"decimal",value:"15",style:"width:80px","aria-label":"Descuento para revendedoras en porcentaje"});
     const ej = el("span",{class:"note",style:"margin:0"});
     const conPrecio = propios.filter(p=>p.precio!=null);

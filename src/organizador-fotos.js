@@ -92,7 +92,7 @@ export function abrirOrganizador(files, op){
       for(let i=0;i<n;i++){avanzar('Preparando tus fotos',`Foto ${i+1} de ${n}`,i,n+1);paths.push((await preparar(i)).thumb);}
       avanzar('La IA está agrupando tus fotos','Busca qué fotos son del mismo producto. Tarda unos segundos.',n,n+1);
       const resultado=normalizarGrupos(await op.agrupar(paths),files.length);
-      grupos=[{id:'pendientes',nombre:'Por organizar',fotos:resultado.pendientes},...resultado.grupos.map(g=>({id:'grupo-'+(++numero),nombre:String(g.nombre||'Producto').charAt(0).toUpperCase()+String(g.nombre||'Producto').slice(1),fotos:g.fotos}))];
+      grupos=[{id:'pendientes',nombre:'Por organizar',fotos:resultado.pendientes},...resultado.grupos.map(g=>({id:'grupo-'+(++numero),nombre:String(g.nombre||'Producto').charAt(0).toUpperCase()+String(g.nombre||'Producto').slice(1),fotos:g.fotos,nombreIA:true}))];
       aviso='Grupos sugeridos por IA: comprueba que sean el mismo producto y corrige los nombres antes de guardar.';
       if(files.length>20){
         // Las fotos que la IA no alcanzó a ver (más de 20) quedan cada una como su propio producto.
@@ -125,7 +125,7 @@ export function abrirOrganizador(files, op){
         const fotos=[];for(const i of g.fotos)fotos.push(await preparar(i));
         // Reutilizar el ID en un reintento evita duplicar una creación cuyo resultado se perdió.
         g.ref ||= op.referencia();
-        await op.guardar(g.ref,g.nombre,fotos);
+        await op.guardar(g.ref,g.nombre,fotos,{nombreIA:!!g.nombreIA});
         g.guardado=true;g.fotos.forEach(i=>guardados.add(i));
       }
       const ids=grupos.filter(g=>g.guardado).map(g=>g.ref.id);
@@ -309,7 +309,7 @@ export function abrirOrganizador(files, op){
       const zona=el('section',null,'foto-grupo org-producto'+(g.guardado?' guardado':''));if(!g.guardado)zona.dataset.grupo=g.id;
       const cab=el('div',null,'org-prod-cab');
       const nombre=el('input');nombre.value=g.nombre;nombre.placeholder='¿Qué producto es?';nombre.setAttribute('aria-label','Nombre del producto');
-      nombre.disabled=ocupado||!!g.guardado;nombre.oninput=()=>{g.nombre=nombre.value.trim()||'Producto';};
+      nombre.disabled=ocupado||!!g.guardado;nombre.oninput=()=>{g.nombre=nombre.value.trim()||'Producto';g.nombreIA=false;};
       nombre.onfocus=()=>{if(/^producto \d+$/i.test(nombre.value))nombre.select();};
       cab.append(nombre);
       if(!g.guardado){const mas=boton('⋯',()=>abrirHoja('grupo',{id:g.id}),'btn org-mas');mas.setAttribute('aria-label','Más opciones de '+g.nombre);cab.append(mas);}

@@ -188,3 +188,13 @@
 .lectura-caja strong{display:block;font-size:18px}
 .lectura-caja span{font-size:15px;color:var(--muted)}
 .lectura-caja .org-trabajo-barra{grid-column:1/-1}
+/* Tiendas de confianza: buscar para invitar */
+.conf-buscar{width:100%;min-height:46px;font-size:16px;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;background:var(--surface)}
+.conf-resultados{display:grid;gap:8px}
+.conf-tienda{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px;border:1.5px solid var(--line);border-radius:12px}
+.conf-tienda img,.conf-tienda-ini{width:44px;height:44px;border-radius:10px;object-fit:cover;background:var(--paper);display:grid;place-items:center;font-weight:800;font-size:18px;color:var(--accent)}
+.conf-tienda div{display:grid;gap:2px;min-width:0}
+.conf-tienda strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Tarjeta "Tiendas de confianza" en la pestaña: en el celular el texto ocupa todo el ancho */
+@media(max-width:600px){#confBox:not([hidden]){display:grid!important;grid-template-columns:1fr auto;gap:8px;align-items:center}#confBox>#confText{grid-column:1/-1;order:2}#confBox>.pill{order:1}#confBox>#confBtn{order:1;justify-self:end}}
+@media(max-width:480px){.conf-tienda{grid-template-columns:auto 1fr}.conf-tienda>button{grid-column:1/-1;justify-content:center}}
