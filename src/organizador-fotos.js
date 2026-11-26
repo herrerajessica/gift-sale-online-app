@@ -95,7 +95,14 @@ export function abrirOrganizador(files, op){
       grupos=[{id:'pendientes',nombre:'Por organizar',fotos:resultado.pendientes},...resultado.grupos.map(g=>({id:'grupo-'+(++numero),nombre:String(g.nombre||'Producto').charAt(0).toUpperCase()+String(g.nombre||'Producto').slice(1),fotos:g.fotos}))];
       aviso='Grupos sugeridos por IA: comprueba que sean el mismo producto y corrige los nombres antes de guardar.';
       if(files.length>20)aviso+=' La IA analizó las primeras 20 fotos; organiza las restantes tú.';
-    }catch(e){aviso='No se pudo agrupar con IA. Puedes organizar las fotos tú. '+(e.message||'');}
+    }catch(e){
+      // Si la IA no pudo agrupar, cada foto queda como su propio producto (como "Con fotos"): solo hay que
+      // juntar las que son del mismo producto, en vez de ubicar todas una por una.
+      console.warn('Agrupar con IA',e);
+      const pend=grupos.find(g=>g.id==='pendientes');
+      if(pend&&pend.fotos.length){grupos=[{id:'pendientes',nombre:'Por organizar',fotos:[]},...grupos.filter(g=>g.id!=='pendientes'),...pend.fotos.map(i=>({id:'grupo-'+(++numero),nombre:'Producto '+numero,fotos:[i]}))];}
+      aviso='La IA no pudo agrupar esta vez: cada foto quedó como un producto. Junta las que son del mismo producto (toca una y elige el otro). Al guardar, la IA les pone nombre.';
+    }
     finally{ocupado=false;trabajo=null;pintar();}
   }
   async function guardar(){

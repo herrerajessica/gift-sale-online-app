@@ -172,12 +172,15 @@ export const handler = async (event: EventoIA) => {
         ...imagenes.map(bytes=>({image:{format:'jpeg' as const,source:{bytes}}})),
         {text:'Organiza estas fotos numeradas desde 0 en productos físicos individuales. Agrupa solo fotos que claramente muestran el MISMO artículo desde distintos ángulos. No agrupes solo por categoría o marca: colores, modelos o tallas diferentes son productos distintos. Una etiqueta aislada sin vínculo claro debe quedar fuera. Las fotos ambiguas deben quedar fuera para revisión humana. No supongas grupos de tamaño fijo ni uses el orden como evidencia suficiente. Si una foto muestra solo la caja (cerrada o vacía) y no hay forma clara de saber de qué producto es, déjala fuera. El "nombre" es el del producto (collar, pulsera, reloj…), nunca el de la caja o el empaque. Devuelve SOLO JSON: [{"nombre":"nombre corto en español","indices":[0,2,5]}]. Cada índice puede aparecer una sola vez. Incluye grupos de una foto si claramente muestran un producto.'},
       ]}],
-      inferenceConfig:{maxTokens:4096,temperature:0},
+      inferenceConfig:{maxTokens:8000,temperature:0},
     }));
-    if(res.stopReason==='max_tokens') throw new Error('La agrupación quedó incompleta. Organiza manualmente o reintenta.');
     const texto=(res.output?.message?.content??[]).map(c=>'text' in c?c.text:'').join('');
-    const arr=leerArreglo(texto);
-    if(!Array.isArray(arr)) throw new Error('Respuesta de agrupación inválida');
+    let arr=leerArreglo(texto);
+    // Respuesta cortada o mal formada (pasa con muchas fotos): se rescatan los grupos que sí llegaron completos.
+    if(!Array.isArray(arr)||!arr.length){
+      arr=[...texto.matchAll(/\{[^{}]*"indices"\s*:\s*\[[\d,\s]*\][^{}]*\}/g)].flatMap(m=>{try{return [JSON.parse(m[0])];}catch{return [];}});
+    }
+    if(!arr.length) throw new Error(res.stopReason==='max_tokens'?'La agrupación quedó incompleta.':'Respuesta de agrupación inválida');
     return JSON.stringify(arr);
   }
   if (event.fieldName === 'interpretarDictado') return interpretarDictado(event.arguments);
