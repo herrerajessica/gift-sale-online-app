@@ -13,6 +13,7 @@ import { interpretarPorLotes } from './dictado.js';
 import { prepararUnion, ejecutarUnion } from './juntar-productos.js';
 import { arrastrable } from './arrastrar.js';
 import { abrirOrganizador, girarImagen } from './organizador-fotos.js';
+import { abrirCapa } from './atras.js';
 import './organizador.css';
 import { crearGruposUnion } from './grupos-union.js';
 const gruposUnion=crearGruposUnion();
@@ -995,7 +996,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
 
   // ---------- Revisión del lote en tabla ----------
   // Una fila por producto: se edita todo de corrido (Tab / Enter) y se guarda junto.
-  let loteIds = [], loteSucio = new Set(), loteGuardadoAlgo = false;
+  let loteIds = [], loteSucio = new Set(), loteGuardadoAlgo = false, loteCapa = null;
   const COLS_LOTE = [
     { k:"nombre", label:"Nombre", cls:"c-nombre", tipo:"text", max:120 },
     { k:"marca", label:"Marca", cls:"c-marca w-marca", tipo:"text", max:40, list:"marcaList" },
@@ -1077,6 +1078,11 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       el("div",{class:"lote-pie-botones"}, el("button",{class:"btn",type:"button",id:"loteCerrarPie",onclick:cerrarLote},"Cerrar"), guardar)));
     pintarPieLote();
     document.body.classList.add("lote-abierto");
+    // Botón atrás del celular: cierra la revisión; si hay cambios sin guardar, pregunta abajo.
+    if(!loteCapa){
+      loteCapa = abrirCapa(()=>{ if(loteSucio.size){ cerrarLote(); $("loteGuardar")?.scrollIntoView({block:"end"}); return false; } loteCapa = null; cerrarLote(); return true; });
+      loteCapa.pendiente = ()=>loteSucio.size>0;
+    }
     box.hidden = false;
     box.scrollIntoView({block:"start", behavior:"smooth"});
     const primero = box.querySelector('[data-fila="0"][data-col="1"]') || box.querySelector("input");
@@ -1126,6 +1132,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       return;
     }
     box.hidden = true; box.textContent = ""; loteIds = []; document.body.classList.remove("lote-abierto");
+    if(loteCapa){ const c = loteCapa; loteCapa = null; c.cerrar(); }
   }
 
   // ---------- Detalle / edición ----------

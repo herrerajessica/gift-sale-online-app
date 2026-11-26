@@ -143,3 +143,5 @@
 .org-visor-ant,.org-visor-sig{position:absolute;top:50%;transform:translateY(-50%);width:52px;height:52px;font-size:30px}
 .org-visor-ant{left:10px}.org-visor-sig{right:10px}
 .org-visor-ayuda{margin:0;padding:10px 12px calc(12px + env(safe-area-inset-bottom,0px));text-align:center;color:#c9d2e3;font-size:13px}
+.org-hoja-salir .org-hoja-nombre{padding:20px 18px 4px;font-size:19px}
+.org-hoja-salir .org-salir-txt{margin:0!important;padding:0 18px 14px;font-size:15px}

@@ -1,4 +1,5 @@
 import {arrastrable} from './arrastrar.js';
+import {abrirCapa} from './atras.js';
 import {normalizarGrupos,moverFoto} from './grupos-fotos.js';
 
 // Organizador de fotos: cada tarjeta es un producto. Las acciones de cada foto (mover, portada, quitar)
@@ -25,6 +26,15 @@ export function abrirOrganizador(files, op){
   let visor=null;
   const avanzar=(titulo,paso,actual,total)=>{trabajo={titulo,paso,actual,total};pintar();};
   const ov=document.createElement('div'); ov.className='overlay'; document.body.append(ov);
+  // Botón atrás del celular: cierra lo de encima (foto grande, hoja) y antes de salir pregunta.
+  const capa=abrirCapa(()=>{
+    if(ocupado)return false;
+    if(visor){visor=null;pintar();return false;}
+    if(hoja){cerrarHoja();pintar();return false;}
+    if(hayTrabajo()){hoja={tipo:'salir'};pintar();return false;}
+    cerrarSinHistorial();return true;
+  });
+  capa.pendiente=()=>ocupado||hayTrabajo();
   const el=(tag,txt,clase)=>{const n=document.createElement(tag);if(txt)n.textContent=txt;if(clase)n.className=clase;return n;};
   const boton=(texto,fn,clase='btn')=>{const b=el('button',texto,clase); b.type='button';b.disabled=ocupado;b.onclick=fn;return b;};
   const fotosTxt=n=>n+(n===1?' foto':' fotos');
@@ -41,14 +51,19 @@ export function abrirOrganizador(files, op){
     cerrarHoja();pintar();
   }
   async function preparar(i){if(!subidas.has(i))subidas.set(i,await op.preparar(files[i]));return subidas.get(i);}
-  function cerrar(){if(ocupado)return;urls.forEach(URL.revokeObjectURL);document.querySelectorAll('.drag-fantasma').forEach(n=>n.remove());document.removeEventListener('keydown',tecla);ov.remove();
+  // Hay grupos armados que se perderían al salir.
+  const hayTrabajo=()=>editables().some(g=>g.fotos.length);
+  // Cerrar con el botón: si hay grupos armados, pregunta primero.
+  function pedirCerrar(){if(ocupado)return;if(hayTrabajo()){visor=null;hoja={tipo:'salir'};pintar();return;}cerrar();}
+  function cerrar(){if(ocupado)return;capa.cerrar();urls.forEach(URL.revokeObjectURL);document.querySelectorAll('.drag-fantasma').forEach(n=>n.remove());document.removeEventListener('keydown',tecla);ov.remove();
     // Si una creación perdió su respuesta, conservar también esas fotos: el servidor pudo guardarla.
     const protegidas=new Set(grupos.filter(g=>g.ref).flatMap(g=>g.fotos));
     for(const [i,f] of subidas)if(!guardados.has(i)&&!protegidas.has(i))op.limpiar(f).catch(console.warn);
   }
+  function cerrarSinHistorial(){const c=capa.cerrar;capa.cerrar=()=>{};try{cerrar();}finally{capa.cerrar=c;}}
   function tecla(e){
     if(visor){if(e.key==='Escape'){visor=null;pintar();}else if(e.key==='ArrowRight'||e.key==='ArrowLeft'){pasarVisor(e.key==='ArrowRight'?1:-1);}return;}
-    if(e.key==='Escape'){if(hoja){cerrarHoja();pintar();}else cerrar();}
+    if(e.key==='Escape'){if(hoja){cerrarHoja();pintar();}else pedirCerrar();}
   }
   document.addEventListener('keydown',tecla);
   async function sugerir(){
@@ -136,6 +151,13 @@ export function abrirOrganizador(files, op){
     };
     const lista=el('div',null,'org-destinos');
     const pie=el('div',null,'org-hoja-acciones');
+    if(hoja.tipo==='salir'){
+      panel.setAttribute('aria-label','¿Salir sin guardar?');panel.classList.add('org-hoja-salir');
+      const n=editables().filter(g=>g.fotos.length).length;
+      panel.append(el('p','¿Salir sin guardar?','org-hoja-nombre'),el('p',`Armaste ${n} producto${n===1?'':'s'} que todavía no están guardados. Si sales, se pierden.`,'note org-salir-txt'));
+      pie.append(boton('Seguir organizando',()=>{cerrarHoja();pintar();},'btn primary'),boton('Salir sin guardar',cerrar,'btn org-peligro'));
+      panel.append(pie);fondo.append(panel);return fondo;
+    }
     if(hoja.tipo==='foto'){
       const g=grupos.find(x=>x.fotos.includes(hoja.i));
       const enProducto=g&&g.id!=='pendientes';
@@ -198,7 +220,7 @@ export function abrirOrganizador(files, op){
     const head=el('div',null,'cart-head org-head');
     const titulos=el('div');titulos.append(el('h2','Organizar fotos por producto'));
     if(!trabajo){const estado=el('p',aviso,'note org-aviso');estado.setAttribute('role','status');titulos.append(estado);}
-    head.append(titulos,boton('Cerrar',cerrar,'btn org-cerrar'));
+    head.append(titulos,boton('Cerrar',pedirCerrar,'btn org-cerrar'));
     card.append(head);
     if(op.instrucciones)card.append(el('p','Tus indicaciones: '+op.instrucciones,'note instrucciones-fotos'));
 
