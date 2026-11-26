@@ -36,7 +36,7 @@ export function abrirOrganizador(files, op){
   // "Con fotos": cada foto empieza como su propio producto (se pueden juntar, mover o girar antes de guardar).
   if(op.cadaFoto)grupos=[{id:'pendientes',nombre:'Por organizar',fotos:[]},...files.map((_,i)=>({id:'grupo-'+(++numero),nombre:'Producto '+numero,fotos:[i]}))];
   const subidas=new Map(), guardados=new Set();
-  let aviso=op.cadaFoto?'Cada foto es un producto. Si dos fotos son del mismo producto, toca una y elige el otro, o arrástrala encima.':'Toca una foto para elegir a qué producto va, o arrástrala. Nada se publica automáticamente.';
+  let aviso=op.cadaFoto&&!op.autoSugerir?'Cada foto es un producto. Si dos fotos son del mismo producto, toca una y elige el otro, o arrástrala encima.':'Toca una foto para elegir a qué producto va, o arrástrala. Nada se publica automáticamente.';
   let hoja=null, ultimoArrastre={t:0,i:-1};
   // Trabajo en curso, bien visible: qué hace la IA y cuánto falta.
   let trabajo=null;
@@ -94,7 +94,13 @@ export function abrirOrganizador(files, op){
       const resultado=normalizarGrupos(await op.agrupar(paths),files.length);
       grupos=[{id:'pendientes',nombre:'Por organizar',fotos:resultado.pendientes},...resultado.grupos.map(g=>({id:'grupo-'+(++numero),nombre:String(g.nombre||'Producto').charAt(0).toUpperCase()+String(g.nombre||'Producto').slice(1),fotos:g.fotos}))];
       aviso='Grupos sugeridos por IA: comprueba que sean el mismo producto y corrige los nombres antes de guardar.';
-      if(files.length>20)aviso+=' La IA analizó las primeras 20 fotos; organiza las restantes tú.';
+      if(files.length>20){
+        // Las fotos que la IA no alcanzó a ver (más de 20) quedan cada una como su propio producto.
+        const pend=grupos[0], fuera=pend.fotos.filter(i=>i>=20);
+        pend.fotos=pend.fotos.filter(i=>i<20);
+        grupos.push(...fuera.map(i=>({id:'grupo-'+(++numero),nombre:'Producto '+numero,fotos:[i]})));
+        aviso+=' La IA agrupó las primeras 20 fotos; las demás quedaron cada una como un producto.';
+      }
     }catch(e){
       // Si la IA no pudo agrupar, cada foto queda como su propio producto (como "Con fotos"): solo hay que
       // juntar las que son del mismo producto, en vez de ubicar todas una por una.

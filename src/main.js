@@ -438,7 +438,8 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
     const sinLeer = [];
     const pd = opciones.porDefecto || {};
     abrirOrganizador(files,{
-      autoSugerir:!!opciones.asistente && !opciones.cadaFoto,
+      // La IA agrupa sola las fotos del mismo producto (asistente, "Con fotos" y "Productos con varias fotos").
+      autoSugerir:!!opciones.agrupar || (!!opciones.asistente && !opciones.cadaFoto),
       cadaFoto:!!opciones.cadaFoto,
       publicar:!!opciones.publicar,
       instrucciones:opciones.texto||'',
@@ -564,7 +565,7 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
     }
     // "Con fotos": también pasa por el organizador (cada foto empieza como un producto) para poder
     // ver, mover, girar o juntar fotos antes de guardar. La IA lee cada foto al guardar.
-    if(!organizado){ $("progress").hidden = true; abrirOrganizadorFotos(files,{cadaFoto:true,ia:!!(S.ai && $("aiToggle").checked),publicar:true,porDefecto:valoresPorDefecto()}); return; }
+    if(!organizado){ $("progress").hidden = true; abrirOrganizadorFotos(files,{cadaFoto:true,agrupar:true,ia:!!(S.ai && $("aiToggle").checked),publicar:true,porDefecto:valoresPorDefecto()}); return; }
     S.fondoFallos = 0;
     const price = parsePrice($("defPrice").value), cat = $("defCat").value.trim(), marca = $("defMarca").value.trim(), stock = parseStock($("defStock").value), margen = parseMargen($("defMargen").value), condicion = $("defCond").value;
     const useAI = S.ai && $("aiToggle").checked;
