@@ -433,6 +433,7 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
     // "Completa con internet": primero se lee la foto y con esa marca y nombre se busca la ficha en internet.
     const conInternet = !!(opciones.asistente && S.buscarInternet && /internet|\bweb\b|google|en l[ií]nea|busca|investiga/i.test(opciones.texto||''));
     const web = { hechos: [], sinDatos: [], limite: false, error: false };
+    const sinLeer = [];
     abrirOrganizador(files,{
       autoSugerir:!!opciones.asistente,
       instrucciones:opciones.texto||'',
@@ -447,10 +448,15 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
         // La IA lee las fotos (hasta 3: la de la caja o la etiqueta suele traer la marca) cuando viene del
         // asistente o cuando el producto todavía no tiene un nombre de verdad ("Producto 7").
         if(opciones.asistente || nombreGenerico){
-          try{
-            const r=await ai.json('',{images:fotos.slice(0,3).map(f=>f.thumb),idioma:esUS()?'en':'es',rubro:rubroActual()});
-            for(const x of (Array.isArray(r)?r:[]).sort((a,b)=>(a.i||0)-(b.i||0))) for(const [k,v] of Object.entries(x||{})) if(k!=='i' && v!=null && v!=='' && visual[k]==null) visual[k]=v;
-          }catch(e){console.warn('No se completaron datos de la foto',e);}
+          // Hasta 3 intentos: con varios productos seguidos la IA a veces responde ocupada o vacía.
+          for(let intento=0; intento<3 && !visual.nombre && !visual.descripcion; intento++){
+            if(intento) await new Promise(r=>setTimeout(r, 1500*intento));
+            try{
+              const r=await ai.json('',{images:fotos.slice(0,3).map(f=>f.thumb),idioma:esUS()?'en':'es',rubro:rubroActual()});
+              for(const x of (Array.isArray(r)?r:[]).sort((a,b)=>(a.i||0)-(b.i||0))) for(const [k,v] of Object.entries(x||{})) if(k!=='i' && v!=null && v!=='' && visual[k]==null) visual[k]=v;
+            }catch(e){console.warn('No se completaron datos de la foto (intento '+(intento+1)+')',e);}
+          }
+          if(!visual.nombre && !visual.descripcion) sinLeer.push(nombre);
         }
         if(opciones.asistente){
           if(opciones.texto)try{const r=await interpretarDictado([`Producto: ${nombre}. Extrae solamente datos de este producto presentes en estas indicaciones; si se refieren a otro producto, deja esos campos vacíos: ${opciones.texto}`],esUS()?'en':'es',enSoles()?'PEN':'USD',rubroActual());dictado=r?.[0]||{};}catch(e){console.warn('No se interpretaron las indicaciones',e);}
@@ -490,7 +496,7 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
         if(!S.products.some(p=>p.id===ref.id))S.products.push({id:ref.id,...datos});
       },
       terminar:ids=>{
-        render();toast('Productos guardados como ocultos. Revisa los datos antes de publicarlos.');
+        render();toast(sinLeer.length ? `Guardados como ocultos. La IA no pudo leer ${sinLeer.length===1?'1 producto':sinLeer.length+' productos'}: complétalo${sinLeer.length===1?'':'s'} en la lista.` : 'Productos guardados como ocultos. Revisa los datos antes de publicarlos.');
         if(conInternet) avisoWeb(web);
         abrirLote(ids,'subida');
       },
