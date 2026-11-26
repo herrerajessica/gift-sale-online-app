@@ -37,7 +37,7 @@ Para cada foto responde un objeto con:
 ${nombre}
 - "marca": la marca si se ve su logo o diseño característico, o si su nombre está escrito en el producto, la caja, la bolsa, el estuche o la etiqueta (ej. "GUESS" impreso en la caja); si no, "".
 - "costo": el precio en dólares que se lee en la etiqueta de precio de la tienda (si hay varios, el más bajo o el de liquidación), como número; si no se ve claro, null.
-- "talla": la talla si se lee en la etiqueta o en el producto (ej. "8", "M", "32x30"); si no, "".
+- "talla": la talla si se lee en la etiqueta o en el producto (ej. "8", "M", "32x30"); si no, "". Las medidas en pulgadas escríbelas con "pulg" (ej. 16 pulg), nunca con comillas.
 - "condicion": exactamente una de: ${CONDICIONES.join(', ')}. Usa nuevo_etiqueta si se ve la etiqueta de la tienda colgando; caja_abierta si está en su caja abierta; si no estás segura, "".
 - "descripcion": 1 o 2 frases cortas para vender, ${ingles ? 'EN INGLÉS' : 'en español'}, solo con lo que se ve (tipo, color, estilo, detalles, si trae caja o etiqueta). No inventes materiales, medidas ni que es original.
 Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"tipo":"Zapatos","categoria":"Zapatos","publico":"Mujer","nombre":"Mocasines rosados con lazo","marca":"","costo":19.99,"talla":"8","condicion":"nuevo_etiqueta","descripcion":"Mocasines rosados con lazo, nuevos con etiqueta. Cómodos para el día a día."}]`;
@@ -110,7 +110,11 @@ function limpiarDictado(arr: unknown, n: number): Dictado[] {
 
 function leerArreglo(texto: string): unknown {
   const inicio = texto.indexOf('['), fin = texto.lastIndexOf(']');
-  try { return JSON.parse(texto.slice(inicio, fin + 1)); } catch { return []; }
+  const crudo = texto.slice(inicio, fin + 1);
+  try { return JSON.parse(crudo); } catch { /* se intenta reparar abajo */ }
+  // Medidas en pulgadas copiadas de la caja (16"18"+2") rompen el JSON: la comilla después de un número
+  // que no cierra el texto se cambia por "pulg". Si aun así falla, se descarta.
+  try { return JSON.parse(crudo.replace(/(\d)\s*"(?!\s*[,}\]:])/g, '$1 pulg')); } catch { return []; }
 }
 
 async function interpretarDictado(args: { textos?: (string | null)[] | null; idioma?: string | null; moneda?: string | null; rubro?: string | null }) {
