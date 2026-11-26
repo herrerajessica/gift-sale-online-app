@@ -45,7 +45,7 @@ export function abrirOrganizador(files, op){
       for(let i=0;i<n;i++){avanzar('Preparando tus fotos',`Foto ${i+1} de ${n}`,i,n+1);paths.push((await preparar(i)).thumb);}
       avanzar('La IA está agrupando tus fotos','Busca qué fotos son del mismo producto. Tarda unos segundos.',n,n+1);
       const resultado=normalizarGrupos(await op.agrupar(paths),files.length);
-      grupos=[{id:'pendientes',nombre:'Por organizar',fotos:resultado.pendientes},...resultado.grupos.map(g=>({id:'grupo-'+(++numero),nombre:g.nombre,fotos:g.fotos}))];
+      grupos=[{id:'pendientes',nombre:'Por organizar',fotos:resultado.pendientes},...resultado.grupos.map(g=>({id:'grupo-'+(++numero),nombre:String(g.nombre||'Producto').charAt(0).toUpperCase()+String(g.nombre||'Producto').slice(1),fotos:g.fotos}))];
       aviso='Grupos sugeridos por IA: comprueba que sean el mismo producto y corrige los nombres antes de guardar.';
       if(files.length>20)aviso+=' La IA analizó las primeras 20 fotos; organiza las restantes tú.';
     }catch(e){aviso='No se pudo agrupar con IA. Puedes organizar las fotos tú. '+(e.message||'');}
@@ -79,37 +79,46 @@ export function abrirOrganizador(files, op){
   function pintarHoja(){
     const fondo=el('div',null,'org-hoja-fondo');fondo.onclick=e=>{if(e.target===fondo){cerrarHoja();pintar();}};
     const panel=el('div',null,'org-hoja');panel.setAttribute('role','dialog');panel.setAttribute('aria-modal','true');
-    const cancelar=boton('Cancelar',()=>{cerrarHoja();pintar();},'btn org-hoja-cancelar');
+    const cerrarX=boton('✕',()=>{cerrarHoja();pintar();},'btn org-hoja-x');cerrarX.setAttribute('aria-label','Cerrar');
+    // Cada destino se reconoce por su foto de portada, no solo por el nombre (los nombres suelen parecerse).
+    const fila=(x,accion,etiqueta)=>{
+      const b=boton('',accion,'org-destino');b.setAttribute('aria-label',etiqueta+' '+x.nombre);
+      const img=el('img');img.src=urls[x.fotos[0]];img.alt='';
+      const t=el('span',null,'org-destino-txt');t.append(el('strong',x.nombre),el('span',fotosTxt(x.fotos.length)));
+      b.append(img,t);return b;
+    };
+    const lista=el('div',null,'org-destinos');
+    const pie=el('div',null,'org-hoja-acciones');
     if(hoja.tipo==='foto'){
       const g=grupos.find(x=>x.fotos.includes(hoja.i));
+      const enProducto=g&&g.id!=='pendientes';
       panel.setAttribute('aria-label','Opciones de la foto');
       const cab=el('div',null,'org-hoja-cab');const img=el('img');img.src=urls[hoja.i];img.alt='';
-      const txt=el('div');txt.append(el('strong','Foto '+(hoja.i+1)),el('span',g&&g.id!=='pendientes'?'En: '+g.nombre:'Sin producto todavía','note'));
-      cab.append(img,txt);panel.append(cab,el('p','Mover a','org-hoja-titulo'));
-      const destinos=el('div',null,'org-chips');
-      editables().filter(x=>x!==g).forEach(x=>destinos.append(boton(x.nombre,()=>mover(hoja.i,x.id),'chip org-chip')));
-      destinos.append(boton('+ Producto nuevo',()=>mover(hoja.i,'nuevo'),'chip org-chip org-chip-nuevo'));
-      panel.append(destinos);
-      const acciones=el('div',null,'org-hoja-acciones');
-      if(g&&g.id!=='pendientes'&&g.fotos[0]!==hoja.i)acciones.append(boton('★ Usar como portada',()=>{g.fotos=[hoja.i,...g.fotos.filter(x=>x!==hoja.i)];cerrarHoja();pintar();}));
-      if(g&&g.id!=='pendientes'&&g.fotos.length>1)acciones.append(boton('Sacar de este producto',()=>mover(hoja.i,'pendientes')));
-      acciones.append(boton('Quitar del lote',()=>{g.fotos=g.fotos.filter(x=>x!==hoja.i);grupos=grupos.filter(x=>x.id==='pendientes'||x.fotos.length||x.guardado);cerrarHoja();pintar();},'btn org-peligro'));
-      panel.append(acciones,cancelar);
+      const txt=el('div');txt.append(el('strong',enProducto?'Esta foto está en':'Foto sin producto'),el('span',enProducto?g.nombre:'Elige a qué producto pertenece','note'));
+      cab.append(img,txt,cerrarX);panel.append(cab,el('p',enProducto?'Moverla a otro producto':'¿De qué producto es?','org-hoja-titulo'));
+      editables().filter(x=>x!==g&&x.fotos.length).forEach(x=>lista.append(fila(x,()=>mover(hoja.i,x.id),'Mover a')));
+      const nuevoB=boton('',()=>mover(hoja.i,'nuevo'),'org-destino org-destino-nuevo');nuevoB.setAttribute('aria-label','Mover a un producto nuevo');
+      nuevoB.append(el('span','+','org-destino-mas'),el('strong','Producto nuevo'));
+      lista.append(nuevoB);panel.append(lista);
+      if(enProducto&&g.fotos[0]!==hoja.i)pie.append(boton('★ Usar como portada',()=>{g.fotos=[hoja.i,...g.fotos.filter(x=>x!==hoja.i)];cerrarHoja();pintar();}));
+      if(enProducto&&g.fotos.length>1)pie.append(boton('Dejar sin producto',()=>mover(hoja.i,'pendientes')));
+      pie.append(boton('🗑 No subir esta foto',()=>{g.fotos=g.fotos.filter(x=>x!==hoja.i);grupos=grupos.filter(x=>x.id==='pendientes'||x.fotos.length||x.guardado);cerrarHoja();pintar();},'btn org-peligro'));
     } else {
       const g=grupos.find(x=>x.id===hoja.id);
       panel.setAttribute('aria-label','Opciones de '+g.nombre);
-      panel.append(el('p',g.nombre,'org-hoja-nombre'),el('p','Juntar con (las fotos pasan a ese producto)','org-hoja-titulo'));
-      const destinos=el('div',null,'org-chips');
-      const otros=editables().filter(x=>x!==g);
-      otros.forEach(x=>destinos.append(boton(x.nombre,()=>{x.fotos.push(...g.fotos);grupos=grupos.filter(y=>y!==g);cerrarHoja();pintar();},'chip org-chip')));
-      if(!otros.length)destinos.append(el('span','No hay otros productos.','note'));
-      panel.append(destinos,el('div',null,'org-hoja-acciones'));
-      panel.lastChild.append(boton('Deshacer producto (sus fotos quedan sin producto)',()=>{
+      const cab=el('div',null,'org-hoja-cab');const img=el('img');img.src=urls[g.fotos[0]];img.alt='';
+      const txt=el('div');txt.append(el('strong',g.nombre),el('span',fotosTxt(g.fotos.length),'note'));
+      cab.append(img,txt,cerrarX);panel.append(cab,el('p','¿Es el mismo producto que…? Junta sus fotos','org-hoja-titulo'));
+      const otros=editables().filter(x=>x!==g&&x.fotos.length);
+      otros.forEach(x=>lista.append(fila(x,()=>{x.fotos.push(...g.fotos);grupos=grupos.filter(y=>y!==g);cerrarHoja();pintar();},'Juntar con')));
+      if(!otros.length)lista.append(el('p','No hay otros productos.','note'));
+      panel.append(lista);
+      pie.append(boton('Deshacer producto (sus fotos quedan sin producto)',()=>{
         if(!grupos.some(x=>x.id==='pendientes'))grupos.unshift({id:'pendientes',nombre:'Por organizar',fotos:[]});
         grupos.find(x=>x.id==='pendientes').fotos.push(...g.fotos);grupos=grupos.filter(y=>y!==g);cerrarHoja();pintar();
       },'btn org-peligro'));
-      panel.append(cancelar);
     }
+    panel.append(pie);
     fondo.append(panel);
     return fondo;
   }
@@ -197,7 +206,7 @@ export function abrirOrganizador(files, op){
     if(hoja)card.append(pintarHoja());
     ov.append(card);
     const c=ov.querySelector('.organizador-cuerpo');if(c)c.scrollTop=scroll;
-    if(hoja)ov.querySelector('.org-hoja button')?.focus();
+    if(hoja)(ov.querySelector('.org-hoja .org-destino')||ov.querySelector('.org-hoja button'))?.focus();
   }
   pintar();
   if(op.autoSugerir)sugerir();

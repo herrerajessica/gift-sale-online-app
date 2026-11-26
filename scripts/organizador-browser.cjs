@@ -41,7 +41,7 @@ const assert=require('node:assert/strict');
       assert.equal(await page.locator('.org-producto').nth(1).locator('.foto-organizar').count(),6);
       // Tocar una foto abre la hoja de opciones; "Mover a" la lleva a otro producto.
       await page.locator('.org-producto').nth(2).locator('.foto-organizar').first().click();
-      await page.getByRole('dialog',{name:'Opciones de la foto'}).getByRole('button',{name:'Producto 1',exact:true}).click();
+      await page.getByRole('dialog',{name:'Opciones de la foto'}).getByRole('button',{name:'Mover a Producto 1',exact:true}).click();
       assert.equal(await page.locator('.org-producto').nth(1).locator('.foto-organizar').count(),7);
       await page.getByRole('button',{name:'Guardar productos ocultos y revisar'}).click();
       await page.waitForFunction(()=>window.ids.length===3);
