@@ -995,11 +995,12 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const box = $("lote"); box.textContent = "";
     if(!loteIds.length){ box.hidden = true; return; }
     const titulo = origen==="subida" ? `Revisa tu lote (${loteIds.length} producto${loteIds.length===1?"":"s"})` : `Editar ${loteIds.length} producto${loteIds.length===1?"":"s"}`;
-    const guardar = el("button",{class:"btn primary",type:"button",id:"loteGuardar",onclick:guardarLote},"Guardar todo");
+    const guardar = el("button",{class:"btn primary",type:"button",id:"loteGuardar",onclick:guardarLote},"Guardar cambios");
     const cerrar = el("button",{class:"btn",type:"button",onclick:cerrarLote},"Cerrar");
     box.append(el("div",{class:"lote-head"},
-      el("h2",{id:"loteTitulo"}, titulo), el("button",{class:"btn",type:"button",onclick:buscarRepetidos},"Buscar repetidos"), cerrar, guardar,
-      el("p",{class:"note"}, origen==="subida" ? "La IA ya llenó lo que pudo. Completa o corrige el precio, la marca y la descripción, y toca Guardar todo. Enter baja a la siguiente fila." : "Edita varios productos de corrido. Enter baja a la siguiente fila.")));
+      el("h2",{id:"loteTitulo"}, titulo), el("button",{class:"btn lote-repetidos",type:"button",onclick:buscarRepetidos},"Buscar repetidos"), cerrar,
+      el("p",{class:"note"}, origen==="subida" ? "La IA llenó lo que pudo. Revisa sobre todo el precio, la marca y la descripción." : "Cambia lo que necesites y guarda al final.",
+        el("span",{class:"solo-pc"}," Enter baja a la siguiente fila."))));
     const tb = el("tbody");
     loteIds.forEach((id, fila)=>{
       const p = S.products.find(x=>x.id===id);
@@ -1012,7 +1013,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         if(c.tipo==="area"){ inp = el("textarea",{...attrs, rows:"2", maxlength:"600", placeholder:"Talla, color, estado, si es original…"}); inp.value = valorLote(p,c); }
         else inp = el("input",{...attrs, maxlength: c.max ? String(c.max) : "12", inputmode: c.tipo==="precio" ? "decimal" : c.tipo==="stock" ? "numeric" : false, list: c.list || false,
           placeholder: c.tipo==="precio" ? "Consultar" : c.tipo==="stock" ? "—" : "", title: c.tipo==="stock" ? "Vacío = sin control de cantidad" : false});
-        inp.addEventListener("input", ()=>{ loteSucio.add(id); tr.classList.add("cambiado"); if(c.tipo==="precio") pintarHint(); });
+        inp.addEventListener("input", ()=>{ loteSucio.add(id); tr.classList.add("cambiado"); if(c.tipo==="precio") pintarHint(); pintarPieLote(); });
         inp.addEventListener("keydown", e=>{
           if(e.key==="Enter" && !(c.tipo==="area" && e.shiftKey)){
             e.preventDefault();
@@ -1036,7 +1037,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         tr.append(td);
       });
       const acc = el("td",{class:"c-acc"});
-      const btnBorrar = el("button",{class:"btn danger",type:"button","aria-label":`Borrar ${p.nombre||"producto"}`},"Borrar");
+      const btnBorrar = el("button",{class:"btn danger lote-borrar",type:"button","aria-label":`Borrar ${p.nombre||"producto"}`},"🗑 Borrar");
       btnBorrar.onclick = ()=>{
         acc.textContent = "";
         acc.append(el("div",{class:"borrar-si"}, "¿Borrar?",
@@ -1052,14 +1053,25 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     });
     box.append(el("div",{class:"tablewrap"}, el("table",null,
       el("thead",null, el("tr",null, el("th",null,"Foto"), ...COLS_LOTE.map(c=>el("th",null,c.label)), el("th",null,""))), tb)));
+    // Barra fija abajo: lo que falta guardar y el botón principal, siempre a la vista.
+    box.append(el("div",{class:"lote-pie"}, el("span",{id:"loteEstado",class:"lote-estado","aria-live":"polite"}), guardar));
+    pintarPieLote();
+    document.body.classList.add("lote-abierto");
     box.hidden = false;
     box.scrollIntoView({block:"start", behavior:"smooth"});
     const primero = box.querySelector('[data-fila="0"][data-col="1"]') || box.querySelector("input");
     if(primero) setTimeout(()=>primero.focus({preventScroll:true}), 350);
   }
+  function pintarPieLote(){
+    const e = $("loteEstado"), b = $("loteGuardar"); if(!e || !b) return;
+    const n = loteSucio.size;
+    e.textContent = n ? `${n} producto${n===1?"":"s"} con cambios sin guardar` : "Sin cambios por guardar";
+    e.classList.toggle("pendiente", n>0);
+    if(!b.disabled) b.textContent = n ? `Guardar cambios (${n})` : "Guardar cambios";
+  }
   function quitarFilaLote(id){
     const tr = document.querySelector(`#lote tr[data-id="${id}"]`); if(!tr) return;
-    tr.remove(); loteIds = loteIds.filter(x=>x!==id); loteSucio.delete(id);
+    tr.remove(); loteIds = loteIds.filter(x=>x!==id); loteSucio.delete(id); pintarPieLote();
     if(!loteIds.length){ cerrarLote(); return; }
     const t = $("loteTitulo"); if(t) t.textContent = t.textContent.replace(/\(\d+ producto(s)?\)|\d+ producto(s)?/, m=> m.startsWith("(") ? `(${loteIds.length} producto${loteIds.length===1?"":"s"})` : `${loteIds.length} producto${loteIds.length===1?"":"s"}`);
   }
@@ -1078,9 +1090,9 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       }
       return S.db.doc("productos/"+id).update(patch);
     });
-    btn.disabled = false; btn.textContent = "Guardar todo";
+    btn.disabled = false; pintarPieLote();
     if(fails){ toast(`Se guardaron ${ids.length-fails}; ${fails} no se pudieron guardar. Intenta de nuevo.`); return; }
-    loteSucio.clear(); box.querySelectorAll("tr.cambiado").forEach(tr=>tr.classList.remove("cambiado"));
+    loteSucio.clear(); box.querySelectorAll("tr.cambiado").forEach(tr=>tr.classList.remove("cambiado")); pintarPieLote();
     toast(`${ids.length} producto${ids.length===1?"":"s"} guardado${ids.length===1?"":"s"}`);
   }
   function cerrarLote(){
@@ -1092,7 +1104,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         el("button",{class:"btn",type:"button",onclick:()=>{ loteSucio.clear(); cerrarLote(); }},"Descartar")));
       return;
     }
-    box.hidden = true; box.textContent = ""; loteIds = [];
+    box.hidden = true; box.textContent = ""; loteIds = []; document.body.classList.remove("lote-abierto");
   }
 
   // ---------- Detalle / edición ----------
