@@ -175,9 +175,10 @@ export const handler = async (event: EventoIA) => {
       inferenceConfig:{maxTokens:8000,temperature:0},
     }));
     const texto=(res.output?.message?.content??[]).map(c=>'text' in c?c.text:'').join('');
-    let arr=leerArreglo(texto);
+    let arr: unknown[] = [];
+    const leido = leerArreglo(texto); if (Array.isArray(leido)) arr = leido;
     // Respuesta cortada o mal formada (pasa con muchas fotos): se rescatan los grupos que sí llegaron completos.
-    if(!Array.isArray(arr)||!arr.length){
+    if(!arr.length){
       arr=[...texto.matchAll(/\{[^{}]*"indices"\s*:\s*\[[\d,\s]*\][^{}]*\}/g)].flatMap(m=>{try{return [JSON.parse(m[0])];}catch{return [];}});
     }
     if(!arr.length) throw new Error(res.stopReason==='max_tokens'?'La agrupación quedó incompleta.':'Respuesta de agrupación inválida');
