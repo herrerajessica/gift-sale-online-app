@@ -435,8 +435,11 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
     const conInternet = !!(opciones.asistente && S.buscarInternet && /internet|\bweb\b|google|en l[ií]nea|busca|investiga/i.test(opciones.texto||''));
     const web = { hechos: [], sinDatos: [], limite: false, error: false };
     const sinLeer = [];
+    const pd = opciones.porDefecto || {};
     abrirOrganizador(files,{
-      autoSugerir:!!opciones.asistente,
+      autoSugerir:!!opciones.asistente && !opciones.cadaFoto,
+      cadaFoto:!!opciones.cadaFoto,
+      publicar:!!opciones.publicar,
       instrucciones:opciones.texto||'',
       preparar:async f=>{const foto=await processPhoto(f,modoGuardado()||'mejorar');delete foto._blob;return foto;},
       limpiar:deletePhotos,
@@ -448,7 +451,7 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
         const nombreGenerico = /^producto( \d+| nuevo)?$/i.test(String(nombre||'').trim());
         // La IA lee las fotos (hasta 3: la de la caja o la etiqueta suele traer la marca) cuando viene del
         // asistente o cuando el producto todavía no tiene un nombre de verdad ("Producto 7").
-        if(opciones.asistente || nombreGenerico){
+        if(opciones.asistente || opciones.ia || nombreGenerico){
           // Hasta 3 intentos: con varios productos seguidos la IA a veces responde ocupada o vacía.
           for(let intento=0; intento<3 && !visual.nombre && !visual.descripcion; intento++){
             if(intento) await new Promise(r=>setTimeout(r, 1500*intento));
@@ -488,16 +491,17 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
             }catch(e){console.warn('No se buscó en internet',e);web.error=true;}
           }
         }
-        let precio=dictado.precio??null;
+        let precio=dictado.precio??pd.precio??null;
+        if(precio==null && pd.margen!=null && visual.costo) precio=precioConMargen(visual.costo, pd.margen);
         const moneda=enSoles()?'PEN':'USD';if(precio!=null&&dictado.moneda&&dictado.moneda!==moneda&&tipoCambio())precio=moneda==='PEN'?Math.round(precio*tipoCambio()*100)/100:Math.round(precio/tipoCambio()*100)/100;
         const tipoFinal = tipoNombre || visual.tipo || '';
         const nombreFinal = nombrePropio ? nombre : (visual.nombre || dictado.nombre || nombre);
-        const datos={nombre:nombreFinal,...(tipoFinal?{tipo:tipoFinal}:{}),marca:marcaNombre||dictado.marca||visual.marca||'',precio,stock:dictado.stock??1,talla:dictado.talla||visual.talla||'',categoria:(tipoNombre&&categoriaDeTipo(tipoNombre))||dictado.categoria||visual.categoria||'',publico:dictado.publico||visual.publico||'',descripcion:(extraWeb||dictado.descripcion||visual.descripcion||'').slice(0,600),condicion:dictado.condicion||visual.condicion||'',estado:'oculto',fotos,creado:Date.now()};
+        const datos={nombre:nombreFinal,...(tipoFinal?{tipo:tipoFinal}:{}),marca:marcaNombre||dictado.marca||pd.marca||visual.marca||'',precio,stock:dictado.stock??pd.stock??1,...(visual.costo?{costo:visual.costo}:{}),talla:dictado.talla||visual.talla||'',categoria:(tipoNombre&&categoriaDeTipo(tipoNombre))||dictado.categoria||pd.cat||visual.categoria||'',publico:dictado.publico||visual.publico||'',descripcion:(extraWeb||dictado.descripcion||visual.descripcion||'').slice(0,600),condicion:dictado.condicion||pd.condicion||visual.condicion||'',estado:opciones.publicar?'disponible':'oculto',fotos,creado:Date.now()};
         await ref.set(datos);
         if(!S.products.some(p=>p.id===ref.id))S.products.push({id:ref.id,...datos});
       },
       terminar:ids=>{
-        render();toast(sinLeer.length ? `Guardados como ocultos. La IA no pudo leer ${sinLeer.length===1?'1 producto':sinLeer.length+' productos'}: complétalo${sinLeer.length===1?'':'s'} en la lista.` : 'Productos guardados como ocultos. Revisa los datos antes de publicarlos.');
+        render();toast(opciones.publicar ? (sinLeer.length ? `Productos publicados. La IA no pudo leer ${sinLeer.length===1?'1 producto':sinLeer.length+' productos'}: complétalo${sinLeer.length===1?'':'s'} en la lista.` : 'Productos publicados. Revisa precio y datos en la lista.') : sinLeer.length ? `Guardados como ocultos. La IA no pudo leer ${sinLeer.length===1?'1 producto':sinLeer.length+' productos'}: complétalo${sinLeer.length===1?'':'s'} en la lista.` : 'Productos guardados como ocultos. Revisa los datos antes de publicarlos.');
         if(conInternet) avisoWeb(web);
         abrirLote(ids,'subida');
       },
@@ -519,8 +523,15 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
     cargarAsis(); asisLog.push({role:'assistant',text:l.join('\n')}); guardarAsis();
     if(!$('asis').hidden) pintarAsis(); else setTimeout(()=>toast('Te dejé en el Asistente lo que encontré en internet, con las fuentes.'), 2500);
   }
+  // Opciones antes de subir (precio, categoría, marca, cantidad, margen y condición para todo el lote).
+  function valoresPorDefecto(){
+    const v = { precio:parsePrice($("defPrice").value), cat:$("defCat").value.trim(), marca:$("defMarca").value.trim(), stock:parseStock($("defStock").value), margen:parseMargen($("defMargen").value), condicion:$("defCond").value };
+    for(const k of Object.keys(v)) if(v[k]==null || v[k]==="") delete v[k];
+    return v;
+  }
   async function handleFiles(list, organizado=false){
-    if(S.mode==='group' && !organizado) { abrirOrganizadorFotos(list); return; }
+    // Agrupar fotos de varios productos: organizador con sugerencia de la IA.
+    if(S.mode==='group' && !organizado) { abrirOrganizadorFotos(list,{asistente:true,publicar:true,porDefecto:valoresPorDefecto()}); return; }
     const files = [...list].filter(f => f.type.startsWith("image/") || /\.(heic|heif)$/i.test(f.name));
     if(!files.length){ toast("Ninguno de esos archivos es una foto"); return; }
     if(!S.assets || !S.db){ toast("Solo quien administra la vitrina puede subir fotos"); return; }
@@ -550,6 +561,9 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
         }
       }
     }
+    // "Con fotos": también pasa por el organizador (cada foto empieza como un producto) para poder
+    // ver, mover, girar o juntar fotos antes de guardar. La IA lee cada foto al guardar.
+    if(!organizado){ $("progress").hidden = true; abrirOrganizadorFotos(files,{cadaFoto:true,ia:!!(S.ai && $("aiToggle").checked),publicar:true,porDefecto:valoresPorDefecto()}); return; }
     S.fondoFallos = 0;
     const price = parsePrice($("defPrice").value), cat = $("defCat").value.trim(), marca = $("defMarca").value.trim(), stock = parseStock($("defStock").value), margen = parseMargen($("defMargen").value), condicion = $("defCond").value;
     const useAI = S.ai && $("aiToggle").checked;
