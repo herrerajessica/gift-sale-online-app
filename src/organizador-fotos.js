@@ -12,6 +12,8 @@ export function abrirOrganizador(files, op){
   let hoja=null, ultimoArrastre={t:0,i:-1};
   // Trabajo en curso, bien visible: qué hace la IA y cuánto falta.
   let trabajo=null;
+  // Visor de foto a pantalla completa (para ver bien de qué producto se trata).
+  let visor=null;
   const avanzar=(titulo,paso,actual,total)=>{trabajo={titulo,paso,actual,total};pintar();};
   const ov=document.createElement('div'); ov.className='overlay'; document.body.append(ov);
   const el=(tag,txt,clase)=>{const n=document.createElement(tag);if(txt)n.textContent=txt;if(clase)n.className=clase;return n;};
@@ -35,7 +37,10 @@ export function abrirOrganizador(files, op){
     const protegidas=new Set(grupos.filter(g=>g.ref).flatMap(g=>g.fotos));
     for(const [i,f] of subidas)if(!guardados.has(i)&&!protegidas.has(i))op.limpiar(f).catch(console.warn);
   }
-  function tecla(e){if(e.key==='Escape'){if(hoja){cerrarHoja();pintar();}else cerrar();}}
+  function tecla(e){
+    if(visor){if(e.key==='Escape'){visor=null;pintar();}else if(e.key==='ArrowRight'||e.key==='ArrowLeft'){pasarVisor(e.key==='ArrowRight'?1:-1);}return;}
+    if(e.key==='Escape'){if(hoja){cerrarHoja();pintar();}else cerrar();}
+  }
   document.addEventListener('keydown',tecla);
   async function sugerir(){
     if(ocupado)return;ocupado=true;aviso='Preparando fotos y buscando productos…';
@@ -76,6 +81,26 @@ export function abrirOrganizador(files, op){
   // ---------- Hoja de acciones (foto o producto) ----------
   function abrirHoja(tipo,datos){if(ocupado||(datos.i===ultimoArrastre.i&&Date.now()-ultimoArrastre.t<400))return;hoja={tipo,...datos};pintar();}
   function cerrarHoja(){hoja=null;}
+  function abrirVisor(i,g){visor={i,lista:(g&&g.fotos.length?g.fotos:[i]).slice(),zoom:false,nombre:g&&g.id!=='pendientes'?g.nombre:'Sin producto'};pintar();}
+  function pasarVisor(d){if(!visor)return;const k=visor.lista.indexOf(visor.i);visor.i=visor.lista[(k+d+visor.lista.length)%visor.lista.length];visor.zoom=false;pintar();}
+  function pintarVisor(){
+    const v=el('div',null,'org-visor'+(visor.zoom?' zoom':''));v.setAttribute('role','dialog');v.setAttribute('aria-modal','true');v.setAttribute('aria-label','Foto en grande');
+    const arriba=el('div',null,'org-visor-barra');
+    const k=visor.lista.indexOf(visor.i);
+    arriba.append(el('span',`${visor.nombre}${visor.lista.length>1?` · ${k+1} de ${visor.lista.length}`:''}`,'org-visor-titulo'));
+    const x=boton('✕',()=>{visor=null;pintar();},'org-visor-btn');x.setAttribute('aria-label','Cerrar foto');arriba.append(x);
+    const marco=el('div',null,'org-visor-marco');const img=el('img');img.src=urls[visor.i];img.alt='Foto '+(visor.i+1);
+    // Tocar la foto la acerca (2x) y se puede recorrer con el dedo; tocar otra vez la aleja.
+    img.onclick=()=>{visor.zoom=!visor.zoom;pintar();};marco.append(img);
+    v.append(arriba,marco);
+    if(visor.lista.length>1){
+      const ant=boton('‹',()=>pasarVisor(-1),'org-visor-btn org-visor-ant');ant.setAttribute('aria-label','Foto anterior');
+      const sig=boton('›',()=>pasarVisor(1),'org-visor-btn org-visor-sig');sig.setAttribute('aria-label','Foto siguiente');
+      v.append(ant,sig);
+    }
+    v.append(el('p',visor.zoom?'Toca la foto para alejar':'Toca la foto para acercar','org-visor-ayuda'));
+    return v;
+  }
   function pintarHoja(){
     const fondo=el('div',null,'org-hoja-fondo');fondo.onclick=e=>{if(e.target===fondo){cerrarHoja();pintar();}};
     const panel=el('div',null,'org-hoja');panel.setAttribute('role','dialog');panel.setAttribute('aria-modal','true');
@@ -85,7 +110,9 @@ export function abrirOrganizador(files, op){
       const b=boton('',accion,'org-destino');b.setAttribute('aria-label',etiqueta+' '+x.nombre);
       const img=el('img');img.src=urls[x.fotos[0]];img.alt='';
       const t=el('span',null,'org-destino-txt');t.append(el('strong',x.nombre),el('span',fotosTxt(x.fotos.length)));
-      b.append(img,t);return b;
+      b.append(img,t);
+      const ver=boton('🔍',e=>{e.stopPropagation();abrirVisor(x.fotos[0],x);},'btn org-destino-ver');ver.setAttribute('aria-label','Ver fotos de '+x.nombre);
+      const f=el('div',null,'org-destino-fila');f.append(b,ver);return f;
     };
     const lista=el('div',null,'org-destinos');
     const pie=el('div',null,'org-hoja-acciones');
@@ -93,9 +120,12 @@ export function abrirOrganizador(files, op){
       const g=grupos.find(x=>x.fotos.includes(hoja.i));
       const enProducto=g&&g.id!=='pendientes';
       panel.setAttribute('aria-label','Opciones de la foto');
-      const cab=el('div',null,'org-hoja-cab');const img=el('img');img.src=urls[hoja.i];img.alt='';
+      const grande=boton('',()=>abrirVisor(hoja.i,g),'org-hoja-foto');grande.setAttribute('aria-label','Ver la foto en grande');
+      const gimg=el('img');gimg.src=urls[hoja.i];gimg.alt='Foto '+(hoja.i+1);grande.append(gimg,el('span','🔍 Ver en grande','org-hoja-lupa'));
+      panel.append(grande);
+      const cab=el('div',null,'org-hoja-cab');
       const txt=el('div');txt.append(el('strong',enProducto?'Esta foto está en':'Foto sin producto'),el('span',enProducto?g.nombre:'Elige a qué producto pertenece','note'));
-      cab.append(img,txt,cerrarX);panel.append(cab,el('p',enProducto?'Moverla a otro producto':'¿De qué producto es?','org-hoja-titulo'));
+      cab.append(txt,cerrarX);panel.append(cab,el('p',enProducto?'Moverla a otro producto':'¿De qué producto es?','org-hoja-titulo'));
       editables().filter(x=>x!==g&&x.fotos.length).forEach(x=>lista.append(fila(x,()=>mover(hoja.i,x.id),'Mover a')));
       const nuevoB=boton('',()=>mover(hoja.i,'nuevo'),'org-destino org-destino-nuevo');nuevoB.setAttribute('aria-label','Mover a un producto nuevo');
       nuevoB.append(el('span','+','org-destino-mas'),el('strong','Producto nuevo'));
@@ -204,9 +234,10 @@ export function abrirOrganizador(files, op){
     pie.append(guardarBtn);
     card.append(pie);
     if(hoja)card.append(pintarHoja());
+    if(visor)card.append(pintarVisor());
     ov.append(card);
     const c=ov.querySelector('.organizador-cuerpo');if(c)c.scrollTop=scroll;
-    if(hoja)(ov.querySelector('.org-hoja .org-destino')||ov.querySelector('.org-hoja button'))?.focus();
+    if(visor)ov.querySelector('.org-visor .org-visor-btn')?.focus();else if(hoja)(ov.querySelector('.org-hoja .org-destino')||ov.querySelector('.org-hoja button'))?.focus();
   }
   pintar();
   if(op.autoSugerir)sugerir();
