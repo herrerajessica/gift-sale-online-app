@@ -552,7 +552,40 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
     for(const k of Object.keys(v)) if(v[k]==null || v[k]==="") delete v[k];
     return v;
   }
+  // Al elegir las fotos se leen UNA vez, de a una, y se guarda una copia liviana (máx. 2048 px) en memoria.
+  // Así no se vuelven a pedir a la galería (con Google Fotos, leer muchas fotos grandes varias veces
+  // las dejaba en blanco) y todo lo que sigue es más rápido. Se ve el avance en pantalla.
+  async function leerFotos(lista){
+    const files = [...lista].filter(f => f.type.startsWith("image/") || /\.(heic|heif)$/i.test(f.name));
+    if(!files.length) return { fotos:[], fallidas:0 };
+    const ov = el("div",{class:"overlay lectura-fotos"});
+    const txt = el("strong",null,"Leyendo tus fotos…"), paso = el("span",null,""), barra = el("span");
+    ov.append(el("div",{class:"cart lectura-caja",role:"status","aria-live":"polite"}, el("span",{class:"org-giro","aria-hidden":"true"}), el("div",null, txt, paso), el("div",{class:"org-trabajo-barra"}, barra)));
+    document.body.append(ov);
+    const fotos = []; let fallidas = 0;
+    try{
+      for(let i=0;i<files.length;i++){
+        paso.textContent = `Foto ${i+1} de ${files.length}`; barra.style.width = Math.max(6, Math.round(100*i/files.length))+"%";
+        const f = files[i];
+        try{
+          const img = await decode(f);
+          const w = img.naturalWidth||img.width, h = img.naturalHeight||img.height, k = Math.min(1, 2048/Math.max(w,h));
+          const c = document.createElement("canvas"); c.width = Math.round(w*k); c.height = Math.round(h*k);
+          c.getContext("2d").drawImage(img, 0, 0, c.width, c.height); if(img.close) img.close();
+          const b = await new Promise(r=>c.toBlob(r,"image/jpeg",.92));
+          if(!b || b.size < 1000) throw new Error("vacía");
+          fotos.push(new File([b], (f.name||"foto").replace(/\.[^.]+$/,"")+".jpg", { type:"image/jpeg", lastModified:f.lastModified||Date.now() }));
+        }catch(e){
+          // No se pudo leer aquí (por ejemplo HEIC): se intenta con el archivo original más adelante.
+          if(/\.(heic|heif)$/i.test(f.name) || /heic|heif/i.test(f.type)) fotos.push(f); else fallidas++;
+        }
+      }
+    }finally{ ov.remove(); }
+    if(fallidas) toast(`${fallidas===1?"1 foto no se pudo":fallidas+" fotos no se pudieron"} leer. Si están en Google Fotos, descárgalas al celular y vuelve a elegirlas.`);
+    return { fotos, fallidas };
+  }
   async function handleFiles(list, organizado=false){
+    if(!organizado){ const r = await leerFotos(list); if(!r.fotos.length){ if(!r.fallidas) toast("Ninguno de esos archivos es una foto"); return; } list = r.fotos; }
     // Agrupar fotos de varios productos: organizador con sugerencia de la IA.
     if(S.mode==='group' && !organizado) { abrirOrganizadorFotos(list,{asistente:true,publicar:true,porDefecto:valoresPorDefecto()}); return; }
     const files = [...list].filter(f => f.type.startsWith("image/") || /\.(heic|heif)$/i.test(f.name));
@@ -565,8 +598,10 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
     let huellas = [];
     if(!(S.mode==="group" && files.length>1)){
       $("progress").hidden=false; setProg(0, files.length, "Revisando fotos repetidas…");
-      huellas = await Promise.all(files.map(huellaDeArchivo));
-      await asegurarHuellas();
+      const aviso = el("div",{class:"overlay lectura-fotos"}, el("div",{class:"cart lectura-caja",role:"status"}, el("span",{class:"org-giro","aria-hidden":"true"}), el("div",null, el("strong",null,"Revisando fotos repetidas…"), el("span",null,"Un momento"))));
+      document.body.append(aviso);
+      try{ huellas = []; for(const f of files) huellas.push(await huellaDeArchivo(f)); await asegurarHuellas(); }
+      finally{ aviso.remove(); }
       const existentes = S.products.map(p=>p.huella).filter(Boolean);
       const repetidas = [];
       huellas.forEach((h, idx)=>{
@@ -3288,10 +3323,12 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
     if(asisFotosPendientes.length)zona.append(el('p',{class:'note'},`${asisFotosPendientes.length} fotos · escribe o dicta las indicaciones y toca Enviar`));
   }
   $('asisAdjuntar').onclick=()=>{if(S.canEdit&&!asisOcupado)$('asisFotos').click();};
-  $('asisFotos').onchange=e=>{
+  $('asisFotos').onchange=async e=>{
     if(!S.canEdit)return;
-    asisFotosPendientes.push(...[...e.target.files].filter(f=>f.type.startsWith('image/')||/\.(heic|heif)$/i.test(f.name)));
-    e.target.value='';pintarAdjuntosAsis();
+    const lista=[...e.target.files]; e.target.value='';
+    const r=await leerFotos(lista);
+    asisFotosPendientes.push(...r.fotos);
+    pintarAdjuntosAsis();
   };
   $("asisForm").addEventListener("submit", e=>{ e.preventDefault(); enviarAsis($("asisInput").value); });
   // Hablarle al asistente para actualizar la tienda ("bájale 10 soles a las carteras"). El texto queda

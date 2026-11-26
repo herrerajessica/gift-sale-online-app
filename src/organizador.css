@@ -182,3 +182,9 @@
 .fb-nota{margin:0;font-size:14px;color:var(--muted,#5a6478)}
 .fb-botones{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .fb-botones .btn{justify-content:center;min-height:46px}
+/* Leyendo las fotos elegidas */
+.lectura-fotos{z-index:70}
+.lectura-caja{width:min(360px,100%)!important;display:grid!important;grid-template-columns:auto 1fr;gap:8px 14px;align-items:center;padding:18px!important}
+.lectura-caja strong{display:block;font-size:18px}
+.lectura-caja span{font-size:15px;color:var(--muted)}
+.lectura-caja .org-trabajo-barra{grid-column:1/-1}
