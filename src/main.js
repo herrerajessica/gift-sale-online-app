@@ -492,7 +492,7 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
         const moneda=enSoles()?'PEN':'USD';if(precio!=null&&dictado.moneda&&dictado.moneda!==moneda&&tipoCambio())precio=moneda==='PEN'?Math.round(precio*tipoCambio()*100)/100:Math.round(precio/tipoCambio()*100)/100;
         const tipoFinal = tipoNombre || visual.tipo || '';
         const nombreFinal = nombrePropio ? nombre : (visual.nombre || dictado.nombre || nombre);
-        const datos={nombre:nombreFinal,...(tipoFinal?{tipo:tipoFinal}:{}),marca:marcaNombre||dictado.marca||visual.marca||'',precio,stock:dictado.stock??null,talla:dictado.talla||visual.talla||'',categoria:(tipoNombre&&categoriaDeTipo(tipoNombre))||dictado.categoria||visual.categoria||'',publico:dictado.publico||visual.publico||'',descripcion:(extraWeb||dictado.descripcion||visual.descripcion||'').slice(0,600),condicion:dictado.condicion||visual.condicion||'',estado:'oculto',fotos,creado:Date.now()};
+        const datos={nombre:nombreFinal,...(tipoFinal?{tipo:tipoFinal}:{}),marca:marcaNombre||dictado.marca||visual.marca||'',precio,stock:dictado.stock??1,talla:dictado.talla||visual.talla||'',categoria:(tipoNombre&&categoriaDeTipo(tipoNombre))||dictado.categoria||visual.categoria||'',publico:dictado.publico||visual.publico||'',descripcion:(extraWeb||dictado.descripcion||visual.descripcion||'').slice(0,600),condicion:dictado.condicion||visual.condicion||'',estado:'oculto',fotos,creado:Date.now()};
         await ref.set(datos);
         if(!S.products.some(p=>p.id===ref.id))S.products.push({id:ref.id,...datos});
       },
@@ -1021,6 +1021,21 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       el("h2",{id:"loteTitulo"}, titulo), el("button",{class:"btn lote-repetidos",type:"button",onclick:buscarRepetidos},"Buscar repetidos"), cerrar,
       el("p",{class:"note"}, origen==="subida" ? "La IA llenó lo que pudo. Revisa sobre todo el precio, la marca y la descripción." : "Cambia lo que necesites y guarda al final.",
         el("span",{class:"solo-pc"}," Enter baja a la siguiente fila."))));
+    // Mismo precio para varios: lo escribe una vez y se copia a todos los productos del lote.
+    if(loteIds.length > 1){
+      const colPrecio = COLS_LOTE.findIndex(c=>c.tipo==="precio");
+      const pp = el("input",{type:"text",inputmode:"decimal",placeholder:"Ej. 120","aria-label":"Precio para todos",class:"lote-todos-input"});
+      const poner = ()=>{
+        const v = parsePrice(pp.value); if(v==null){ toast("Escribe un precio"); pp.focus(); return; }
+        let n = 0;
+        box.querySelectorAll(`[data-col="${colPrecio}"]`).forEach(inp=>{ if(inp.value.trim() !== pp.value.trim()){ inp.value = pp.value.trim(); inp.dispatchEvent(new Event("input")); n++; } });
+        toast(n ? `Precio ${money(v)} puesto en ${n} producto${n===1?"":"s"}. Revisa y toca Guardar cambios.` : "Ya tenían ese precio");
+        pp.value = ""; pp.blur();
+      };
+      pp.addEventListener("keydown", e=>{ if(e.key==="Enter"){ e.preventDefault(); poner(); } });
+      box.append(el("div",{class:"lote-todos"}, el("span",null,"¿Todos al mismo precio? ", el("b",null, simbolo())), pp,
+        el("button",{class:"btn",type:"button",onclick:poner},"Poner a todos")));
+    }
     const tb = el("tbody");
     loteIds.forEach((id, fila)=>{
       const p = S.products.find(x=>x.id===id);
@@ -1085,6 +1100,10 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     }
     box.hidden = false;
     box.scrollIntoView({block:"start", behavior:"smooth"});
+    // Celular: mientras se escribe, la barra de abajo se esconde para que el teclado no la deje cortada.
+    if(!box.dataset.escucha){ box.dataset.escucha = "1";
+    box.addEventListener("focusin", e=>{ if(e.target.matches("input,textarea")) document.body.classList.add("lote-escribiendo"); });
+    box.addEventListener("focusout", ()=>setTimeout(()=>{ if(!box.contains(document.activeElement) || !document.activeElement.matches("input,textarea")) document.body.classList.remove("lote-escribiendo"); }, 0)); }
     const primero = box.querySelector('[data-fila="0"][data-col="1"]') || box.querySelector("input");
     if(primero) setTimeout(()=>primero.focus({preventScroll:true}), 350);
   }
@@ -1131,7 +1150,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         el("button",{class:"btn",type:"button",onclick:()=>{ loteSucio.clear(); cerrarLote(); }},"Descartar")));
       return;
     }
-    box.hidden = true; box.textContent = ""; loteIds = []; document.body.classList.remove("lote-abierto");
+    box.hidden = true; box.textContent = ""; loteIds = []; document.body.classList.remove("lote-abierto", "lote-escribiendo");
     if(loteCapa){ const c = loteCapa; loteCapa = null; c.cerrar(); }
   }
 

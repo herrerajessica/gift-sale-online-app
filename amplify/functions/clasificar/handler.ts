@@ -39,6 +39,7 @@ ${nombre}
 - "costo": el precio en dólares que se lee en la etiqueta de precio de la tienda (si hay varios, el más bajo o el de liquidación), como número; si no se ve claro, null.
 - "talla": la talla si se lee en la etiqueta o en el producto (ej. "8", "M", "32x30"); si no, "". Las medidas en pulgadas escríbelas con "pulg" (ej. 16 pulg), nunca con comillas.
 - "condicion": exactamente una de: ${CONDICIONES.join(', ')}. Usa nuevo_etiqueta si se ve la etiqueta de la tienda colgando; caja_abierta si está en su caja abierta; si no estás segura, "".
+- Si el producto está dentro de su caja o estuche, el "nombre", el "tipo" y la "descripcion" son del PRODUCTO (collar, pulsera, reloj, perfume…), nunca de la caja; la caja solo se menciona en la descripción ("viene en su caja original").
 - "descripcion": 1 o 2 frases cortas para vender, ${ingles ? 'EN INGLÉS' : 'en español'}, solo con lo que se ve (tipo, color, estilo, detalles, si trae caja o etiqueta). No inventes materiales, medidas ni que es original.
 Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"tipo":"Zapatos","categoria":"Zapatos","publico":"Mujer","nombre":"Mocasines rosados con lazo","marca":"","costo":19.99,"talla":"8","condicion":"nuevo_etiqueta","descripcion":"Mocasines rosados con lazo, nuevos con etiqueta. Cómodos para el día a día."}]`;
 }
@@ -169,7 +170,7 @@ export const handler = async (event: EventoIA) => {
       modelId: process.env.MODEL_ID,
       messages: [{role:'user',content:[
         ...imagenes.map(bytes=>({image:{format:'jpeg' as const,source:{bytes}}})),
-        {text:'Organiza estas fotos numeradas desde 0 en productos físicos individuales. Agrupa solo fotos que claramente muestran el MISMO artículo desde distintos ángulos. No agrupes solo por categoría o marca: colores, modelos o tallas diferentes son productos distintos. Una etiqueta aislada sin vínculo claro debe quedar fuera. Las fotos ambiguas deben quedar fuera para revisión humana. No supongas grupos de tamaño fijo ni uses el orden como evidencia suficiente. Devuelve SOLO JSON: [{"nombre":"nombre corto en español","indices":[0,2,5]}]. Cada índice puede aparecer una sola vez. Incluye grupos de una foto si claramente muestran un producto.'},
+        {text:'Organiza estas fotos numeradas desde 0 en productos físicos individuales. Agrupa solo fotos que claramente muestran el MISMO artículo desde distintos ángulos. No agrupes solo por categoría o marca: colores, modelos o tallas diferentes son productos distintos. Una etiqueta aislada sin vínculo claro debe quedar fuera. Las fotos ambiguas deben quedar fuera para revisión humana. No supongas grupos de tamaño fijo ni uses el orden como evidencia suficiente. Si una foto muestra solo la caja (cerrada o vacía) y no hay forma clara de saber de qué producto es, déjala fuera. El "nombre" es el del producto (collar, pulsera, reloj…), nunca el de la caja o el empaque. Devuelve SOLO JSON: [{"nombre":"nombre corto en español","indices":[0,2,5]}]. Cada índice puede aparecer una sola vez. Incluye grupos de una foto si claramente muestran un producto.'},
       ]}],
       inferenceConfig:{maxTokens:4096,temperature:0},
     }));

@@ -375,6 +375,9 @@ td small{color:var(--muted);font-family:var(--mono)}
 .lote-estado{font-size:13px;color:var(--muted)}
 .lote-estado.pendiente{color:var(--hold);font-weight:700}
 .lote-estado.ok{color:var(--ok);font-weight:700}
+@media (hover:none){body.lote-escribiendo .lote-pie{display:none}}
+.lote-todos{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;border-radius:12px;background:var(--paper);font-size:14px}
+.lote-todos .lote-todos-input{width:110px;padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;background:var(--surface);font-size:16px}
 .lote-pie-botones{display:flex;gap:8px}
 .lote-pie .lote-aviso{flex-basis:100%;font-size:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .lote-pie:has(.lote-aviso)>.lote-estado,.lote-pie:has(.lote-aviso)>.lote-pie-botones{display:none}
