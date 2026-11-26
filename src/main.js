@@ -995,7 +995,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
 
   // ---------- Revisión del lote en tabla ----------
   // Una fila por producto: se edita todo de corrido (Tab / Enter) y se guarda junto.
-  let loteIds = [], loteSucio = new Set();
+  let loteIds = [], loteSucio = new Set(), loteGuardadoAlgo = false;
   const COLS_LOTE = [
     { k:"nombre", label:"Nombre", cls:"c-nombre", tipo:"text", max:120 },
     { k:"marca", label:"Marca", cls:"c-marca w-marca", tipo:"text", max:40, list:"marcaList" },
@@ -1009,11 +1009,12 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     return v==null ? "" : String(v);
   }
   function abrirLote(ids, origen){
-    loteIds = ids.filter(id=>S.products.some(p=>p.id===id)); loteSucio = new Set();
+    loteIds = ids.filter(id=>S.products.some(p=>p.id===id)); loteSucio = new Set(); loteGuardadoAlgo = false;
     const box = $("lote"); box.textContent = "";
     if(!loteIds.length){ box.hidden = true; return; }
     const titulo = origen==="subida" ? `Revisa tu lote (${loteIds.length} producto${loteIds.length===1?"":"s"})` : `Editar ${loteIds.length} producto${loteIds.length===1?"":"s"}`;
-    const guardar = el("button",{class:"btn primary",type:"button",id:"loteGuardar",onclick:guardarLote},"Guardar cambios");
+    // Botón principal: guarda si hay cambios; si no, termina la revisión (no hay que subir a buscar "Cerrar").
+    const guardar = el("button",{class:"btn primary",type:"button",id:"loteGuardar",onclick:()=>{ if(loteSucio.size) guardarLote(); else cerrarLote(); }},"Listo");
     const cerrar = el("button",{class:"btn",type:"button",onclick:cerrarLote},"Cerrar");
     box.append(el("div",{class:"lote-head"},
       el("h2",{id:"loteTitulo"}, titulo), el("button",{class:"btn lote-repetidos",type:"button",onclick:buscarRepetidos},"Buscar repetidos"), cerrar,
@@ -1072,7 +1073,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     box.append(el("div",{class:"tablewrap"}, el("table",null,
       el("thead",null, el("tr",null, el("th",null,"Foto"), ...COLS_LOTE.map(c=>el("th",null,c.label)), el("th",null,""))), tb)));
     // Barra fija abajo: lo que falta guardar y el botón principal, siempre a la vista.
-    box.append(el("div",{class:"lote-pie"}, el("span",{id:"loteEstado",class:"lote-estado","aria-live":"polite"}), guardar));
+    box.append(el("div",{class:"lote-pie"}, el("span",{id:"loteEstado",class:"lote-estado","aria-live":"polite"}),
+      el("div",{class:"lote-pie-botones"}, el("button",{class:"btn",type:"button",id:"loteCerrarPie",onclick:cerrarLote},"Cerrar"), guardar)));
     pintarPieLote();
     document.body.classList.add("lote-abierto");
     box.hidden = false;
@@ -1083,9 +1085,10 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   function pintarPieLote(){
     const e = $("loteEstado"), b = $("loteGuardar"); if(!e || !b) return;
     const n = loteSucio.size;
-    e.textContent = n ? `${n} producto${n===1?"":"s"} con cambios sin guardar` : "Sin cambios por guardar";
-    e.classList.toggle("pendiente", n>0);
-    if(!b.disabled) b.textContent = n ? `Guardar cambios (${n})` : "Guardar cambios";
+    e.textContent = n ? `${n} producto${n===1?"":"s"} con cambios sin guardar` : (loteGuardadoAlgo ? "✓ Todo guardado" : "Revisa y corrige lo que haga falta");
+    e.classList.toggle("pendiente", n>0); e.classList.toggle("ok", !n && loteGuardadoAlgo);
+    if(!b.disabled) b.textContent = n ? `Guardar cambios (${n})` : "Listo, cerrar";
+    const c = $("loteCerrarPie"); if(c) c.hidden = !n;
   }
   function quitarFilaLote(id){
     const tr = document.querySelector(`#lote tr[data-id="${id}"]`); if(!tr) return;
@@ -1110,14 +1113,14 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     });
     btn.disabled = false; pintarPieLote();
     if(fails){ toast(`Se guardaron ${ids.length-fails}; ${fails} no se pudieron guardar. Intenta de nuevo.`); return; }
-    loteSucio.clear(); box.querySelectorAll("tr.cambiado").forEach(tr=>tr.classList.remove("cambiado")); pintarPieLote();
+    loteSucio.clear(); loteGuardadoAlgo = true; box.querySelectorAll("tr.cambiado").forEach(tr=>tr.classList.remove("cambiado")); pintarPieLote();
     toast(`${ids.length} producto${ids.length===1?"":"s"} guardado${ids.length===1?"":"s"}`);
   }
   function cerrarLote(){
     const box = $("lote");
     if(loteSucio.size && !box.querySelector(".lote-aviso")){
-      box.querySelector(".lote-head").append(el("div",{class:"lote-aviso",role:"alert"},
-        `Tienes ${loteSucio.size} producto(s) con cambios sin guardar.`,
+      box.querySelector(".lote-pie").prepend(el("div",{class:"lote-aviso",role:"alert"},
+        el("span",{style:"flex-basis:100%"}, `Tienes ${loteSucio.size===1?'1 producto':loteSucio.size+' productos'} con cambios sin guardar. ¿Qué hago?`),
         el("button",{class:"btn primary",type:"button",onclick:async()=>{ await guardarLote(); if(!loteSucio.size) cerrarLote(); }},"Guardar y cerrar"),
         el("button",{class:"btn",type:"button",onclick:()=>{ loteSucio.clear(); cerrarLote(); }},"Descartar")));
       return;
