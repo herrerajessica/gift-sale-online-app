@@ -3,7 +3,16 @@ import {normalizarGrupos,moverFoto} from './grupos-fotos.js';
 
 // Organizador de fotos: cada tarjeta es un producto. Las acciones de cada foto (mover, portada, quitar)
 // están en una hoja que se abre al tocar la foto, para que la pantalla muestre fotos y no botones.
+// Gira una imagen 90° a la derecha y devuelve un JPG.
+export async function girarImagen(url){
+  const img=await new Promise((res,rej)=>{const i=new Image();i.crossOrigin='anonymous';i.onload=()=>res(i);i.onerror=()=>rej(new Error('No se pudo abrir la foto'));i.src=url;});
+  const c=document.createElement('canvas');c.width=img.naturalHeight;c.height=img.naturalWidth;
+  const g=c.getContext('2d');g.translate(c.width,0);g.rotate(Math.PI/2);g.drawImage(img,0,0);
+  return await new Promise((res,rej)=>c.toBlob(b=>b?res(b):rej(new Error('No se pudo girar')),'image/jpeg',.92));
+}
+
 export function abrirOrganizador(files, op){
+  files=[...files];
   if(!files.length) return;
   const urls=files.map(f=>URL.createObjectURL(f));
   let grupos=[{id:'pendientes',nombre:'Por organizar',fotos:files.map((_,i)=>i)}], numero=0, ocupado=false;
@@ -81,6 +90,17 @@ export function abrirOrganizador(files, op){
   // ---------- Hoja de acciones (foto o producto) ----------
   function abrirHoja(tipo,datos){if(ocupado||(datos.i===ultimoArrastre.i&&Date.now()-ultimoArrastre.t<400))return;hoja={tipo,...datos};pintar();}
   function cerrarHoja(){hoja=null;}
+  // Girar antes de guardar: se reemplaza el archivo; si ya se había preparado (subido), se prepara de nuevo.
+  async function girar(i){
+    if(ocupado)return;
+    try{
+      const b=await girarImagen(urls[i]);
+      files[i]=new File([b],(files[i].name||'foto').replace(/\.[^.]+$/,'')+'.jpg',{type:'image/jpeg'});
+      URL.revokeObjectURL(urls[i]);urls[i]=URL.createObjectURL(files[i]);
+      if(subidas.has(i)){const vieja=subidas.get(i);subidas.delete(i);op.limpiar(vieja).catch(console.warn);}
+      pintar();
+    }catch(e){aviso='No se pudo girar la foto. '+(e.message||'');pintar();}
+  }
   function abrirVisor(i,g){visor={i,lista:(g&&g.fotos.length?g.fotos:[i]).slice(),zoom:false,nombre:g&&g.id!=='pendientes'?g.nombre:'Sin producto'};pintar();}
   function pasarVisor(d){if(!visor)return;const k=visor.lista.indexOf(visor.i);visor.i=visor.lista[(k+d+visor.lista.length)%visor.lista.length];visor.zoom=false;pintar();}
   function pintarVisor(){
@@ -130,6 +150,7 @@ export function abrirOrganizador(files, op){
       const nuevoB=boton('',()=>mover(hoja.i,'nuevo'),'org-destino org-destino-nuevo');nuevoB.setAttribute('aria-label','Mover a un producto nuevo');
       nuevoB.append(el('span','+','org-destino-mas'),el('strong','Producto nuevo'));
       lista.append(nuevoB);panel.append(lista);
+      pie.append(boton('↻ Girar foto',()=>girar(hoja.i)));
       if(enProducto&&g.fotos[0]!==hoja.i)pie.append(boton('★ Usar como portada',()=>{g.fotos=[hoja.i,...g.fotos.filter(x=>x!==hoja.i)];cerrarHoja();pintar();}));
       if(enProducto&&g.fotos.length>1)pie.append(boton('Dejar sin producto',()=>mover(hoja.i,'pendientes')));
       pie.append(boton('🗑 No subir esta foto',()=>{g.fotos=g.fotos.filter(x=>x!==hoja.i);grupos=grupos.filter(x=>x.id==='pendientes'||x.fotos.length||x.guardado);cerrarHoja();pintar();},'btn org-peligro'));

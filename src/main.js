@@ -12,7 +12,7 @@ import { escucha, vocabulario, corregir, codigosDichos, SEPARADOR_PRODUCTOS } fr
 import { interpretarPorLotes } from './dictado.js';
 import { prepararUnion, ejecutarUnion } from './juntar-productos.js';
 import { arrastrable } from './arrastrar.js';
-import { abrirOrganizador } from './organizador-fotos.js';
+import { abrirOrganizador, girarImagen } from './organizador-fotos.js';
 import './organizador.css';
 import { crearGruposUnion } from './grupos-union.js';
 const gruposUnion=crearGruposUnion();
@@ -1152,6 +1152,18 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       th.append(t);
     });
     if(fotos.length>1 || editaFotos) gal.append(th);
+    // Girar la foto que se está viendo (90° a la derecha cada toque) y guardarla así.
+    if(editaFotos && fotos[photoIdx]) gal.append(el("button",{class:"btn",type:"button",id:"girarFoto",onclick:async ev=>{
+      const b = ev.currentTarget; if(b.disabled) return; b.disabled = true; b.textContent = "Girando…";
+      const idx = photoIdx, vieja = fotos[idx];
+      try{
+        const blob = await girarImagen(src(vieja.full));
+        const nueva = await processPhoto(new File([blob],"girada.jpg",{type:"image/jpeg"}), "original"); delete nueva._blob;
+        const cur = ((S.products.find(x=>x.id===p.id)||p).fotos||[]).slice(); const k = cur.findIndex(f=>f.full===vieja.full);
+        if(k<0) throw new Error("la foto cambió");
+        cur[k] = nueva; await S.db.doc("productos/"+p.id).update({fotos:cur, huella:""}); deletePhotos([vieja]); toast("Foto girada");
+      }catch(e){ toast("No se pudo girar: "+errText(e)); b.disabled = false; b.textContent = "↻ Girar foto"; }
+    }},"↻ Girar foto"));
     if(editaFotos && photoIdx>0) gal.append(el("button",{class:"btn",type:"button",onclick:async()=>{ const nf=[fotos[photoIdx],...fotos.filter((_,j)=>j!==photoIdx)]; await S.db.doc("productos/"+p.id).update({fotos:nf}); photoIdx=0; toast("Portada cambiada"); }},"Usar como portada"));
     if(editaFotos){
       const add = el("input",{type:"file",accept:"image/*",multiple:"",hidden:"",id:"addPh"});
