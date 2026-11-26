@@ -443,13 +443,24 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
       referencia:()=>S.db.collection('productos').doc(),
       guardar:async(ref,nombre,fotos)=>{
         let visual={},dictado={};
+        const nombreGenerico = /^producto( \d+| nuevo)?$/i.test(String(nombre||'').trim());
+        // La IA lee las fotos (hasta 3: la de la caja o la etiqueta suele traer la marca) cuando viene del
+        // asistente o cuando el producto todavía no tiene un nombre de verdad ("Producto 7").
+        if(opciones.asistente || nombreGenerico){
+          try{
+            const r=await ai.json('',{images:fotos.slice(0,3).map(f=>f.thumb),idioma:esUS()?'en':'es',rubro:rubroActual()});
+            for(const x of (Array.isArray(r)?r:[]).sort((a,b)=>(a.i||0)-(b.i||0))) for(const [k,v] of Object.entries(x||{})) if(k!=='i' && v!=null && v!=='' && visual[k]==null) visual[k]=v;
+          }catch(e){console.warn('No se completaron datos de la foto',e);}
+        }
         if(opciones.asistente){
-          try{const r=await ai.json('',{images:[fotos[0].thumb],idioma:esUS()?'en':'es',rubro:rubroActual()});visual=r?.[0]||{};}catch(e){console.warn('No se completaron datos de la foto',e);}
           if(opciones.texto)try{const r=await interpretarDictado([`Producto: ${nombre}. Extrae solamente datos de este producto presentes en estas indicaciones; si se refieren a otro producto, deja esos campos vacíos: ${opciones.texto}`],esUS()?'en':'es',enSoles()?'PEN':'USD',rubroActual());dictado=r?.[0]||{};}catch(e){console.warn('No se interpretaron las indicaciones',e);}
         }
         // El nombre del grupo lo revisó la vendedora: si dice qué es ("Porta cosméticos beige"), eso manda
         // sobre lo que la IA creyó ver en la foto. Los nombres por defecto ("Producto 3") no cuentan.
-        const nombrePropio = !/^producto \d+$/i.test(String(nombre||'').trim());
+        const nombrePropio = !nombreGenerico;
+        // Marca escrita en la caja o en la descripción ("caja original de GUESS") aunque la IA no la puso como marca.
+        if(!visual.marca) visual.marca = marcaDeTexto([visual.nombre, visual.descripcion].filter(Boolean).join(' ')) || '';
+        if(!visual.tipo && visual.nombre) visual.tipo = tipoDeTexto(visual.nombre, rubroActual()) || '';
         const tipoNombre = nombrePropio ? tipoDeTexto(nombre, rubroActual()) : '';
         const marcaNombre = nombrePropio ? marcaDeTexto(nombre) : '';
         let extraWeb = '';
@@ -473,7 +484,8 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
         let precio=dictado.precio??null;
         const moneda=enSoles()?'PEN':'USD';if(precio!=null&&dictado.moneda&&dictado.moneda!==moneda&&tipoCambio())precio=moneda==='PEN'?Math.round(precio*tipoCambio()*100)/100:Math.round(precio/tipoCambio()*100)/100;
         const tipoFinal = tipoNombre || visual.tipo || '';
-        const datos={nombre,...(tipoFinal?{tipo:tipoFinal}:{}),marca:marcaNombre||dictado.marca||visual.marca||'',precio,stock:dictado.stock??null,talla:dictado.talla||visual.talla||'',categoria:(tipoNombre&&categoriaDeTipo(tipoNombre))||dictado.categoria||visual.categoria||'',publico:dictado.publico||visual.publico||'',descripcion:(extraWeb||dictado.descripcion||visual.descripcion||'').slice(0,600),condicion:dictado.condicion||visual.condicion||'',estado:'oculto',fotos,creado:Date.now()};
+        const nombreFinal = nombrePropio ? nombre : (visual.nombre || dictado.nombre || nombre);
+        const datos={nombre:nombreFinal,...(tipoFinal?{tipo:tipoFinal}:{}),marca:marcaNombre||dictado.marca||visual.marca||'',precio,stock:dictado.stock??null,talla:dictado.talla||visual.talla||'',categoria:(tipoNombre&&categoriaDeTipo(tipoNombre))||dictado.categoria||visual.categoria||'',publico:dictado.publico||visual.publico||'',descripcion:(extraWeb||dictado.descripcion||visual.descripcion||'').slice(0,600),condicion:dictado.condicion||visual.condicion||'',estado:'oculto',fotos,creado:Date.now()};
         await ref.set(datos);
         if(!S.products.some(p=>p.id===ref.id))S.products.push({id:ref.id,...datos});
       },

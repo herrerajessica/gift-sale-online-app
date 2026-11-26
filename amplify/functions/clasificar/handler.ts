@@ -35,7 +35,7 @@ Para cada foto responde un objeto con:
 - "categoria": exactamente una de: ${CATEGORIAS.join(', ')}
 - "publico": exactamente uno de: ${PUBLICOS.join(', ')} (usa Unisex si no se distingue)
 ${nombre}
-- "marca": la marca solo si su logo, etiqueta o diseño característico se ve claramente en la foto; si no, "".
+- "marca": la marca si se ve su logo o diseño característico, o si su nombre está escrito en el producto, la caja, la bolsa, el estuche o la etiqueta (ej. "GUESS" impreso en la caja); si no, "".
 - "costo": el precio en dólares que se lee en la etiqueta de precio de la tienda (si hay varios, el más bajo o el de liquidación), como número; si no se ve claro, null.
 - "talla": la talla si se lee en la etiqueta o en el producto (ej. "8", "M", "32x30"); si no, "".
 - "condicion": exactamente una de: ${CONDICIONES.join(', ')}. Usa nuevo_etiqueta si se ve la etiqueta de la tienda colgando; caja_abierta si está en su caja abierta; si no estás segura, "".
