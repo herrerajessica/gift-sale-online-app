@@ -92,8 +92,13 @@ export function abrirOrganizador(files, op){
       for(let i=0;i<n;i++){avanzar('Preparando tus fotos',`Foto ${i+1} de ${n}`,i,n+1);paths.push((await preparar(i)).thumb);}
       avanzar('La IA está agrupando tus fotos','Busca qué fotos son del mismo producto. Tarda unos segundos.',n,n+1);
       const resultado=normalizarGrupos(await op.agrupar(paths),files.length);
-      grupos=[{id:'pendientes',nombre:'Por organizar',fotos:resultado.pendientes},...resultado.grupos.map(g=>({id:'grupo-'+(++numero),nombre:String(g.nombre||'Producto').charAt(0).toUpperCase()+String(g.nombre||'Producto').slice(1),fotos:g.fotos,nombreIA:true}))];
+      // Tope de seguridad: un grupo con más de MAX_GRUPO fotos casi seguro mezcla productos distintos;
+      // se separa en productos de una foto para que la vendedora junte los que sí van juntos.
+      const MAX_GRUPO=5, demasiados=resultado.grupos.filter(g=>g.fotos.length>MAX_GRUPO);
+      resultado.grupos=resultado.grupos.flatMap(g=>g.fotos.length>MAX_GRUPO?g.fotos.map(i=>({nombre:'Producto',fotos:[i],suelta:true})):[g]);
+      grupos=[{id:'pendientes',nombre:'Por organizar',fotos:resultado.pendientes},...resultado.grupos.map(g=>g.suelta?{id:'grupo-'+(++numero),nombre:'Producto '+numero,fotos:g.fotos}:({id:'grupo-'+(++numero),nombre:String(g.nombre||'Producto').charAt(0).toUpperCase()+String(g.nombre||'Producto').slice(1),fotos:g.fotos,nombreIA:true}))];
       aviso='Grupos sugeridos por IA: comprueba que sean el mismo producto y corrige los nombres antes de guardar.';
+      if(demasiados.length)aviso+=` La IA juntó demasiadas fotos en ${demasiados.length===1?'un grupo':demasiados.length+' grupos'}; esas fotos quedaron cada una como un producto para que juntes las que sí son iguales.`;
       if(files.length>20){
         // Las fotos que la IA no alcanzó a ver (más de 20) quedan cada una como su propio producto.
         const pend=grupos[0], fuera=pend.fotos.filter(i=>i>=20);
