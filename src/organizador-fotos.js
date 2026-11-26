@@ -27,7 +27,7 @@ export function abrirOrganizador(files, op){
     cerrarHoja();pintar();
   }
   async function preparar(i){if(!subidas.has(i))subidas.set(i,await op.preparar(files[i]));return subidas.get(i);}
-  function cerrar(){if(ocupado)return;urls.forEach(URL.revokeObjectURL);document.removeEventListener('keydown',tecla);ov.remove();
+  function cerrar(){if(ocupado)return;urls.forEach(URL.revokeObjectURL);document.querySelectorAll('.drag-fantasma').forEach(n=>n.remove());document.removeEventListener('keydown',tecla);ov.remove();
     // Si una creación perdió su respuesta, conservar también esas fotos: el servidor pudo guardarla.
     const protegidas=new Set(grupos.filter(g=>g.ref).flatMap(g=>g.fotos));
     for(const [i,f] of subidas)if(!guardados.has(i)&&!protegidas.has(i))op.limpiar(f).catch(console.warn);
@@ -124,6 +124,8 @@ export function abrirOrganizador(files, op){
   }
   function pintar(){
     const scroll=ov.querySelector('.organizador-cuerpo')?.scrollTop||0;
+    // Si la foto que se arrastraba desapareció al redibujar, su sombra no debe quedarse flotando.
+    document.querySelectorAll('.drag-fantasma').forEach(n=>n.remove());
     ov.textContent='';
     const card=el('div',null,'cart organizador');card.setAttribute('role','dialog');card.setAttribute('aria-modal','true');card.setAttribute('aria-label','Organizar fotos por producto');
     const head=el('div',null,'cart-head org-head');
