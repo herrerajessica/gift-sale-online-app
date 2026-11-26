@@ -428,10 +428,30 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
   }
 
   // ---------- Subida en bloque ----------
+  const FOTOS_POR_TANDA = 20;
+  // Aviso entre partes: seguir con las fotos que faltan o dejarlas para después.
+  function siguienteTanda(resto, opciones, tanda){
+    const ov = $("planOverlay"); ov.textContent=""; ov.hidden=false; delete ov.dataset.dict; delete ov.dataset.conf;
+    const cerrar = ()=>{ ov.hidden=true; ov.textContent=""; ov.onclick=null; };
+    ov.onclick = e=>{ if(e.target===ov) cerrar(); };
+    const n = resto.length;
+    ov.append(el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":"Siguiente parte"},
+      el("h2",null,`Parte ${tanda.n-1} lista ✓`),
+      el("p",{style:"margin:0;font-size:16px"}, `Faltan ${n} foto${n===1?"":"s"} por subir (parte ${tanda.n} de ${tanda.total}).`),
+      el("p",{class:"note",style:"margin:0"}, "Si prefieres, primero revisa los precios de esta parte y luego vuelve a elegir las fotos que faltan."),
+      el("div",{class:"actions",style:"justify-content:stretch;display:grid;grid-template-columns:1fr 1fr;gap:8px"},
+        el("button",{class:"btn",type:"button",onclick:cerrar},"Más tarde"),
+        el("button",{class:"btn primary",type:"button",onclick:()=>{ cerrar(); abrirOrganizadorFotos(resto, { ...opciones, tanda }); }},`Seguir con ${n} foto${n===1?"":"s"}`))));
+  }
   function abrirOrganizadorFotos(list, opciones={}){
     if(!S.canEdit || !S.assets || !S.db) return;
     const files=[...list].filter(f=>f.type.startsWith('image/')||/\.(heic|heif)$/i.test(f.name));
     if(!files.length){toast('Selecciona al menos una foto');return;}
+    // Por partes: como máximo FOTOS_POR_TANDA fotos a la vez (la IA agrupa bien hasta 20). Las demás esperan
+    // y al terminar cada tanda se ofrece seguir con la siguiente.
+    const tanda = opciones.tanda || { n:1, total:Math.ceil(files.length/FOTOS_POR_TANDA) };
+    const resto = files.splice(FOTOS_POR_TANDA);
+    if(tanda.n===1 && resto.length) toast(`Elegiste ${files.length+resto.length} fotos: las subimos por partes, de ${FOTOS_POR_TANDA} en ${FOTOS_POR_TANDA}. Parte 1 de ${tanda.total}.`);
     // "Completa con internet": primero se lee la foto y con esa marca y nombre se busca la ficha en internet.
     const conInternet = !!(opciones.asistente && S.buscarInternet && /internet|\bweb\b|google|en l[ií]nea|busca|investiga/i.test(opciones.texto||''));
     const web = { hechos: [], sinDatos: [], limite: false, error: false };
@@ -506,6 +526,7 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
         render();toast(opciones.publicar ? (sinLeer.length ? `Productos publicados. La IA no pudo leer ${sinLeer.length===1?'1 producto':sinLeer.length+' productos'}: complétalo${sinLeer.length===1?'':'s'} en la lista.` : 'Productos publicados. Revisa precio y datos en la lista.') : sinLeer.length ? `Guardados como ocultos. La IA no pudo leer ${sinLeer.length===1?'1 producto':sinLeer.length+' productos'}: complétalo${sinLeer.length===1?'':'s'} en la lista.` : 'Productos guardados como ocultos. Revisa los datos antes de publicarlos.');
         if(conInternet) avisoWeb(web);
         abrirLote(ids,'subida');
+        if(resto.length) setTimeout(()=>siguienteTanda(resto, opciones, { n:tanda.n+1, total:tanda.total }), 900);
       },
     });
   }
