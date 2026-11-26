@@ -4,12 +4,27 @@ import {normalizarGrupos,moverFoto} from './grupos-fotos.js';
 
 // Organizador de fotos: cada tarjeta es un producto. Las acciones de cada foto (mover, portada, quitar)
 // están en una hoja que se abre al tocar la foto, para que la pantalla muestre fotos y no botones.
-// Gira una imagen 90° a la derecha y devuelve un JPG.
-export async function girarImagen(url){
-  const img=await new Promise((res,rej)=>{const i=new Image();i.crossOrigin='anonymous';i.onload=()=>res(i);i.onerror=()=>rej(new Error('No se pudo abrir la foto'));i.src=url;});
-  const c=document.createElement('canvas');c.width=img.naturalHeight;c.height=img.naturalWidth;
-  const g=c.getContext('2d');g.translate(c.width,0);g.rotate(Math.PI/2);g.drawImage(img,0,0);
-  return await new Promise((res,rej)=>c.toBlob(b=>b?res(b):rej(new Error('No se pudo girar')),'image/jpeg',.92));
+// Gira una imagen 90° a la derecha y devuelve un JPG. Acepta un archivo o una URL.
+// Se reduce a 2048 px por lado: en celulares, un lienzo del tamaño de la foto original (12 MP o más)
+// puede salir vacío y la foto quedaba rota. La foto se vuelve a reducir igual al subirla.
+export async function girarImagen(fuente, max=2048){
+  let img;
+  if(fuente instanceof Blob && window.createImageBitmap){
+    try{img=await createImageBitmap(fuente,{imageOrientation:'from-image'});}catch(e){img=null;}
+  }
+  if(!img){
+    const url=fuente instanceof Blob?URL.createObjectURL(fuente):fuente;
+    try{img=await new Promise((res,rej)=>{const i=new Image();if(!(fuente instanceof Blob))i.crossOrigin='anonymous';i.onload=()=>res(i);i.onerror=()=>rej(new Error('No se pudo abrir la foto'));i.src=url;});}
+    finally{if(fuente instanceof Blob)setTimeout(()=>URL.revokeObjectURL(url),1000);}
+  }
+  const w=img.naturalWidth||img.width, h=img.naturalHeight||img.height, k=Math.min(1,max/Math.max(w,h));
+  const W=Math.round(w*k), H=Math.round(h*k);
+  const c=document.createElement('canvas');c.width=H;c.height=W;
+  const g=c.getContext('2d');g.translate(H,0);g.rotate(Math.PI/2);g.drawImage(img,0,0,W,H);
+  if(img.close)img.close();
+  const b=await new Promise(res=>c.toBlob(res,'image/jpeg',.9));
+  if(!b||b.size<1000)throw new Error('El celular no pudo girar esta foto');
+  return b;
 }
 
 export function abrirOrganizador(files, op){
@@ -111,7 +126,9 @@ export function abrirOrganizador(files, op){
   async function girar(i){
     if(ocupado)return;
     try{
-      const b=await girarImagen(urls[i]);
+      const b=await girarImagen(files[i]);
+      // Se comprueba que la foto girada se pueda abrir antes de reemplazar la original.
+      if(window.createImageBitmap){const t=await createImageBitmap(b);t.close&&t.close();}
       files[i]=new File([b],(files[i].name||'foto').replace(/\.[^.]+$/,'')+'.jpg',{type:'image/jpeg'});
       URL.revokeObjectURL(urls[i]);urls[i]=URL.createObjectURL(files[i]);
       if(subidas.has(i)){const vieja=subidas.get(i);subidas.delete(i);op.limpiar(vieja).catch(console.warn);}
