@@ -143,12 +143,16 @@ export function abrirOrganizador(files, op){
     const paso=t=>{trabajo={titulo:'Fondo blanco',paso:t,actual:1,total:3};pintar();};
     let nuevaUrl='';
     try{
-      const b=await ponerFondoBlanco(files[i],paso);
-      nuevaUrl=URL.createObjectURL(b);
+      const r=await ponerFondoBlanco(files[i],paso);
+      const ops=[r.conCaja&&{titulo:'Con su caja',url:URL.createObjectURL(r.conCaja),valor:'caja'},r.soloProducto&&{titulo:'Solo el producto',url:URL.createObjectURL(r.soloProducto),valor:'solo'}].filter(Boolean);
       trabajo=null;ocupado=false;pintar();
-      if(await compararFondo(urls[i],nuevaUrl)){
+      const elegido=await compararFondo(urls[i],ops);
+      const usar=ops.find(o=>o.valor===elegido);
+      ops.filter(o=>o!==usar).forEach(o=>URL.revokeObjectURL(o.url));
+      if(usar){
+        const b=elegido==='caja'?r.conCaja:r.soloProducto;nuevaUrl='';
         files[i]=new File([b],(files[i].name||'foto').replace(/\.[^.]+$/,'')+'-fondo.jpg',{type:'image/jpeg'});
-        URL.revokeObjectURL(urls[i]);urls[i]=nuevaUrl;nuevaUrl='';
+        URL.revokeObjectURL(urls[i]);urls[i]=usar.url;
         if(subidas.has(i)){const vieja=subidas.get(i);subidas.delete(i);op.limpiar(vieja).catch(console.warn);}
         aviso='Listo: la foto quedó con fondo blanco.';
       }
