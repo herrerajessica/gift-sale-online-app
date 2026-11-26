@@ -313,3 +313,7 @@ Ver `buildspec.yml`. Necesita `REPORT_BUCKET`, `BASE_URL` y el secreto `qa/playw
 ## Versión anterior
 
 `app/vitrina-usa.html` es la primera versión, que funciona como Artifact dentro de claude.ai (una sola tienda).
+
+## Fondo blanco gratis (en el navegador)
+
+Botón **⬜ Fondo blanco** en el organizador (al tocar una foto) y en la ficha del producto. Corre en el celular o la computadora de la vendedora con **ONNX Runtime Web** (`onnxruntime-web@1.20.1` desde jsDelivr) y el modelo **U²-Net pequeño** (`u2netp.onnx`, 4,4 MB, Apache-2.0, desde Hugging Face `edgetools/u2netp`). No usa AWS ni servicios de pago. Muestra antes y después y solo reemplaza la foto si la vendedora toca **Usar este**. Código: `src/fondo-blanco.js`. (El fondo blanco con Nova Canvas sigue apagado con `FONDO_IA_LISTO = false` porque cobra por foto.)

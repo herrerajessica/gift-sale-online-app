@@ -14,6 +14,7 @@ import { prepararUnion, ejecutarUnion } from './juntar-productos.js';
 import { arrastrable } from './arrastrar.js';
 import { abrirOrganizador, girarImagen } from './organizador-fotos.js';
 import { abrirCapa } from './atras.js';
+import { ponerFondoBlanco, compararFondo } from './fondo-blanco.js';
 import './organizador.css';
 import { crearGruposUnion } from './grupos-union.js';
 const gruposUnion=crearGruposUnion();
@@ -1239,6 +1240,24 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         cur[k] = nueva; await S.db.doc("productos/"+p.id).update({fotos:cur, huella:""}); deletePhotos([vieja]); toast("Foto girada");
       }catch(e){ toast("No se pudo girar: "+errText(e)); b.disabled = false; b.textContent = "↻ Girar foto"; }
     }},"↻ Girar foto"));
+    // Fondo blanco gratis (en el celular) para la foto que se está viendo.
+    if(editaFotos && fotos[photoIdx]) gal.append(el("button",{class:"btn",type:"button",id:"fondoFoto",onclick:async ev=>{
+      const b = ev.currentTarget; if(b.disabled) return; b.disabled = true;
+      const idx = photoIdx, vieja = fotos[idx];
+      let url = "";
+      try{
+        const blob = await ponerFondoBlanco(src(vieja.full), t=>{ b.textContent = t; });
+        url = URL.createObjectURL(blob);
+        b.textContent = "⬜ Fondo blanco"; b.disabled = false;
+        if(!(await compararFondo(src(vieja.full), url))) return;
+        b.disabled = true; b.textContent = "Guardando…";
+        const nueva = await processPhoto(new File([blob],"fondo.jpg",{type:"image/jpeg"}), "original"); delete nueva._blob;
+        const cur = ((S.products.find(x=>x.id===p.id)||p).fotos||[]).slice(); const k = cur.findIndex(f=>f.full===vieja.full);
+        if(k<0) throw new Error("la foto cambió");
+        cur[k] = nueva; await S.db.doc("productos/"+p.id).update({fotos:cur, huella:""}); deletePhotos([vieja]); toast("Foto con fondo blanco");
+      }catch(e){ toast("No se pudo poner el fondo blanco: "+((e&&e.message)||errText(e))); }
+      finally{ if(url) URL.revokeObjectURL(url); if(b.isConnected){ b.disabled = false; b.textContent = "⬜ Fondo blanco"; } }
+    }},"⬜ Fondo blanco"));
     // Separar: cada foto (menos la portada) pasa a ser su propio producto. Sirve para deshacer una unión hecha por error.
     if(editaFotos && fotos.length>1) gal.append(el("button",{class:"btn",type:"button",id:"separarFotos",onclick:ev=>{
       const b = ev.currentTarget;

@@ -1,5 +1,6 @@
 import {arrastrable} from './arrastrar.js';
 import {abrirCapa} from './atras.js';
+import {ponerFondoBlanco,compararFondo} from './fondo-blanco.js';
 import {normalizarGrupos,moverFoto} from './grupos-fotos.js';
 
 // Organizador de fotos: cada tarjeta es un producto. Las acciones de cada foto (mover, portada, quitar)
@@ -135,6 +136,25 @@ export function abrirOrganizador(files, op){
       pintar();
     }catch(e){aviso='No se pudo girar la foto. '+(e.message||'');pintar();}
   }
+  // Fondo blanco gratis en el celular: se muestra antes y después y la vendedora decide.
+  async function fondoBlanco(i){
+    if(ocupado)return;
+    ocupado=true;const volver=hoja;cerrarHoja();
+    const paso=t=>{trabajo={titulo:'Fondo blanco',paso:t,actual:1,total:3};pintar();};
+    let nuevaUrl='';
+    try{
+      const b=await ponerFondoBlanco(files[i],paso);
+      nuevaUrl=URL.createObjectURL(b);
+      trabajo=null;ocupado=false;pintar();
+      if(await compararFondo(urls[i],nuevaUrl)){
+        files[i]=new File([b],(files[i].name||'foto').replace(/\.[^.]+$/,'')+'-fondo.jpg',{type:'image/jpeg'});
+        URL.revokeObjectURL(urls[i]);urls[i]=nuevaUrl;nuevaUrl='';
+        if(subidas.has(i)){const vieja=subidas.get(i);subidas.delete(i);op.limpiar(vieja).catch(console.warn);}
+        aviso='Listo: la foto quedó con fondo blanco.';
+      }
+    }catch(e){aviso='No se pudo poner el fondo blanco. '+(e.message||'');}
+    finally{if(nuevaUrl)URL.revokeObjectURL(nuevaUrl);trabajo=null;ocupado=false;hoja=volver&&volver.tipo==='foto'?volver:null;pintar();}
+  }
   function abrirVisor(i,g){visor={i,lista:(g&&g.fotos.length?g.fotos:[i]).slice(),zoom:false,nombre:g&&g.id!=='pendientes'?g.nombre:'Sin producto'};pintar();}
   function pasarVisor(d){if(!visor)return;const k=visor.lista.indexOf(visor.i);visor.i=visor.lista[(k+d+visor.lista.length)%visor.lista.length];visor.zoom=false;pintar();}
   function pintarVisor(){
@@ -191,7 +211,7 @@ export function abrirOrganizador(files, op){
       const nuevoB=boton('',()=>mover(hoja.i,'nuevo'),'org-destino org-destino-nuevo');nuevoB.setAttribute('aria-label','Mover a un producto nuevo');
       nuevoB.append(el('span','+','org-destino-mas'),el('strong','Producto nuevo'));
       lista.append(nuevoB);panel.append(lista);
-      pie.append(boton('↻ Girar foto',()=>girar(hoja.i)));
+      pie.append(boton('↻ Girar foto',()=>girar(hoja.i)),boton('⬜ Fondo blanco',()=>fondoBlanco(hoja.i)));
       if(enProducto&&g.fotos[0]!==hoja.i)pie.append(boton('★ Usar como portada',()=>{g.fotos=[hoja.i,...g.fotos.filter(x=>x!==hoja.i)];cerrarHoja();pintar();}));
       if(enProducto&&g.fotos.length>1)pie.append(boton('Dejar sin producto',()=>mover(hoja.i,'pendientes')));
       pie.append(boton('🗑 No subir esta foto',()=>{g.fotos=g.fotos.filter(x=>x!==hoja.i);grupos=grupos.filter(x=>x.id==='pendientes'||x.fotos.length||x.guardado);cerrarHoja();pintar();},'btn org-peligro'));
