@@ -10,6 +10,9 @@ export function abrirOrganizador(files, op){
   const subidas=new Map(), guardados=new Set();
   let aviso='Toca una foto para elegir a qué producto va, o arrástrala. Nada se publica automáticamente.';
   let hoja=null, ultimoArrastre={t:0,i:-1};
+  // Trabajo en curso, bien visible: qué hace la IA y cuánto falta.
+  let trabajo=null;
+  const avanzar=(titulo,paso,actual,total)=>{trabajo={titulo,paso,actual,total};pintar();};
   const ov=document.createElement('div'); ov.className='overlay'; document.body.append(ov);
   const el=(tag,txt,clase)=>{const n=document.createElement(tag);if(txt)n.textContent=txt;if(clase)n.className=clase;return n;};
   const boton=(texto,fn,clase='btn')=>{const b=el('button',texto,clase); b.type='button';b.disabled=ocupado;b.onclick=fn;return b;};
@@ -35,16 +38,18 @@ export function abrirOrganizador(files, op){
   function tecla(e){if(e.key==='Escape'){if(hoja){cerrarHoja();pintar();}else cerrar();}}
   document.addEventListener('keydown',tecla);
   async function sugerir(){
-    if(ocupado)return;ocupado=true;aviso='Preparando fotos y buscando productos…';pintar();
+    if(ocupado)return;ocupado=true;aviso='Preparando fotos y buscando productos…';
     try{
       const paths=[];
-      for(let i=0;i<Math.min(20,files.length);i++)paths.push((await preparar(i)).thumb);
+      const n=Math.min(20,files.length);
+      for(let i=0;i<n;i++){avanzar('Preparando tus fotos',`Foto ${i+1} de ${n}`,i,n+1);paths.push((await preparar(i)).thumb);}
+      avanzar('La IA está agrupando tus fotos','Busca qué fotos son del mismo producto. Tarda unos segundos.',n,n+1);
       const resultado=normalizarGrupos(await op.agrupar(paths),files.length);
       grupos=[{id:'pendientes',nombre:'Por organizar',fotos:resultado.pendientes},...resultado.grupos.map(g=>({id:'grupo-'+(++numero),nombre:g.nombre,fotos:g.fotos}))];
       aviso='Grupos sugeridos por IA: comprueba que sean el mismo producto y corrige los nombres antes de guardar.';
       if(files.length>20)aviso+=' La IA analizó las primeras 20 fotos; organiza las restantes tú.';
     }catch(e){aviso='No se pudo agrupar con IA. Puedes organizar las fotos tú. '+(e.message||'');}
-    finally{ocupado=false;pintar();}
+    finally{ocupado=false;trabajo=null;pintar();}
   }
   async function guardar(){
     const pendientes=grupos.find(g=>g.id==='pendientes');
@@ -52,9 +57,11 @@ export function abrirOrganizador(files, op){
     if(pendientes&&pendientes.fotos.length){aviso='Antes de guardar, ubica las fotos sin producto o quítalas del lote.';pintar();return;}
     if(!activos.length)return;
     if(!op.permitir(activos.length))return;
-    ocupado=true;aviso='Guardando productos ocultos. No cierres esta ventana…';pintar();
+    ocupado=true;aviso='Guardando productos ocultos. No cierres esta ventana…';
     try{
+      let k=0;
       for(const g of activos){
+        avanzar('Guardando tus productos',`Producto ${++k} de ${activos.length}: ${g.nombre}. No cierres esta ventana.`,k-1,activos.length);
         const fotos=[];for(const i of g.fotos)fotos.push(await preparar(i));
         // Reutilizar el ID en un reintento evita duplicar una creación cuyo resultado se perdió.
         g.ref ||= op.referencia();
@@ -62,8 +69,8 @@ export function abrirOrganizador(files, op){
         g.guardado=true;g.fotos.forEach(i=>guardados.add(i));
       }
       const ids=grupos.filter(g=>g.guardado).map(g=>g.ref.id);
-      ocupado=false;cerrar();op.terminar(ids);
-    }catch(e){aviso='Se conservan los productos guardados. Reintenta los pendientes: '+(e.message||'No se pudo guardar.');ocupado=false;pintar();}
+      ocupado=false;trabajo=null;cerrar();op.terminar(ids);
+    }catch(e){aviso='Se conservan los productos guardados. Reintenta los pendientes: '+(e.message||'No se pudo guardar.');ocupado=false;trabajo=null;pintar();}
   }
 
   // ---------- Hoja de acciones (foto o producto) ----------
@@ -130,7 +137,7 @@ export function abrirOrganizador(files, op){
     const card=el('div',null,'cart organizador');card.setAttribute('role','dialog');card.setAttribute('aria-modal','true');card.setAttribute('aria-label','Organizar fotos por producto');
     const head=el('div',null,'cart-head org-head');
     const titulos=el('div');titulos.append(el('h2','Organizar fotos por producto'));
-    const estado=el('p',aviso,'note org-aviso');estado.setAttribute('role','status');titulos.append(estado);
+    if(!trabajo){const estado=el('p',aviso,'note org-aviso');estado.setAttribute('role','status');titulos.append(estado);}
     head.append(titulos,boton('Cerrar',cerrar,'btn org-cerrar'));
     card.append(head);
     if(op.instrucciones)card.append(el('p','Tus indicaciones: '+op.instrucciones,'note instrucciones-fotos'));
@@ -142,7 +149,14 @@ export function abrirOrganizador(files, op){
     const ia=boton('✨ Sugerir con IA',sugerir,'btn org-ia');ia.setAttribute('aria-label','Sugerir grupos con IA');ia.disabled=ocupado||guardados.size>0;barra.append(ia);
     card.append(barra);
 
-    const cuerpo=el('div',null,'organizador-cuerpo');
+    if(trabajo){
+      const panel=el('div',null,'org-trabajo');panel.setAttribute('role','status');panel.setAttribute('aria-live','polite');
+      const giro=el('span',null,'org-giro');giro.setAttribute('aria-hidden','true');
+      const txt=el('div',null,'org-trabajo-txt');txt.append(el('strong',trabajo.titulo+'…'),el('span',trabajo.paso));
+      const barraP=el('div',null,'org-trabajo-barra');const lleno=el('span');lleno.style.width=Math.max(6,Math.round(100*trabajo.actual/trabajo.total))+'%';barraP.append(lleno);
+      panel.append(giro,txt,barraP);card.append(panel);
+    }
+    const cuerpo=el('div',null,'organizador-cuerpo'+(trabajo?' org-ocupado':''));
     const pend=grupos.find(g=>g.id==='pendientes');
     if(pend&&pend.fotos.length){
       const zona=el('section',null,'foto-grupo org-bandeja');zona.dataset.grupo='pendientes';
@@ -175,7 +189,7 @@ export function abrirOrganizador(files, op){
 
     const pie=el('div',null,'org-pie');
     const faltan=pend?pend.fotos.length:0;
-    pie.append(el('p',faltan?`Falta ubicar ${fotosTxt(faltan)}.`:'Se guardan ocultos: los revisas antes de publicarlos.','note org-pie-nota'+(faltan?' org-falta':'')));
+    pie.append(trabajo?el('p','Espera un momento…','note org-pie-nota'):el('p',faltan?`Falta ubicar ${fotosTxt(faltan)}.`:'Se guardan ocultos: los revisas antes de publicarlos.','note org-pie-nota'+(faltan?' org-falta':'')));
     const guardarBtn=boton('Guardar productos ocultos y revisar',guardar,'btn primary org-guardar');
     guardarBtn.disabled=ocupado||!editables().some(g=>g.fotos.length);
     pie.append(guardarBtn);
