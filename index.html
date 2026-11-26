@@ -936,17 +936,25 @@ html,body{overflow-x:clip}
   </div>
 
   <div class="bulk" id="bulk" hidden>
-    <strong id="bulkCount">0 seleccionados</strong>
-    <button class="btn" id="bulkAll">Todos</button>
-    <button class="btn" id="bulkDone">Terminar edición</button>
-    <details class="bulk-seccion" open><summary>Juntar productos</summary><div class="bulk-controles">
-    <div id="unionGrupos" class="union-leyenda" role="group" aria-label="Grupos de unión"></div>
-    <button class="btn" type="button" id="unionNuevo">+ Nuevo grupo</button>
-    <p class="note">Los marcados en verde forman el grupo. Puedes agregar más o tocar una tarjeta para quitarla.</p>
-    <button class="btn primary" id="bulkJuntar" disabled>Juntar en un producto</button>
-    <button class="btn" id="bulkCancelarUnion" hidden>Cancelar grupo</button>
-    </div></details>
-    <details class="bulk-seccion"><summary>Editar datos, precios y ofertas</summary><div class="bulk-controles">
+    <div class="bulk-top">
+      <strong id="bulkCount">0 seleccionados</strong>
+      <button class="btn" id="bulkAll">Todos</button>
+      <button class="btn primary" id="bulkDone">Listo</button>
+    </div>
+    <p class="note bulk-ayuda" id="bulkAyuda">Toca los productos que quieres cambiar y elige qué hacer.</p>
+    <div class="bulk-juntando" id="bulkJuntando" hidden>
+      <strong>Modo juntar</strong>
+      <span>Toca solo las fichas que son <b>el mismo producto</b> (por ejemplo, la foto de frente y la de la etiqueta).</span>
+      <div id="unionGrupos" class="union-leyenda" role="group" aria-label="Grupos de unión"></div>
+      <div class="bulk-controles">
+        <button class="btn primary" id="bulkJuntar" disabled>Juntar en un producto</button>
+        <button class="btn" type="button" id="unionNuevo">+ Otro grupo</button>
+        <button class="btn" id="bulkCancelarUnion" hidden>Cancelar grupo</button>
+        <button class="btn" type="button" id="bulkSalirJuntar">Salir de juntar</button>
+      </div>
+    </div>
+    <div class="bulk-acciones" id="bulkAcciones">
+    <details class="bulk-seccion"><summary>✏️ Cambiar precio, datos u oferta</summary><div class="bulk-controles">
     <input id="bulkPrice" inputmode="decimal" placeholder="Precio $" aria-label="Precio para seleccionados">
     <input id="bulkCat" placeholder="Categoría" list="catList" aria-label="Categoría para seleccionados">
     <input id="bulkMarca" placeholder="Marca" list="marcaList" aria-label="Marca para seleccionados">
@@ -960,20 +968,25 @@ html,body{overflow-x:clip}
     <button class="btn primary" id="bulkApply">Aplicar</button>
     <button class="btn" id="bulkTabla">Editar en tabla</button>
     </div></details>
-    <details class="bulk-seccion"><summary>Organizar y clasificar</summary><div class="bulk-controles">
+    <details class="bulk-seccion"><summary>🗂️ Organizar y clasificar</summary><div class="bulk-controles">
     <button class="btn" id="bulkAI" hidden>Clasificar con IA</button>
     <button class="btn" id="bulkDup">Buscar repetidos</button>
     <button class="btn" id="bulkMover" title="Cambia la categoría de los marcados con un toque">Mover a…</button>
     </div></details>
-    <details class="bulk-seccion"><summary>Compartir y mensajes</summary><div class="bulk-controles">
+    <details class="bulk-seccion"><summary>📣 Compartir y mensajes</summary><div class="bulk-controles">
     <button class="btn" id="bulkGrupo" title="Arma el mensaje con estos productos para tu grupo de WhatsApp">📣 Mensaje para mi grupo</button>
     <button class="btn" id="bulkShare" title="Tus tiendas de confianza podrán revenderlos">Compartir</button>
     <button class="btn" id="bulkUnshare">Dejar de compartir</button>
     </div></details>
-    <details class="bulk-seccion"><summary>Eliminar productos</summary><div class="bulk-controles">
+    <details class="bulk-seccion" id="bulkSecJuntar"><summary>🔗 Juntar fichas del mismo producto</summary><div class="bulk-controles">
+    <p class="note">Si subiste el mismo producto en varias fichas (por ejemplo, frente y etiqueta por separado), las juntas en una sola con todas sus fotos. Las demás fichas se borran.</p>
+    <button class="btn" type="button" id="bulkEntrarJuntar">Empezar a juntar</button>
+    </div></details>
+    <details class="bulk-seccion"><summary>🗑️ Borrar productos</summary><div class="bulk-controles">
     <button class="btn danger" id="bulkDel">Borrar</button>
     <span class="confirm" id="bulkConfirm" hidden>¿Borrar <span id="bulkN"></span> productos para siempre? <button class="btn danger" id="bulkDelYes">Sí, borrar</button><button class="btn" id="bulkDelNo">No</button></span>
     </div></details>
+    </div>
   </div>
 
   <div class="count" id="count"></div>

@@ -794,12 +794,12 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       const cover = p.fotos && p.fotos[0];
       const st = p.estado||"disponible";
       const card = el("div",{class:"card "+st+(p.stock===0?" agotado":"")+(S.sel.has(p.id)?" sel":"")});
-      const grupoUnion=S.selecting?gruposUnion.propietario(p.id):null;
+      // Los grupos para juntar solo se ven en "Modo juntar"; al seleccionar para editar o borrar no aparecen.
+      const grupoUnion=S.selecting&&S.juntando?gruposUnion.propietario(p.id):null;
       if(grupoUnion){card.classList.add('en-grupo-union');card.style.setProperty('--grupo-color',gruposUnion.color(grupoUnion.id));card.append(el('span',{class:'grupo-etiqueta'},grupoUnion.nombre));}
       if(!p.unidoA) card.dataset.producto=p.id;
       if(S.canEdit && p.unidoA) card.append(el('span',{class:'union-etiqueta'},'Ya unido a otro producto'));
-      else if(S.canEdit && S.selecting && S.sel.has(p.id)) card.append(el('span',{class:'union-etiqueta'},'En el grupo · toca para quitar'));
-      if(S.canEdit && S.selecting){
+      if(S.canEdit && S.selecting && S.juntando){
         const asa=el('button',{class:'drag-asa',type:'button','aria-label':'Arrastrar '+nom(p)+' para juntar'},'⠿ Arrastrar para juntar');
         asa.disabled=!!p.unidoA || !!grupoUnion;
         asa.textContent=p.unidoA?'Ya unido':grupoUnion?grupoUnion.nombre:'⠿ Arrastrar para juntar';
@@ -816,7 +816,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
           toast(`${seleccion.size} productos preparados. Puedes agregar más o tocar Juntar.`);
         }});
       }
-      if(S.canEdit&&S.selecting&&grupoUnion){
+      if(S.canEdit&&S.selecting&&S.juntando&&grupoUnion){
         const mover=el('select',{'aria-label':'Grupo de '+nom(p)});
         gruposUnion.grupos.forEach(g=>mover.append(el('option',{value:g.id},g.nombre)));mover.value=grupoUnion.id;
         mover.onchange=()=>{S.sel=gruposUnion.activar(Number(mover.value));S.sel.add(p.id);S.sel=gruposUnion.asignar(S.sel);render();};card.append(mover);
@@ -856,26 +856,38 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   // ---------- Selección en bloque ----------
   function toggleSel(id){
     const p=S.products.find(x=>x.id===id);
+    if(!S.juntando){ S.sel.has(id)?S.sel.delete(id):S.sel.add(id); render(); return; }
     if(p?.unidoA){toast('Este producto ya está unido. Usa su producto principal.');return;}
     const anterior=gruposUnion.propietario(id);
     if(anterior&&anterior.id!==gruposUnion.activo){S.sel=gruposUnion.activar(anterior.id);render();return;}
     S.sel.has(id)?S.sel.delete(id):S.sel.add(id);S.sel=gruposUnion.asignar(S.sel); render();
   }
   function renderBulk(){
-    gruposUnion.asignar(S.sel);
+    if(S.juntando) gruposUnion.asignar(S.sel);
+    $("bulkJuntando").hidden = !S.juntando; $("bulkAcciones").hidden = !!S.juntando; $("bulkAll").hidden = !!S.juntando;
+    $("bulk").classList.toggle("juntando", !!S.juntando); $("grid").classList.toggle("seleccionando", !!S.selecting);
+    $("bulkAyuda").textContent = S.juntando ? "" : (S.sel.size ? "Ahora elige qué hacer con ellos:" : "Toca los productos que quieres cambiar y elige qué hacer.");
+    $("bulkAyuda").hidden = !!S.juntando;
     const leyenda=$('unionGrupos');leyenda.textContent='';
     gruposUnion.grupos.forEach(g=>leyenda.append(el('button',{class:'btn grupo-leyenda',type:'button',style:`--grupo-color:${gruposUnion.color(g.id)}`,'aria-pressed':String(g.id===gruposUnion.activo),onclick:()=>{S.sel=gruposUnion.activar(g.id);render();}},`${g.nombre} · ${g.ids.size} productos`)));
     pintarAsisSel();
     $("bulk").hidden = !S.selecting;
-    $("bulkCount").textContent = S.sel.size + (S.sel.size===1?" seleccionado":" seleccionados");
+    $("bulkCount").textContent = S.juntando ? `${S.sel.size} en el grupo` : S.sel.size + (S.sel.size===1?" seleccionado":" seleccionados");
     $("bulkJuntar").disabled = S.sel.size < 2;
     $("bulkJuntar").textContent = S.sel.size >= 2 ? `Juntar los ${S.sel.size} productos` : 'Juntar en un producto';
     $("bulkCancelarUnion").hidden = S.sel.size < 2;
     $("bulkApply").disabled = $("bulkDel").disabled = $("bulkAI").disabled = $("bulkShare").disabled = $("bulkMover").disabled = $("bulkUnshare").disabled = !S.sel.size;
   }
   $('unionNuevo').onclick=()=>{S.sel=gruposUnion.nuevo();render();};
-  $("selectBtn").onclick = ()=>{ S.selecting=true; gruposUnion.limpiar();S.sel.clear(); render(); $("bulk").scrollIntoView({block:"nearest"}); };
-  $("bulkDone").onclick = ()=>{ S.selecting=false;gruposUnion.limpiar(); S.sel.clear(); $("bulkConfirm").hidden=true; render(); };
+  function cerrarSecciones(){ document.querySelectorAll("#bulk details.bulk-seccion").forEach(d=>d.open=false); }
+  function salirJuntar(){ S.juntando=false; gruposUnion.limpiar(); S.sel.clear(); cerrarSecciones(); render(); }
+  $("selectBtn").onclick = ()=>{ S.selecting=true; S.juntando=false; gruposUnion.limpiar();S.sel.clear(); cerrarSecciones(); render(); $("bulk").scrollIntoView({block:"nearest"}); };
+  $("bulkDone").onclick = ()=>{ S.selecting=false; S.juntando=false; gruposUnion.limpiar(); S.sel.clear(); $("bulkConfirm").hidden=true; cerrarSecciones(); render(); };
+  // Juntar es un modo aparte: empieza sin nada marcado y se sale con "Salir de juntar".
+  $("bulkEntrarJuntar").onclick = ()=>{ S.juntando=true; gruposUnion.limpiar(); S.sel.clear(); $("bulkConfirm").hidden=true; render(); $("bulk").scrollIntoView({block:"nearest"}); toast("Toca las fichas que son el mismo producto"); };
+  $("bulkSalirJuntar").onclick = salirJuntar;
+  // Abrir una sección cierra las otras: así siempre queda claro qué se está haciendo.
+  document.querySelectorAll("#bulk details.bulk-seccion").forEach(d=>d.addEventListener("toggle",()=>{ if(d.open) document.querySelectorAll("#bulk details.bulk-seccion").forEach(o=>{ if(o!==d) o.open=false; }); }));
   $("bulkAll").onclick = ()=>{ const ids=filtered().filter(p=>!p.unidoA&&(!gruposUnion.propietario(p.id)||gruposUnion.propietario(p.id).id===gruposUnion.activo)).map(p=>p.id); const all=ids.every(id=>S.sel.has(id)); ids.forEach(id=>all?S.sel.delete(id):S.sel.add(id)); render(); };
   async function runPool(ids, fn){ let i=0, fails=0; await Promise.all(Array.from({length:Math.min(4,ids.length)},async()=>{ while(i<ids.length){ const id=ids[i++]; try{ await fn(id); }catch(e){ fails++; } } })); return fails; }
   $("bulkApply").onclick = async ()=>{
@@ -944,7 +956,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const grupoId=gruposUnion.activo;
     if(!S.canEdit) return;
     const ids = [...S.sel], productos = ids.map(id=>S.products.find(p=>p.id===id)).filter(Boolean);
-    let principalId = ids[0], portada = null, ocupado = false;
+    let principalId = ids[0], portada = null, ocupado = false, seguro = productos.length <= 3;
     try { prepararUnion(productos, principalId); } catch(e) { toast(e.message); return; }
     const firma = JSON.stringify(productos);
     const ov = $("planOverlay"); ov.hidden=false; delete ov.dataset.dict; delete ov.dataset.conf;
@@ -984,17 +996,22 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
           if(principalLocal) principalLocal.unidosDesde=unidosDesde;
           const eliminados=new Set(plan.secundarios.filter(p=>!resultado.fallidos.includes(p.id)).map(p=>p.id));
           S.products=S.products.filter(p=>!eliminados.has(p.id));
-          ocupado=false; cerrar();S.sel=gruposUnion.quitarGrupo(grupoId); S.selecting=gruposUnion.grupos.some(g=>g.ids.size);render();
+          ocupado=false; cerrar();S.sel=gruposUnion.quitarGrupo(grupoId); if(!gruposUnion.grupos.some(g=>g.ids.size)){ S.juntando=false; S.selecting=false; S.sel.clear(); } render();
           if(resultado.fallidos.length) toast(`Las fotos quedaron juntas, pero ${resultado.fallidos.length} ficha(s) secundaria(s) no se pudieron eliminar. Puedes borrarlas sin volver a unir sus fotos.`);
           else toast(`Listo: queda un solo producto con ${plan.fotos.length} fotos.`);
           openProduct(plan.principal.id);
         } catch(e) { ocupado=false; pintar(); toast("No se pudo completar la unión. Revisa el producto principal antes de reintentar. "+errText(e)); }
-      }},ocupado?"Juntando fotos…":"Confirmar unión");
+      }},ocupado?"Juntando fotos…":`Juntar ${productos.length} fichas en una`);
+      confirmar.disabled = ocupado || !seguro;
+      // Las fichas que se van a juntar, con su foto, para ver que de verdad son el mismo producto.
+      const fichas = el("div",{class:"union-fichas"}, ...productos.map(p=>el("div",{class:"union-ficha"}, p.fotos&&p.fotos[0] ? el("img",{src:src(p.fotos[0].thumb||p.fotos[0].full),alt:""}) : el("span"), el("span",null, `${codigoDe(p)||""} ${p.nombre||""}`.trim()))));
+      const check = productos.length > 3 ? el("label",{class:"union-seguro"}, el("input",{type:"checkbox",checked:seguro?"":false,disabled:ocupado,onchange:e=>{ seguro=e.target.checked; confirmar.disabled = ocupado || !seguro; }}), ` Sí, estas ${productos.length} fichas son el mismo producto`) : null;
       ov.append(el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":"Juntar en un producto",style:"width:min(680px,100%)"},
         el("div",{class:"cart-head"},el("h2",null,"Juntar en un producto"),el("button",{class:"btn",type:"button",disabled:ocupado,onclick:cerrar},"Cancelar")),
-        el("label",{class:"f"},"Conservar los datos de",selector),
-        el("p",{class:"note"},`Se conservarán el código, nombre, precio y cantidad de ${plan.principal.nombre}. Las cantidades no se suman. Después de guardar todas las fotos en el principal, se eliminarán las otras ${plan.secundarios.length} fichas. Esta eliminación no se puede deshacer.`),
-        el("strong",null,`${plan.fotos.length} fotos · Toca una para elegir la portada`),galeria,confirmar));
+        el("p",{class:"union-aviso"},`Vas a juntar ${productos.length} fichas en una sola. Las otras ${plan.secundarios.length} se borran y no se puede deshacer.`),
+        fichas,
+        el("label",{class:"f"},"Conservar el nombre, código y precio de",selector),
+        el("strong",null,`${plan.fotos.length} fotos · Toca una para elegir la portada`),galeria,check,confirmar));
     }
     pintar();
   }
@@ -1174,6 +1191,24 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   function closeSheet(){ openId=null; $("overlay").hidden=true; $("overlay").textContent=""; if(!$("cli").hidden) pintarCli(); }
   $("overlay").addEventListener("click", e=>{ if(e.target.id==="overlay") (cartOpen||cuentaOpen?closeCart:closeSheet)(); });
   document.addEventListener("keydown", e=>{ if(e.key==="Escape"){ if(cartOpen||cuentaOpen) closeCart(); else if(openId) closeSheet(); } });
+  async function separarFotos(p, b){
+    { const u = usoPlan(); if(u && u.libres!=null && u.libres < p.fotos.length-1){ toast("Tu plan no tiene espacio para tantos productos nuevos"); return; } }
+    b.disabled = true; b.textContent = "Separando…";
+    const fotos = (S.products.find(x=>x.id===p.id)||p).fotos.slice(), [portada, ...resto] = fotos, nuevos = [];
+    try{
+      for(const f of resto){
+        let v = {};
+        try{ const r = await ai.json('',{images:[f.thumb||f.full],idioma:esUS()?'en':'es',rubro:rubroActual()}); v = (Array.isArray(r)&&r[0])||{}; }catch(e){}
+        const ref = S.db.collection("productos").doc();
+        const datos = { nombre:v.nombre||"Producto nuevo", marca:v.marca||p.marca||"", ...(v.tipo?{tipo:v.tipo}:{}), categoria:v.categoria||p.categoria||"", publico:v.publico||p.publico||"", descripcion:v.descripcion||"", condicion:v.condicion||p.condicion||"", precio:p.precio??null, stock:1, estado:p.estado||"disponible", fotos:[f], creado:Date.now() };
+        await ref.set(datos); nuevos.push(ref.id);
+        if(!S.products.some(x=>x.id===ref.id)) S.products.push({id:ref.id,...datos});
+      }
+      await S.db.doc("productos/"+p.id).update({ fotos:[portada], huella:"" });
+      closeSheet(); render(); toast(`Listo: ${nuevos.length+1} productos separados. Revisa sus datos.`);
+      abrirLote([p.id, ...nuevos], "subida");
+    }catch(e){ toast("No se pudo separar: "+errText(e)+(nuevos.length?` (${nuevos.length} ya se crearon)`:"")); b.disabled=false; b.textContent="✂️ Separar fotos en productos"; }
+  }
   function drawSheet(){
     const p = S.products.find(x=>x.id===openId); const ov=$("overlay");
     if(!p){ closeSheet(); return; }
@@ -1204,6 +1239,12 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         cur[k] = nueva; await S.db.doc("productos/"+p.id).update({fotos:cur, huella:""}); deletePhotos([vieja]); toast("Foto girada");
       }catch(e){ toast("No se pudo girar: "+errText(e)); b.disabled = false; b.textContent = "↻ Girar foto"; }
     }},"↻ Girar foto"));
+    // Separar: cada foto (menos la portada) pasa a ser su propio producto. Sirve para deshacer una unión hecha por error.
+    if(editaFotos && fotos.length>1) gal.append(el("button",{class:"btn",type:"button",id:"separarFotos",onclick:ev=>{
+      const b = ev.currentTarget;
+      if(!b.dataset.seguro){ b.dataset.seguro="1"; b.textContent = `¿Separar en ${fotos.length} productos? Toca otra vez`; b.classList.add("danger"); setTimeout(()=>{ if(b.isConnected){ delete b.dataset.seguro; b.textContent="✂️ Separar fotos en productos"; b.classList.remove("danger"); } }, 5000); return; }
+      separarFotos(p, b);
+    }},"✂️ Separar fotos en productos"));
     if(editaFotos && photoIdx>0) gal.append(el("button",{class:"btn",type:"button",onclick:async()=>{ const nf=[fotos[photoIdx],...fotos.filter((_,j)=>j!==photoIdx)]; await S.db.doc("productos/"+p.id).update({fotos:nf}); photoIdx=0; toast("Portada cambiada"); }},"Usar como portada"));
     if(editaFotos){
       const add = el("input",{type:"file",accept:"image/*",multiple:"",hidden:"",id:"addPh"});
@@ -3094,10 +3135,10 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
     const n = S.sel.size;
     if(n){
       box.append(el("b",null, `${n} producto${n===1?"":"s"} marcado${n===1?"":"s"}`), " · puedes decirle \"estos\"",
-        el("button",{type:"button",onclick:()=>{ S.selecting=false; S.sel.clear(); render(); }},"Quitar"));
+        el("button",{type:"button",onclick:()=>{ S.selecting=false; S.juntando=false; S.sel.clear(); render(); }},"Quitar"));
     } else {
       box.append("Para hablar de productos en particular, toca ",
-        el("button",{type:"button",onclick:()=>{ S.selecting=true; S.sel.clear(); render(); $("bulk").scrollIntoView({block:"nearest"}); }},"Editar varios"),
+        el("button",{type:"button",onclick:()=>{ S.selecting=true; S.juntando=false; S.sel.clear(); render(); $("bulk").scrollIntoView({block:"nearest"}); }},"Editar varios"),
         " y toca cada producto.");
     }
   }

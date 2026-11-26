@@ -25,6 +25,8 @@ try{for(const width of [1200,390]){
   for(const id of ['selectBtn','grid','bulk']){let n=document.getElementById(id);while(n){n.hidden=false;n=n.parentElement;}}
  });
  await page.locator('#selectBtn').click();
+ // Juntar es un modo aparte dentro de Editar varios.
+ await page.locator('summary',{hasText:'Juntar fichas'}).click();await page.locator('#bulkEntrarJuntar').click();
  await page.locator('[data-producto="a"] .open').click();await page.locator('[data-producto="b"] .open').click();
  assert.match(await page.locator('#bulkJuntar').innerText(),/2/);
  await page.locator('#unionNuevo').click();

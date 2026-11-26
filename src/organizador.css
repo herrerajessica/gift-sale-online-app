@@ -149,3 +149,20 @@
 .organizador,.org-hoja-fondo{touch-action:pan-x pan-y}
 .org-visor-marco{touch-action:pan-x pan-y pinch-zoom}
 @media(max-width:600px){.org-destino{min-height:56px}.org-destino img,.org-destino-mas{width:44px;height:44px}.org-destino-ver{width:46px}.org-hoja-cab{padding:8px 14px 4px}}
+/* Editar varios: acciones claras y modo juntar aparte */
+.bulk-top{display:flex;gap:8px;align-items:center;flex-wrap:wrap;width:100%}
+.bulk-top strong{margin-right:auto;font-size:16px}
+.bulk-ayuda{flex-basis:100%;margin:0!important;font-size:14px}
+.bulk-acciones{width:100%}
+.bulk-seccion>summary{font-size:15px}
+.bulk.juntando{border-color:#167245!important;background:color-mix(in srgb,#167245 7%,var(--surface,#fff))}
+.bulk-juntando{width:100%;display:grid;gap:8px}
+.bulk-juntando>strong{color:#167245;font-size:16px}
+.bulk-juntando>span{font-size:14px}
+.grid.seleccionando img{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.union-aviso{margin:0;padding:10px 12px;border-radius:10px;background:color-mix(in srgb,var(--sold,#b4232a) 10%,var(--surface,#fff));color:var(--sold,#b4232a);font-weight:700}
+.union-fichas{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;max-height:240px;overflow:auto}
+.union-ficha{display:grid;gap:4px;font-size:12px}
+.union-ficha img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;background:#eef1f5}
+.union-seguro{display:flex;gap:8px;align-items:center;font-weight:700;font-size:15px;padding:8px 0}
+.union-seguro input{width:22px;height:22px}
