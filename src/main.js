@@ -4,7 +4,7 @@ import {
   signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn, resetPassword, confirmResetPassword, updatePassword,
   googleDisponible, entrarConGoogle, alVolverDeGoogle, cerrarSesion,
   PLANES, planVigente, tieneFondoIA, pagarPlan, quitarFondo, asistente, buscarInternet, interpretarDictado, cancelarPlan, conectarCobros, estadoCobros, pagarPedido, pedidoYape,
-  miTiendaActual, listarPedidos, cambiarEstadoPedido, cambiarPlanTienda, confianza, refrescarProductos, preguntarTienda, traducirTextos, clienteCuenta, listarClientes,
+  miTiendaActual, listarPedidos, cambiarEstadoPedido, cambiarPlanTienda, esSinVencimiento, confianza, refrescarProductos, preguntarTienda, traducirTextos, clienteCuenta, listarClientes,
 } from './amplify-adapter.js';
 import { interpretarComando } from './comandos.js';
 import { qrCanvas } from './qr.js';
@@ -1941,14 +1941,16 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     document.querySelectorAll(".l-moneda .chip").forEach(b=>b.setAttribute("aria-pressed", String(b.dataset.moneda===moneda)));
     for(const pl of PLANES){
       const precio = moneda==="USD" ? pl.precioUsd : pl.precio;
-      box.append(el("div",{class:"plan-card"+(pl.id==="basico"?" on":"")},
+      box.append(el("div",{class:"plan-card"+(pl.id==="basico"?" on":"")+(pl.pronto?" pronto":"")},
+        pl.pronto ? el("em",{class:"plan-pronto"}, ti("Próximamente","Coming soon")) : null,
         el("strong",null, pl.nombre),
         el("div",{class:"plan-price"}, precio ? (moneda==="USD" ? `$${precio}` : `S/ ${precio}`) : ti("Gratis","Free"), precio ? el("small",null,ti(" /mes"," /month")) : null),
         el("span",null, pl.limite==null ? ti("Productos ilimitados","Unlimited products") : ti(`Hasta ${pl.limite} productos`,`Up to ${pl.limite} products`)),
         el("span",null, ti("IA, voz, WhatsApp, Yape y tarjeta","AI, voice, WhatsApp, Yape and card")),
         pl.id!=="free" ? el("span",null, ti("Asistente y tiendas de confianza","Assistant and trusted stores")) : el("span",null, ti("Ideal para probar","Great to try it out")),
         pl.extra ? el("span",{class:"extra"}, "+ " + ti(pl.extra, "Coming soon: white-background photos (AI)")) : null,
-        el("button",{class:"btn"+(pl.id==="free"?" primary":""),type:"button",onclick:()=>abrirAuth("signup")}, pl.id==="free" ? ti("Empezar gratis","Start free") : ti("Empezar","Start"))));
+        pl.pronto ? el("button",{class:"btn",type:"button",disabled:""}, ti("Próximamente","Coming soon"))
+          : el("button",{class:"btn"+(pl.id==="free"?" primary":""),type:"button",onclick:()=>abrirAuth("signup")}, pl.id==="free" ? ti("Empezar gratis","Start free") : ti("Empezar","Start"))));
     }
   }
   document.querySelectorAll(".l-moneda .chip").forEach(b=>b.onclick = ()=>pintarPlanesLanding(b.dataset.moneda));
@@ -2330,7 +2332,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const pct = ilimitado ? 0 : Math.min(100, Math.round(u.usados / u.plan.limite * 100));
     const lleno = !ilimitado && u.usados >= u.plan.limite, cerca = !lleno && pct >= 80;
     box.hidden=false; box.className = "plan" + (lleno ? " full" : cerca ? " near" : ""); box.textContent="";
-    const vence = S.config && S.config.planVence && u.plan.id!=="free" ? new Date(S.config.planVence).toLocaleDateString("es-PE") : "";
+    const vence = S.config && S.config.planVence && u.plan.id!=="free" && !esSinVencimiento(S.config) ? new Date(S.config.planVence).toLocaleDateString("es-PE") : "";
     const msg = ilimitado ? "Puedes publicar todos los productos que quieras."
       : u.usados > u.plan.limite ? `Tienes ${u.usados - u.plan.limite} producto(s) que los clientes no ven porque superan tu plan.`
       : lleno ? "Llegaste al límite de tu plan. Mejóralo para seguir publicando."
@@ -2359,6 +2361,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     for(const pl of PLANES){
       let btn;
       if(pl.id===u.plan.id) btn = el("button",{class:"btn",type:"button",disabled:""},"Tu plan actual");
+      else if(pl.pronto) btn = el("button",{class:"btn",type:"button",disabled:""},"Próximamente");
       else if(pl.id==="free") btn = el("button",{class:"btn",type:"button",onclick:async()=>{
           btn.disabled=true; try{ await cancelarPlan(); toast("Tu plan seguirá activo hasta fin de mes y luego pasarás a Free"); S.config = await miTiendaActual(); actualizarPlan(); cerrar(); }
           catch(e){ toast((e&&e.message)||"No se pudo cambiar el plan"); btn.disabled=false; } }},"Volver a Free");
@@ -2367,7 +2370,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
           try{ const r = await pagarPlan(pl.id); location.href = r.url; }
           catch(e){ toast((e&&e.message)||"No se pudo iniciar el pago"); btn.disabled=false; btn.textContent="Elegir este plan"; } }},
           PLANES.indexOf(pl) > PLANES.indexOf(u.plan) ? "Elegir este plan" : "Cambiar a este plan");
-      grid.append(el("div",{class:"plan-card"+(pl.id===u.plan.id?" on":"")},
+      grid.append(el("div",{class:"plan-card"+(pl.id===u.plan.id?" on":"")+(pl.pronto && pl.id!==u.plan.id?" pronto":"")},
+        pl.pronto && pl.id!==u.plan.id ? el("em",{class:"plan-pronto"},"Próximamente") : null,
         el("strong",null,pl.nombre),
         el("div",{class:"plan-price"}, pl.precio ? (esUS() ? `$${pl.precioUsd}` : `S/ ${pl.precio}`) : "Gratis", pl.precio ? el("small",null," /mes") : null),
         el("span",null, pl.limite==null ? "Productos ilimitados" : `Hasta ${pl.limite} productos`),
@@ -2389,9 +2393,16 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   }
   function planSelect(t){
     const s = el("select",{"aria-label":"Plan de "+(t.nombre||t.id)});
-    PLANES.forEach(pl=>s.append(el("option",{value:pl.id}, `${pl.nombre} (${pl.limite==null?"ilimitado":pl.limite})`)));
-    s.value = planVigente(t).id;
-    s.onchange = async ()=>{ try{ await cambiarPlanTienda(t.id, s.value); t.plan = s.value; toast(`Plan de ${t.nombre} cambiado a ${s.selectedOptions[0].textContent} por 30 días`); }catch(e){ toast("No se pudo cambiar el plan: "+((e&&e.message)||"")); s.value = planVigente(t).id; } };
+    // La administración puede asignar cualquier plan, también los "Próximamente", y uno sin vencimiento.
+    PLANES.forEach(pl=>s.append(el("option",{value:pl.id}, `${pl.nombre} (${pl.limite==null?"ilimitado":pl.limite})${pl.pronto?" · próximamente":""}`)));
+    s.append(el("option",{value:"plus-sv"}, "Plus sin vencimiento (administración)"));
+    const actual = ()=> esSinVencimiento(t) && planVigente(t).id==="plus" ? "plus-sv" : planVigente(t).id;
+    s.value = actual();
+    s.onchange = async ()=>{
+      const sv = s.value==="plus-sv", plan = sv ? "plus" : s.value;
+      try{ t.planVence = await cambiarPlanTienda(t.id, plan, sv); t.plan = plan;
+        toast(sv ? `${t.nombre} ahora tiene Plus sin límites y sin vencimiento` : `Plan de ${t.nombre} cambiado a ${s.selectedOptions[0].textContent} por 30 días`); }
+      catch(e){ toast("No se pudo cambiar el plan: "+((e&&e.message)||"")); s.value = actual(); } };
     return s;
   }
 
@@ -3522,6 +3533,10 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
     $("myStoreBtn").onclick = ()=>{ location.hash=""; location.reload(); };
     bannerVendedora(tienda);
     activarTabs();
+    // La tienda de la administración no tiene límites: Plus sin vencimiento (se asigna sola la primera vez).
+    if(ses.superadmin && !(esSinVencimiento(tienda) && tienda.plan==="plus")){
+      try{ tienda.planVence = await cambiarPlanTienda(tienda.id, "plus", true); tienda.plan = "plus"; }catch(e){ console.warn("Plan de la administración:", e); }
+    }
     S.config = tienda; actualizarPlan(); pintarCobros(); cargarPedidos(); pintarConfBox(); cargarConfianza();
     if(tienda.stripeAccountId && !tienda.cobrosActivos && !params.get("cobros")){
       estadoCobros().then(r=>{ if(r.cobrosActivos){ S.config = { ...S.config, cobrosActivos:true }; pintarCobros(); } }).catch(()=>{});

@@ -40,8 +40,16 @@ export function alVolverDeGoogle(ok, error) {
  * Devuelve true cuando la página se va a Cognito y vuelve sola.
  */
 export async function cerrarSesion() {
+  // Solo cuenta si ESTA sesión se abrió con Google (Amplify lo anota como "oauthSignIn").
+  // No se usa el dato "identities" del token: una cuenta de correo enlazada con Google también lo trae,
+  // y entonces la página esperaba 8 segundos sin motivo al cerrar sesión con contraseña.
   let conGoogle = false;
-  try { const s = await fetchAuthSession(); conGoogle = !!(s.tokens && s.tokens.idToken && s.tokens.idToken.payload.identities); } catch { /* sin sesión */ }
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i) || '';
+      if (k.endsWith('.oauthSignIn') && String(localStorage.getItem(k)).startsWith('true')) conGoogle = true;
+    }
+  } catch { /* sin acceso al almacenamiento */ }
   await signOut();
   return conGoogle;
 }
@@ -349,11 +357,12 @@ export async function traducirTextos(textos, a) {
 // Debe coincidir con amplify/functions/shared/planes.ts
 export const PLANES = [
   // asis: mensajes del asistente por día (LIMITE_DIARIO en asistente/herramientas.ts); cli: preguntas de clientes por día (LIMITE_CLIENTES en catalogo/cliente.ts).
+  // pronto: todavía no se puede contratar; se muestra "Próximamente" (y el cobro lo rechaza: PLANES_PRONTO en shared/planes.ts).
   // precio: soles (tiendas de Perú). precioUsd: dólares (tiendas de EE. UU.), PROVISIONALES: deben coincidir con amplify/functions/shared/planes.ts.
   { id: 'free', nombre: 'Free', limite: 20, precio: 0, precioUsd: 0, asis: 15, cli: 20 },
   { id: 'basico', nombre: 'Básico', limite: 50, precio: 19, precioUsd: 9, asis: 60, cli: 100 },
-  { id: 'pro', nombre: 'Pro', limite: null, precio: 49, precioUsd: 19, asis: 200, cli: 300 },
-  { id: 'plus', nombre: 'Plus', limite: null, precio: 99, precioUsd: 39, asis: 1000, cli: 1000, extra: 'Próximamente: fotos con fondo blanco (IA)' },
+  { id: 'pro', nombre: 'Pro', limite: null, precio: 49, precioUsd: 19, asis: 200, cli: 300, pronto: true },
+  { id: 'plus', nombre: 'Plus', limite: null, precio: 99, precioUsd: 39, asis: 1000, cli: 1000, pronto: true },
 ];
 // Funciones con costo por uso: solo en el plan Plus.
 export const tieneFondoIA = (t) => planVigente(t).id === 'plus';
@@ -424,8 +433,11 @@ export async function cambiarEstadoPedido(id, estado) {
 }
 
 // Solo SUPERADMIN: asignar un plan a mano (por ejemplo, cortesía o pago fuera de Stripe) por 30 días.
-export async function cambiarPlanTienda(id, plan) {
-  const planVence = plan === 'free' ? null : Date.now() + 30 * 24 * 3600e3;
+// Tiendas de la administración: plan Plus que no vence (31/12/9999). Solo SUPERADMIN puede asignarlo.
+export const SIN_VENCIMIENTO = 253402300799000;
+export const esSinVencimiento = (t) => !!(t && t.planVence && t.planVence >= SIN_VENCIMIENTO);
+export async function cambiarPlanTienda(id, plan, sinVencimiento = false) {
+  const planVence = plan === 'free' ? null : sinVencimiento ? SIN_VENCIMIENTO : Date.now() + 30 * 24 * 3600e3;
   check(await client.models.Tienda.update({ id, plan, planVence }, { authMode: 'userPool' }));
   return planVence;
 }

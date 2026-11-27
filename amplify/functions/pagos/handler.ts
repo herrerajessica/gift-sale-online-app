@@ -2,7 +2,7 @@ import { precioVigente } from '../shared/oferta';
 import Stripe from 'stripe';
 import { randomUUID } from 'node:crypto';
 import { BatchGetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
-import { PLANES, esPlan, paisDe } from '../shared/planes';
+import { PLANES, PLANES_PRONTO, esPlan, paisDe } from '../shared/planes';
 import { ddb, PRODUCTO, PEDIDO, leerTienda, actualizarTienda, subDe, origenSeguro } from '../shared/tablas';
 import { avisarPedido } from '../shared/correo';
 import { resolverCopias } from '../shared/reventa';
@@ -29,6 +29,7 @@ async function pagarPlan(a: Record<string, any>, ident: Identidad) {
   const t = await miTienda(a.tiendaId, ident);
   const origen = origenSeguro(a.origen);
   if (!esPlan(a.plan) || a.plan === 'free') fallo('Plan no válido');
+  if (PLANES_PRONTO.includes(a.plan as never)) fallo('Este plan estará disponible próximamente');
   const plan = PLANES[a.plan as keyof typeof PLANES];
 
   let customer = t.stripeCustomerId as string | undefined;
