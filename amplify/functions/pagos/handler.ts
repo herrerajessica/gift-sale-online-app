@@ -230,6 +230,43 @@ async function pedidoYape(a: Record<string, any>) {
   return { pedidoId, total, moneda };
 }
 
+/**
+ * Pedido por WhatsApp: no se cobra nada aquí. Se anota "por confirmar" para que la vendedora, desde el enlace
+ * que va al final del mensaje, confirme lo que de verdad se vendió (y se descuente el stock).
+ * Acepta productos sin precio ("consultar"); los precios se leen de la base de datos.
+ */
+async function pedidoWhatsapp(a: Record<string, any>) {
+  const t = await tiendaAbierta(a.tiendaId);
+  let pedidos: { id: string; q: number }[] = [];
+  try { pedidos = JSON.parse(String(a.items || '[]')); } catch { fallo('Pedido no válido'); }
+  pedidos = pedidos
+    .map((x) => ({ id: String(x.id), q: Math.min(99, Math.max(1, Math.floor(Number(x.q) || 1))) }))
+    .filter((x, i, arr) => x.id && arr.findIndex((y) => y.id === x.id) === i)
+    .slice(0, 50);
+  if (!pedidos.length) fallo('El pedido está vacío');
+  const r = await ddb.send(new BatchGetCommand({ RequestItems: { [PRODUCTO()]: { Keys: pedidos.map((p) => ({ id: p.id })) } } }));
+  const productos = new Map((r.Responses?.[PRODUCTO()] || []).map((p) => [p.id, p]));
+  const lineas = pedidos.flatMap((p) => {
+    const prod = productos.get(p.id);
+    if (!prod || prod.tiendaId !== t.id) return [];
+    const precio = typeof prod.precio === 'number' ? (precioVigente(prod) as number) : null;
+    return [{ id: p.id, nombre: prod.codigo ? `${prod.codigo} · ${prod.nombre}` : prod.nombre, q: p.q, precio, monto: precio == null ? 0 : Math.round(precio * p.q * 100) }];
+  });
+  if (!lineas.length) fallo('Los productos del pedido ya no están en la tienda');
+  const enSoles = paisDe(t) !== 'US' && t.moneda === 'PEN';
+  const pedidoId = randomUUID();
+  const ahora = new Date().toISOString();
+  await ddb.send(new PutCommand({
+    TableName: PEDIDO(),
+    Item: {
+      id: pedidoId, __typename: 'Pedido', tiendaId: t.id, owner: t.owner,
+      items: JSON.stringify(lineas), total: lineas.reduce((s, l) => s + l.monto, 0), moneda: enSoles ? 'pen' : 'usd', comision: 0,
+      cliente: texto(a.nombre, 60), nota: texto(a.nota, 300), metodo: 'whatsapp', estado: 'por_confirmar', createdAt: ahora, updatedAt: ahora,
+    },
+  }));
+  return { pedidoId };
+}
+
 export const handler = async (event: Evento) => {
   const a = event.arguments || {};
   const ident = event.identity;
@@ -241,6 +278,7 @@ export const handler = async (event: Evento) => {
     case 'estadoCobros': res = await estadoCobros(a, ident); break;
     case 'pagarPedido': res = await pagarPedido(a); break;
     case 'pedidoYape': res = await pedidoYape(a); break;
+    case 'pedidoWhatsapp': res = await pedidoWhatsapp(a); break;
     default: fallo('Operación desconocida');
   }
   return JSON.stringify(res);

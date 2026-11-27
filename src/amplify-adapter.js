@@ -399,6 +399,9 @@ export const estadoCobros = () => llamar('estadoCobros', { tiendaId: TIENDA }, '
 export const confianza = (accion, datos = {}) => llamar('confianza', { tiendaId: TIENDA || '-', accion, datos: JSON.stringify(datos) }, 'userPool');
 export const pedidoYape = (items, nombre, nota, operacion, email) =>
   llamar('pedidoYape', { tiendaId: TIENDA, items: JSON.stringify(items), nombre, nota, operacion, email: email || null }, AUTH);
+// Pedido enviado por WhatsApp: se anota para que la vendedora confirme lo vendido. Devuelve { pedidoId }.
+export const pedidoWhatsapp = (items, nombre, nota) =>
+  llamar('pedidoWhatsapp', { tiendaId: TIENDA, items: JSON.stringify(items), nombre, nota }, AUTH);
 export const pagarPedido = (items, nombre, nota, email) =>
   llamar('pagarPedido', { tiendaId: TIENDA, items: JSON.stringify(items), nombre, nota, email: email || null, origen: origen() }, AUTH);
 // "Mis pedidos" del cliente (código por correo). accion: pedirCodigo | entrar | misPedidos | guardarPerfil | salir
@@ -430,6 +433,10 @@ export async function listarPedidos() {
   // Los pagos con tarjeta que nunca se completaron se ocultan después de un día.
   return todos.filter((p) => p.estado !== 'pendiente' || Date.now() - Date.parse(p.createdAt) < 24 * 3600e3)
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+/** La vendedora corrige un pedido (lo que de verdad se vendió): items, total y estado. */
+export async function actualizarPedido(id, cambios) {
+  check(await client.models.Pedido.update({ id, ...cambios }, { authMode: 'userPool' }));
 }
 export async function cambiarEstadoPedido(id, estado) {
   check(await client.models.Pedido.update({ id, estado }, { authMode: 'userPool' }));
