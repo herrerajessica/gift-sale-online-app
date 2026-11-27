@@ -1545,8 +1545,22 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   }
   let cartOpen=false;
   function openCart(){ openId=null; cartOpen=true; drawCart(); $("overlay").hidden=false; }
+  // Vista previa del mensaje: el *texto* de WhatsApp se muestra en negrita, sin asteriscos.
+  function pintarPreview(pv, txt){
+    pv.textContent="";
+    for(const parte of txt.split(/(\*[^*\n]+\*)/)){
+      if(/^\*[^*\n]+\*$/.test(parte)) pv.append(el("b",null,parte.slice(1,-1))); else if(parte) pv.append(document.createTextNode(parte));
+    }
+  }
+  // Huella del pedido: si nada cambió, no se redibuja (así no salta arriba mientras la clienta baja).
+  let huellaCart="";
+  function huellaPedido(){ return JSON.stringify([cart, S.idioma, cartLines().map(l=>[l.id,l.p.precio,l.p.estado,l.p.stock,l.p.nombre])]); }
   function drawCart(){
-    const ov=$("overlay"); ov.textContent="";
+    const ov=$("overlay"), caja=ov.querySelector(".cart");
+    const arriba=[ov.scrollTop, caja ? caja.scrollTop : 0];
+    huellaCart=huellaPedido();
+    requestAnimationFrame(()=>{ ov.scrollTop=arriba[0]; const c=ov.querySelector(".cart"); if(c) c.scrollTop=arriba[1]; });
+    ov.textContent="";
     const lines = cartLines();
     const box = el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":tx("Mi pedido","My order")});
     box.append(el("div",{class:"cart-head"}, el("h2",null,tx("Mi pedido","My order")), el("button",{class:"btn",type:"button",onclick:closeCart},tx("Seguir viendo","Keep browsing"))));
@@ -1577,17 +1591,17 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const {total, consultar} = cartTotals();
     box.append(el("div",{class:"totals"}, el("span",null,"Total"+(consultar?tx(` (+${consultar} a consultar)`,` (+${consultar} to confirm)`):"")), el("span",{class:"t",style:"text-align:right"},money(total)||money(0), soles(total)?el("span",{class:"bigsol"},soles(total)):null)));
     const totCont = totalContado(lines);
-    if(totCont!=null){
+    if(totCont!=null && !EN()){
       const totTarj = lines.filter(l=>!agotado(l.p) && l.p.precio!=null).reduce((t,l)=>t+Math.round(l.p.precio*l.q*rate()),0);
       box.append(el("div",{class:"totals2"},
-        el("div",{class:"fila"}, el("span",null,tx("Con tarjeta","By card")), el("strong",null,`S/ ${totTarj.toLocaleString("es-PE")}`)),
+        el("div",{class:"fila"}, el("span",null,tx("Precio normal","Regular price")), el("strong",null,`S/ ${totTarj.toLocaleString("es-PE")}`)),
         el("div",{class:"fila contado"}, el("span",null,tx(`Con Yape o efectivo (${descuento()} % menos)`,`Yape or cash (${descuento()}% off)`)), el("strong",null,`S/ ${totCont.toLocaleString("es-PE")}`)),
         totTarj-totCont>0 ? el("span",{class:"note",style:"margin:0"}, tx(`Ahorras S/ ${(totTarj-totCont).toLocaleString("es-PE")} pagando con Yape o efectivo.`,`You save S/ ${(totTarj-totCont).toLocaleString("es-PE")} paying with Yape or cash.`)) : null));
     }
     const nm = el("input",{id:"buyerName",maxlength:"60",placeholder:tx("Para saber quién escribe","So the store knows who you are"),value:buyer.nombre});
     const nt = el("textarea",{id:"buyerNote",rows:"2",placeholder:tx("Talla, color, entrega o recogida…","Size, color, delivery or pickup…")}); nt.value = buyer.nota;
-    const pv = el("div",{class:"preview","aria-label":tx("Mensaje que se enviará","Message that will be sent")}, buildMessage());
-    const upd = ()=>{ buyer.nombre=nm.value; buyer.nota=nt.value; saveCart(); pv.textContent=buildMessage(); link.href=waLink(); };
+    const pv = el("div",{class:"preview","aria-label":tx("Mensaje que se enviará","Message that will be sent")}); pintarPreview(pv, buildMessage());
+    const upd = ()=>{ buyer.nombre=nm.value; buyer.nota=nt.value; saveCart(); pintarPreview(pv, buildMessage()); link.href=waLink(); };
     nm.addEventListener("input",upd); nt.addEventListener("input",upd);
     box.append(el("label",{class:"f"},tx("Tu nombre (opcional)","Your name (optional)"), nm), el("label",{class:"f"},tx("Nota (opcional)","Note (optional)"), nt),
       el("div",{style:"display:grid;gap:4px"}, el("span",{class:"note",style:"margin:0"},tx("Este es el mensaje que llegará:","This is the message the store will get:")), pv));
@@ -1596,7 +1610,9 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const link = el("a",{class:"btn tag",href:wa?waLink():"#",target:"_blank",rel:"noopener"},tx("Enviar pedido por WhatsApp","Send order on WhatsApp"));
     const copyBtn = el("button",{class:"btn",type:"button",onclick:async()=>{ try{ await navigator.clipboard.writeText(buildMessage()); toast(tx("Mensaje copiado","Message copied")); }catch(e){ const r=document.createRange(); r.selectNodeContents(pv); const s=getSelection(); s.removeAllRanges(); s.addRange(r); toast(tx("Selecciona y copia el mensaje","Select and copy the message")); } }},tx("Copiar mensaje","Copy message"));
     const send = el("div",{class:"send"});
-    if(S.config && S.config.cobrosActivos && !S.canEdit){
+    // Formas de pago según el idioma: en español Yape o Plin; en inglés tarjeta o Zelle (las tiendas de EE. UU., siempre tarjeta).
+    const pagoTarjeta = esUS() || EN();
+    if(S.config && S.config.cobrosActivos && !S.canEdit && pagoTarjeta){
       const pagables = lines.filter(l=>!agotado(l.p));
       const sinPrecio = pagables.some(l=>l.p.precio==null);
       const payBtn = el("button",{class:"btn primary",type:"button",disabled:sinPrecio?"":false,onclick:async()=>{
@@ -1606,7 +1622,10 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       }},tx("Pagar con tarjeta","Pay with card"));
       send.append(payBtn, el("span",{class:"note",style:"margin:0;text-align:center"}, sinPrecio ? tx("Algunos productos no tienen precio: consúltalos por WhatsApp o quítalos para pagar con tarjeta.","Some items have no price: ask on WhatsApp or remove them to pay by card.") : descuento() ? tx("Pago seguro con Stripe, al precio normal con tarjeta.","Secure payment with Stripe, at the regular card price.") : tx("Pago seguro con Stripe. El total final se muestra en la página de pago.","Secure payment with Stripe. You'll see the final total on the checkout page.")));
     }
-    if(S.config && !esUS() && (S.config.yapeNumero || S.config.yapeQr) && !S.canEdit){
+    if(EN() && S.config && (S.config.zelle||"").trim() && !S.canEdit){
+      send.append(el("div",{class:"zelle-box"}, el("strong",null,"Zelle"), el("span",null,"Send your payment to ", el("span",{class:"copy"},S.config.zelle.trim()), S.config.zelleNombre ? ` (${S.config.zelleNombre.trim()})` : "", ", then send us your order on WhatsApp.")));
+    }
+    if(S.config && !esUS() && !EN() && (S.config.yapeNumero || S.config.yapeQr) && !S.canEdit){
       const pagables = lines.filter(l=>!agotado(l.p));
       const sinPrecio = pagables.some(l=>l.p.precio==null);
       const sinCambio = !rate();
@@ -1620,7 +1639,9 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       send.append(copyBtn, el("span",{class:"note",style:"margin:0;text-align:center"},tx("La tienda todavía no ha puesto su número de WhatsApp. Copia el mensaje para enviarlo cuando lo tengas.","The store hasn't added its WhatsApp number yet. Copy the message to send it later.")));
     }
     box.append(send,
-      el("button",{class:"rm",type:"button",style:"justify-self:center",onclick:()=>{ cart={}; saveCart(); render(); closeCart(); toast(tx("Pedido vaciado","Order cleared")); }},tx("Vaciar pedido","Clear order")));
+      el("button",{class:"rm",type:"button",style:"justify-self:center",onclick:e=>{ const b=e.currentTarget;
+        if(!b.dataset.confirmar){ b.dataset.confirmar="1"; b.textContent=tx("¿Seguro? Toca otra vez para vaciar","Sure? Tap again to clear"); b.classList.add("rm-confirmar"); setTimeout(()=>{ if(b.isConnected){ delete b.dataset.confirmar; b.textContent=tx("Vaciar pedido","Clear order"); b.classList.remove("rm-confirmar"); } },4000); return; }
+        cart={}; saveCart(); render(); closeCart(); toast(tx("Pedido vaciado","Order cleared")); }},tx("Vaciar pedido","Clear order")));
     ov.append(box);
   }
   function closeCart(){ cartOpen=false; cuentaOpen=false; $("overlay").hidden=true; $("overlay").textContent=""; }
@@ -2161,7 +2182,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       render(); if(openId) drawSheet();
       // Vista previa del dictado: se actualiza con lo que completa la IA (sin interrumpir si está escribiendo)
       if(typeof dictAbierto==="function" && dictAbierto() && D.paso==="previa" && !(document.activeElement && $("planOverlay").contains(document.activeElement) && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName))) pintarDict();
-      if(cartOpen && !$("overlay").contains(document.activeElement)) drawCart();
+      if(cartOpen && !$("overlay").contains(document.activeElement) && huellaPedido()!==huellaCart) drawCart();
       if(!S.canEdit){ mensajeEstadoPublico(); pintarCuentaBtn(); } else { actualizarPlan(); if(!snap.metadata.fromCache){ asignarCodigos(); if(!S.timerCodigos) S.timerCodigos = setInterval(asignarCodigos, 60000); programarTraduccion(); if(!S.timerTr) S.timerTr = setInterval(()=>{ trFallos = 0; traducirPendientes(); }, 300000); } }
     }, ()=>{ clearTimeout(slow); S.loaded=true; $("emptyTitle").textContent="No se pudo cargar la vitrina"; $("emptyText").textContent="Recarga la página en unos minutos."; render(); });
     db.doc("config/tienda").onSnapshot(s=>{ S.config = s.exists ? s.data() : {}; renderConfig(); if(S.canEdit){ actualizarPlan(); pintarCobros(); } }, ()=>{});

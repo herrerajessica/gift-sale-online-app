@@ -227,3 +227,6 @@
 @media (max-width:600px){.card>.drag-asa{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:6px 8px;min-height:40px}}
 .union-todos .union-fichas{grid-template-columns:repeat(auto-fill,minmax(84px,1fr))}
 .union-todos .union-ficha img{width:100%;aspect-ratio:1;height:auto;object-fit:cover;border-radius:8px}
+.zelle-box{display:grid;gap:2px;padding:10px 12px;border-radius:12px;background:#f3eefc;border:1px solid #d9c9f5;color:#3b1d6e;font-size:14px}
+.zelle-box strong{color:#6d1ed4}
+.rm.rm-confirmar{color:var(--sold,#b4232a);font-weight:700}
