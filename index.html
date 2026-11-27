@@ -861,12 +861,21 @@ html,body{overflow-x:clip}
       <label class="f">Descripción de tu tienda<textarea id="setDescTienda" rows="3" maxlength="300" placeholder="Ej.: Ropa y carteras originales traídas de USA. Entregas en Lima y envíos a todo el Perú."></textarea></label>
       <span class="note" style="margin:0" id="setDescCuenta">0 / 300</span>
     </fieldset>
+    <fieldset class="zelle-set">
+      <legend>Cobrar con Zelle (clientas en inglés)</legend>
+      <div class="row2">
+        <label class="f">Correo o teléfono de Zelle<input id="setZelle" maxlength="80" placeholder="tu@correo.com o +1 305 555 0100"></label>
+        <label class="f">Nombre del titular<input id="setZelleName" maxlength="60" placeholder="Como aparece en Zelle"></label>
+      </div>
+      <span class="note" style="margin:0">Cuando una clienta ve tu tienda en inglés, el mensaje del pedido dice "card or Zelle" con estos datos. En español dice "Yape o Plin".</span>
+    </fieldset>
     <fieldset class="yape-set solo-pe">
       <legend>Cobrar con Yape</legend>
       <div class="row2">
         <label class="f">Número de Yape<input id="setYapeNum" inputmode="tel" placeholder="986 639 533"></label>
         <label class="f">Nombre del titular<input id="setYapeName" maxlength="60" placeholder="Como aparece en Yape"></label>
       </div>
+      <label class="f">Número de Plin (si también recibes por Plin)<input id="setPlinNum" inputmode="tel" placeholder="Déjalo vacío si es el mismo que Yape o no usas Plin"></label>
       <div class="yape-qr-row">
         <img id="setYapeImg" alt="Tu QR de Yape" hidden>
         <div style="display:grid;gap:6px;min-width:0">

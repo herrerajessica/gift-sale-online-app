@@ -265,6 +265,9 @@ function configRef() {
       const datos = {
         nombre: d.nombre || TIENDA, whatsapp: d.whatsapp || '', tipoCambio: d.tipoCambio ?? null,
         yapeNumero: d.yapeNumero || '', yapeNombre: d.yapeNombre || '', yapeQr: d.yapeQr || '',
+        ...(typeof d.plinNumero === 'string' ? { plinNumero: d.plinNumero } : {}),
+        ...(typeof d.zelle === 'string' ? { zelle: d.zelle } : {}),
+        ...(typeof d.zelleNombre === 'string' ? { zelleNombre: d.zelleNombre } : {}),
         descuentoContado: typeof d.descuentoContado === 'number' ? d.descuentoContado : 0,
         ...(Number.isInteger(d.diasSeparado) ? { diasSeparado: d.diasSeparado } : {}),
         ...(typeof d.grupoWhatsapp === 'string' ? { grupoWhatsapp: d.grupoWhatsapp } : {}),
