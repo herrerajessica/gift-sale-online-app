@@ -897,9 +897,16 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       // Producto de una tienda de confianza: la cantidad es la del original.
       const ic = S.canEdit && esCopia(p) ? infoCopia(p) : null;
       const ps = ic ? { ...p, stock: ic.stock } : p;
-      open.append(ph, el("div",{class:"info",style:"padding-bottom:0"}, contado!=null ? el("span",{class:"contado"}, `S/ ${contado.toLocaleString("es-PE")} ` + tx("con Yape o efectivo","with Yape or cash")) : null, (p.marca || p.codigo) ? el("span",{class:"tags-row"}, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, codTag(p)) : null, el("span",{class:"name"},nom(p)||tx("Sin nombre","Untitled")), of ? el("span",{class:"oferta-hasta"}, textoOferta(of)) : null, p.condicion ? el("span",{class:"cond-tag cond-"+p.condicion}, condTxt(p.condicion)) : null, S.canEdit ? etiquetaConf(p) : null, el("span",{class:"meta"}, el("span",null,[catTxt(p.categoria), p.talla ? tx("Talla ","Size ")+p.talla : ""].filter(Boolean).join(" · ")), el("span",null,pubTxt(p.publico||""))), S.canEdit && p.costo!=null && !esCopia(p) ? el("span",{class:"costo"}, `Costo ${usd(p.costo)}`+(p.precio!=null && costoMon(p.costo) ? ` · margen ${Math.round((p.precio/costoMon(p.costo)-1)*100)} %` : "")) : null, ic && ic.precioReventa!=null ? el("span",{class:"costo"}, `Te cuesta ${money(ic.precioReventa)}` + (p.precio!=null ? ` · ganas ${money(p.precio - ic.precioReventa)}` : "")) : null, stockTxt(ps) ? el("span",{class:"stockpill"+(S.canEdit && ps.stock>3?" ok":"")}, stockTxt(ps)) : null));
+      if(!S.canEdit) open.append(ph, el("div",{class:"info"},
+        (p.marca || p.codigo) ? el("span",{class:"tags-row"}, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, codTag(p)) : null,
+        el("span",{class:"name"},nom(p)||tx("Sin nombre","Untitled")),
+        of ? el("span",{class:"oferta-hasta"}, textoOferta(of)) : null,
+        (p.condicion || p.talla) ? el("span",{class:"chips-fila"}, p.condicion ? el("span",{class:"cond-tag cond-"+p.condicion}, condTxt(p.condicion)) : null, p.talla ? el("span",{class:"talla-tag"}, tx("Talla ","Size ")+p.talla) : null) : null,
+        contado!=null ? el("span",{class:"contado"}, `S/ ${contado.toLocaleString("es-PE")} ` + tx("con Yape o efectivo","with Yape or cash")) : null,
+        stockTxt(ps) ? el("span",{class:"stockpill"}, stockTxt(ps)) : null));
+      else open.append(ph, el("div",{class:"info",style:"padding-bottom:0"}, contado!=null ? el("span",{class:"contado"}, `S/ ${contado.toLocaleString("es-PE")} ` + tx("con Yape o efectivo","with Yape or cash")) : null, (p.marca || p.codigo) ? el("span",{class:"tags-row"}, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, codTag(p)) : null, el("span",{class:"name"},nom(p)||tx("Sin nombre","Untitled")), of ? el("span",{class:"oferta-hasta"}, textoOferta(of)) : null, p.condicion ? el("span",{class:"cond-tag cond-"+p.condicion}, condTxt(p.condicion)) : null, S.canEdit ? etiquetaConf(p) : null, el("span",{class:"meta"}, el("span",null,[catTxt(p.categoria), p.talla ? tx("Talla ","Size ")+p.talla : ""].filter(Boolean).join(" · ")), el("span",null,pubTxt(p.publico||""))), S.canEdit && p.costo!=null && !esCopia(p) ? el("span",{class:"costo"}, `Costo ${usd(p.costo)}`+(p.precio!=null && costoMon(p.costo) ? ` · margen ${Math.round((p.precio/costoMon(p.costo)-1)*100)} %` : "")) : null, ic && ic.precioReventa!=null ? el("span",{class:"costo"}, `Te cuesta ${money(ic.precioReventa)}` + (p.precio!=null ? ` · ganas ${money(p.precio - ic.precioReventa)}` : "")) : null, stockTxt(ps) ? el("span",{class:"stockpill"+(S.canEdit && ps.stock>3?" ok":"")}, stockTxt(ps)) : null));
       card.append(open);
-      if(!S.selecting && !S.canEdit) card.append(el("div",{class:"info",style:"padding-top:0"}, addButton(p)));
+      if(!S.selecting && !S.canEdit) card.append(el("div",{class:"info card-pie"}, addButton(p)));
       if(!S.selecting && S.canEdit) card.append(botonVendi(p));
       grid.append(card);
     }
@@ -1522,7 +1529,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const inCart = !!cart[p.id], sold = agotado(p);
     return el("button",{class:"addbtn"+(inCart?" in":""),type:"button",disabled:sold?"":false,
       onclick:e=>{ e.stopPropagation(); if(cart[p.id]) delete cart[p.id]; else { cart[p.id]=1; toast(tx("Agregado a tu pedido","Added to your order")); } saveCart(); render(); if(openId) drawSheet(); }},
-      sold ? (p.estado==="vendido" ? tx("Vendido","Sold") : tx("Agotado","Sold out")) : inCart ? (big?tx("✓ En tu pedido (quitar)","✓ In your order (remove)"):tx("✓ En tu pedido","✓ In your order")) : tx("+ Agregar al pedido","+ Add to order"));
+      sold ? (p.estado==="vendido" ? tx("Vendido","Sold") : tx("Agotado","Sold out")) : inCart ? (big?tx("✓ En tu pedido (quitar)","✓ In your order (remove)"):tx("✓ En tu pedido","✓ In your order")) : big ? tx("+ Agregar al pedido","+ Add to order") : tx("+ Agregar","+ Add"));
   }
   function renderCartBar(){
     const n = cartCount(), {total, consultar} = cartTotals();
@@ -1848,6 +1855,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   function renderConfig(){
     const name = S.config.nombre || "Showroomcito";
     $("shopName").textContent = name; document.title = name;
+    // La vitrina que ven las clientas tiene su propio estilo (más limpio y de tienda).
+    document.body.classList.toggle("vista-cliente", !S.canEdit);
     // El WhatsApp de la tienda va en un botón flotante (solo para clientes), no en la barra.
     const c=$("contact"); c.textContent=""; c.hidden=true; const wa=waDigits();
     const fl=$("waFloat"); fl.hidden = !wa || S.canEdit;

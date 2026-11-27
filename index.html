@@ -629,6 +629,61 @@ html,body{overflow-x:clip}
 .bar .lang::before{content:"🌐 "}
 @media (max-width:520px){.bar .lang,.bar .cuenta-btn{padding:8px 10px;font-size:14px}.bar .brand .stamp{display:none}.bar .cuenta-btn span{display:none}.bar .cuenta-btn::before{content:"👤"}}
 .foot .legales{display:block;margin-top:8px;font-size:13px;color:var(--muted)}.foot .legales a{color:inherit}
+
+/* ===== Vitrina de la clienta: más limpia y con aire de tienda ===== */
+body.vista-cliente{background:linear-gradient(180deg,#f6f3ef 0,#f4f5f8 420px)}
+body.vista-cliente .bar .wrap{flex-wrap:nowrap}
+body.vista-cliente .bar .brand{min-width:0;flex:1}
+body.vista-cliente .bar #shopName{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Buscador y orden en una fila; categorías en una tira que se desliza */
+body.vista-cliente .tools{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;margin-top:18px}
+body.vista-cliente .tools .search{border-radius:999px;padding-left:18px;background:#fff;border-color:transparent;box-shadow:0 1px 2px rgb(20 33 61 / .06),0 0 0 1px var(--line)}
+body.vista-cliente .tools .orden{border-radius:999px;max-width:180px;background:#fff}
+body.vista-cliente .tools .cats{grid-column:1/-1;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding:2px 2px 4px;margin:0 -2px;mask-image:linear-gradient(90deg,#000 92%,transparent)}
+body.vista-cliente .tools .cats::-webkit-scrollbar{display:none}
+body.vista-cliente .tools .cats .chip{flex:none;background:#fff;border-color:transparent;box-shadow:0 0 0 1px var(--line)}
+body.vista-cliente .tools .cats .chip[aria-pressed="true"]{background:var(--ink);color:#fff;box-shadow:none}
+body.vista-cliente .tools #pubs:empty{display:none}
+/* Tarjetas */
+body.vista-cliente .grid{gap:18px;padding-bottom:150px}
+body.vista-cliente .card{border-radius:16px;border:0;box-shadow:0 1px 2px rgb(20 33 61 / .06),0 8px 24px rgb(20 33 61 / .07);transition:transform .18s ease,box-shadow .18s ease}
+body.vista-cliente .card .open{flex:1;display:flex;flex-direction:column}
+body.vista-cliente .card .ph{background:#efece8}
+body.vista-cliente .card .ph img{transition:transform .35s ease}
+@media (hover:hover){body.vista-cliente .card:hover{transform:translateY(-3px);box-shadow:0 2px 4px rgb(20 33 61 / .06),0 16px 36px rgb(20 33 61 / .12)}body.vista-cliente .card:hover .ph img{transform:scale(1.04)}}
+body.vista-cliente .card .info{padding:12px 14px 4px;gap:6px;align-content:start}
+body.vista-cliente .card .name{font-size:15.5px;font-weight:600;min-height:0;color:var(--ink)}
+body.vista-cliente .card .cod-tag{font-size:10.5px;padding:0 5px;opacity:.75}
+body.vista-cliente .card .chips-fila{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+body.vista-cliente .card .cond-tag{margin:0}
+body.vista-cliente .talla-tag{font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;background:#f1f2f5;color:var(--ink)}
+body.vista-cliente .card .contado{font-size:13px}
+body.vista-cliente .card .card-pie{padding:8px 14px 14px;margin-top:auto}
+body.vista-cliente .card .addbtn{border:0;background:var(--ink);color:#fff;border-radius:999px;padding:10px 12px;font-size:14px;font-weight:700;margin:0}
+body.vista-cliente .card .addbtn:hover{filter:brightness(1.15)}
+body.vista-cliente .card .addbtn.in{background:var(--ok);color:#fff}
+body.vista-cliente .card .addbtn:disabled{background:#eceef2;color:var(--muted)}
+body.vista-cliente .card.vendido,body.vista-cliente .card.agotado{opacity:.8}
+/* Precio en la foto: etiqueta un poco más grande y con sombra suave */
+body.vista-cliente .price{font-size:15px;box-shadow:0 2px 8px rgb(0 0 0 / .12)}
+/* Portada en computadora: el texto no pisa lo que trae la foto a la derecha */
+@media (min-width:761px){body.vista-cliente .portada.con-foto .portada-txt{max-width:min(620px,44%)}}
+body.vista-cliente .portada{border-radius:20px}
+body.vista-cliente .portada p{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+body.vista-cliente .grupo-link{border-radius:999px}
+@media (max-width:560px){
+  body.vista-cliente .grid{gap:12px;grid-template-columns:repeat(2,minmax(0,1fr))}
+  body.vista-cliente .card .info{padding:10px 10px 2px;gap:5px}
+  body.vista-cliente .card .name{font-size:14.5px}
+  body.vista-cliente .card .card-pie{padding:6px 10px 10px}
+  body.vista-cliente .card .addbtn{padding:9px 8px;font-size:13.5px}
+  body.vista-cliente .marca-tag{font-size:11.5px}
+  body.vista-cliente .card .contado{font-size:12px;line-height:1.3}
+  body.vista-cliente .price{font-size:14px}
+  body.vista-cliente .tools .orden{max-width:132px;font-size:14px}
+  body.vista-cliente #cliBtnTxt{display:none}
+  body.vista-cliente .cli-btn{padding:13px 15px;font-size:20px}
+}
 </style>
 </head>
 <body>
