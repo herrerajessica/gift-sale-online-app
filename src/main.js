@@ -2760,8 +2760,30 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     { const inv = c ? c.relaciones.filter(r=>r.estado==="pendiente" && !r.invitaYo).length : 0, venc = c ? separadosMios().filter(vencido).length + misSeparados().filter(vencido).length : 0; marcarTab("confianza", inv + venc, urgente); }
     $("confBtn").className = "btn" + (urgente ? " tag" : "");
     const hayInv = !!(c && c.relaciones.some(r=>r.estado==="pendiente" && !r.invitaYo));
-    $("confBtn").textContent = hayInv ? "Ver invitación" : urgente ? "Revisar" : "Abrir";
-    $("confBtn").onclick = ()=>abrirConfianza(hayInv ? "tiendas" : urgente ? "cuentas" : null);
+    const nuevosRev = c ? c.compartidos.filter(x=>!x.yaAgregado).length : 0;
+    // El botón dice qué va a pasar (antes decía solo "Abrir" y no se entendía que ahí estaban los productos).
+    $("confBtn").textContent = hayInv ? "Ver invitación" : urgente ? "Revisar" : nuevosRev ? `Ver ${nuevosRev} para revender` : (c && c.relaciones.some(r=>r.estado==="aceptada")) ? "Ver mis tiendas" : "Invitar tiendas";
+    if(nuevosRev && !hayInv && !urgente) $("confBtn").className = "btn primary";
+    $("confBtn").onclick = ()=>abrirConfianza(hayInv ? "tiendas" : urgente ? "cuentas" : nuevosRev ? "revender" : "tiendas");
+    pintarAvisoCompartidos();
+  }
+  // En Productos: aviso con las fotos de lo que te compartieron y un botón para agregarlos.
+  function pintarAvisoCompartidos(){
+    const box = $("compAviso"); if(!box) return;
+    const c = S.conf, lista = c && S.canEdit ? c.compartidos.filter(x=>!x.yaAgregado) : [];
+    let oculto = ""; try{ oculto = localStorage.getItem("vitrina-comp-visto-"+(S.config&&S.config.id||"")) || ""; }catch(e){}
+    const firma = lista.map(x=>x.id).sort().join(",");
+    box.textContent = ""; box.hidden = !lista.length || firma === oculto;
+    if(box.hidden) return;
+    const tiendas = [...new Set(lista.map(x=>x.tiendaNombre).filter(Boolean))];
+    const quien = tiendas.length===1 ? tiendas[0] : `${tiendas.length} tiendas de confianza`;
+    const fotos = el("div",{class:"comp-fotos"}, ...lista.slice(0,4).map(x=>{ const f = x.fotosThumb && x.fotosThumb[0]; return f ? el("img",{src:src(f),alt:"",loading:"lazy"}) : el("span",{class:"noimg"}); }), lista.length>4 ? el("span",{class:"comp-mas"},"+"+(lista.length-4)) : null);
+    box.append(el("div",{class:"comp-txt"}, el("strong",null, `🤝 ${quien} ${tiendas.length===1?"te compartió":"te compartieron"} ${lista.length===1?"1 producto":lista.length+" productos"}`),
+        el("span",null,"Puedes venderlos en tu tienda como tuyos, con tu precio. Elige cuáles quieres.")),
+      fotos,
+      el("div",{class:"comp-botones"},
+        el("button",{class:"btn primary",type:"button",onclick:()=>abrirConfianza("revender")},"Ver y agregar a mi tienda"),
+        el("button",{class:"btn",type:"button",onclick:()=>{ try{ localStorage.setItem("vitrina-comp-visto-"+(S.config&&S.config.id||""), firma); }catch(e){} box.hidden = true; }},"Ahora no")));
   }
   let confTab = "tiendas";
   const confAbierto = () => !$("planOverlay").hidden && $("planOverlay").dataset.conf === "1";
@@ -2884,7 +2906,11 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       const r = await accionConf(add,"agregar",{ ids:[...elegidos], margen: parseMargen(margen.value) ?? 0 }, r=>r && r.creados ? `${r.creados} producto(s) agregados a tu tienda` : "No se agregó ninguno: ya no están disponibles");
       if(r) refrescarProductos();
     };
-    sec.append(el("p",{class:"note",style:"margin:0"},"Elige qué productos quieres vender en tu tienda. Tus clientes los verán como tuyos, con tu WhatsApp y tus formas de pago. Cuando vendas uno, le pagas a la otra tienda lo que te cuesta."),
+    sec.append(el("ol",{class:"rv-pasos"},
+        el("li",null, el("b",null,"Marca"), " los productos que quieres vender."),
+        el("li",null, "Pon ", el("b",null,"tu ganancia"), " (se suma a lo que te cuesta)."),
+        el("li",null, "Toca ", el("b",null,"Agregar a mi tienda"), ". Aparecen en tus Productos con la etiqueta \"De …\" y tus clientes los ven como tuyos.")),
+      el("p",{class:"note",style:"margin:0"},"Cuando vendas uno, le pagas a la otra tienda lo que te cuesta (lo ves en Cuentas)."),
       listEl,
       el("div",{class:"rv-foot"}, el("label",{class:"f"},"Tu ganancia %", margen), el("div",{style:"flex:1;min-width:160px"}, ej), todos, add));
     pie();

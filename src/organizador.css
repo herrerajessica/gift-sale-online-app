@@ -198,3 +198,15 @@
 /* Tarjeta "Tiendas de confianza" en la pestaña: en el celular el texto ocupa todo el ancho */
 @media(max-width:600px){#confBox:not([hidden]){display:grid!important;grid-template-columns:1fr auto;gap:8px;align-items:center}#confBox>#confText{grid-column:1/-1;order:2}#confBox>.pill{order:1}#confBox>#confBtn{order:1;justify-self:end}}
 @media(max-width:480px){.conf-tienda{grid-template-columns:auto 1fr}.conf-tienda>button{grid-column:1/-1;justify-content:center}}
+/* Productos que te compartieron (pestaña Productos) */
+.compartidos-aviso{margin:4px 0 14px;padding:14px;border-radius:14px;border:2px solid color-mix(in srgb,var(--accent) 45%,transparent);background:color-mix(in srgb,var(--accent) 8%,var(--surface));display:grid;gap:10px}
+.compartidos-aviso[hidden]{display:none}
+.comp-txt{display:grid;gap:4px}.comp-txt strong{font-size:16px}.comp-txt span{font-size:14px;color:var(--muted)}
+.comp-fotos{display:flex;gap:6px}
+.comp-fotos img,.comp-fotos .noimg,.comp-mas{width:60px;height:60px;border-radius:10px;object-fit:cover;background:var(--paper);display:grid;place-items:center;font-weight:800;color:var(--accent)}
+.comp-botones{display:flex;gap:8px;flex-wrap:wrap}
+@media(max-width:600px){.comp-botones .btn{flex:1;justify-content:center;min-height:44px}}
+.rv-pasos{margin:0;padding-left:20px;display:grid;gap:4px;font-size:14px}
+.rv-item{cursor:pointer;min-height:64px}
+.rv-item:has(input:checked){border-color:var(--accent);background:color-mix(in srgb,var(--accent) 6%,var(--surface))}
+.rv-item input{width:22px;height:22px}
