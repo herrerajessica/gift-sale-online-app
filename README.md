@@ -84,6 +84,15 @@ Al crear la tienda, en la misma pantalla, la vendedora toca **¿Qué vendes?**: 
 - Órdenes rápidas por tipo: "todas las faldas 20 % de descuento hoy".
 - Próximo: rubros sin fotos (Frutas y verduras, Abarrotes) con unidad (kg, atado) y productos de inicio.
 
+### Buscar en internet (Amazon Nova Web Grounding)
+
+Si la vendedora lo pide ("busca en internet la CAR-001", "completa con internet las carteras nuevas"), el asistente usa la herramienta `buscar_en_internet`: una llamada aparte a Nova 2 Lite con la herramienta de sistema `nova_grounding` (perfil `us.amazon.nova-2-lite-v1:0`, solo regiones de EE. UU.). Con lo que encuentra propone descripción, material, medidas o colores en la tarjeta de antes y después; el precio en EE. UU. es solo referencia. Las fuentes se agregan siempre al final de la respuesta (AWS lo exige).
+
+- **Desde fotos:** si al adjuntar fotos en el asistente (clip) la vendedora escribe "completa con internet" (o "busca", "web", "Google"), cada producto se crea así: la IA lee la foto (marca, nombre, tipo) y con eso se busca la ficha en internet (`buscarInternet` → `asistente` con `{ modo: 'web' }`). La descripción queda con lo encontrado (más material, medidas y colores); si no encuentra el mismo modelo, queda lo leído de la foto. Al terminar, el chat del asistente muestra el resumen, el precio de referencia en EE. UU. y las fuentes.
+- Límite: `LIMITE_WEB` en `amplify/functions/asistente/herramientas.ts` (10 por día y por tienda, de prueba) y 3 por mensaje (`WEB_POR_MENSAJE`). El contador está en `Tienda.webDia` / `Tienda.webUsos`.
+- Costo: cada búsqueda se cobra aparte de los tokens. Para ver el precio real: AWS Billing › Cost Explorer, servicio Amazon Bedrock, al día siguiente de probar.
+- Permiso: `bedrock:InvokeTool` sobre `system-tool/amazon.nova_grounding` (en `amplify/backend.ts`).
+
 ## Asistente de compras para clientes
 
 En la tienda pública, el botón **¿Buscas algo?** abre un chat donde el cliente pregunta ("regalos para niño de 5 años", "¿qué ofertas hay?", "algo para mamá menos de S/ 100"). La consulta `preguntarTienda` (función `catalogo`, archivo `catalogo/cliente.ts`) arma la misma lista que ve el cliente (sin ocultos, vendidos ni agotados, sin costos ni origen) y le pide a Nova 2 Lite una respuesta corta con hasta 6 códigos. La tienda muestra tarjetas con foto, código y precio; al tocar una se abre el producto para agregarlo al pedido. El cierre sigue siendo por WhatsApp, Yape o tarjeta.
@@ -304,3 +313,7 @@ Ver `buildspec.yml`. Necesita `REPORT_BUCKET`, `BASE_URL` y el secreto `qa/playw
 ## Versión anterior
 
 `app/vitrina-usa.html` es la primera versión, que funciona como Artifact dentro de claude.ai (una sola tienda).
+
+## Fondo blanco gratis (en el navegador)
+
+Botón **⬜ Fondo blanco** en el organizador (al tocar una foto) y en la ficha del producto. Corre en el celular o la computadora de la vendedora con **ONNX Runtime Web** (`onnxruntime-web@1.20.1` desde jsDelivr) y el modelo **U²-Net pequeño** (`u2netp.onnx`, 4,4 MB, Apache-2.0, desde Hugging Face `edgetools/u2netp`). No usa AWS ni servicios de pago. Ofrece dos versiones: **Con su caja** (borra solo el fondo que toca los bordes de la foto, sin IA) y **Solo el producto** (U²-Net); la vendedora elige o deja la original. Código: `src/fondo-blanco.js`. (El fondo blanco con Nova Canvas sigue apagado con `FONDO_IA_LISTO = false` porque cobra por foto.)

@@ -139,6 +139,13 @@ asistenteFn.addToRolePolicy(new PolicyStatement({
   ],
 }));
 
+// Búsqueda en internet del asistente (Amazon Nova Web Grounding): herramienta de sistema de Bedrock.
+// Solo funciona con el perfil us.amazon.nova-2-lite (ya permitido arriba).
+asistenteFn.addToRolePolicy(new PolicyStatement({
+  actions: ['bedrock:InvokeTool'],
+  resources: [`arn:aws:bedrock::${Stack.of(asistenteFn).account}:system-tool/amazon.nova_grounding`],
+}));
+
 // --- Clasificación con IA: lee miniaturas y llama a Claude en Bedrock ---
 const clasificarFn = backend.clasificar.resources.lambda;
 bucket.grantRead(clasificarFn, 'productos/*');

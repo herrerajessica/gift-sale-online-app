@@ -35,10 +35,11 @@ Para cada foto responde un objeto con:
 - "categoria": exactamente una de: ${CATEGORIAS.join(', ')}
 - "publico": exactamente uno de: ${PUBLICOS.join(', ')} (usa Unisex si no se distingue)
 ${nombre}
-- "marca": la marca solo si su logo, etiqueta o diseño característico se ve claramente en la foto; si no, "".
+- "marca": la marca si se ve su logo o diseño característico, o si su nombre está escrito en el producto, la caja, la bolsa, el estuche o la etiqueta (ej. "GUESS" impreso en la caja); si no, "".
 - "costo": el precio en dólares que se lee en la etiqueta de precio de la tienda (si hay varios, el más bajo o el de liquidación), como número; si no se ve claro, null.
-- "talla": la talla si se lee en la etiqueta o en el producto (ej. "8", "M", "32x30"); si no, "".
+- "talla": la talla si se lee en la etiqueta o en el producto (ej. "8", "M", "32x30"); si no, "". Las medidas en pulgadas escríbelas con "pulg" (ej. 16 pulg), nunca con comillas.
 - "condicion": exactamente una de: ${CONDICIONES.join(', ')}. Usa nuevo_etiqueta si se ve la etiqueta de la tienda colgando; caja_abierta si está en su caja abierta; si no estás segura, "".
+- Si el producto está dentro de su caja o estuche, el "nombre", el "tipo" y la "descripcion" son del PRODUCTO (collar, pulsera, reloj, perfume…), nunca de la caja; la caja solo se menciona en la descripción ("viene en su caja original").
 - "descripcion": 1 o 2 frases cortas para vender, ${ingles ? 'EN INGLÉS' : 'en español'}, solo con lo que se ve (tipo, color, estilo, detalles, si trae caja o etiqueta). No inventes materiales, medidas ni que es original.
 Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"tipo":"Zapatos","categoria":"Zapatos","publico":"Mujer","nombre":"Mocasines rosados con lazo","marca":"","costo":19.99,"talla":"8","condicion":"nuevo_etiqueta","descripcion":"Mocasines rosados con lazo, nuevos con etiqueta. Cómodos para el día a día."}]`;
 }
@@ -110,7 +111,11 @@ function limpiarDictado(arr: unknown, n: number): Dictado[] {
 
 function leerArreglo(texto: string): unknown {
   const inicio = texto.indexOf('['), fin = texto.lastIndexOf(']');
-  try { return JSON.parse(texto.slice(inicio, fin + 1)); } catch { return []; }
+  const crudo = texto.slice(inicio, fin + 1);
+  try { return JSON.parse(crudo); } catch { /* se intenta reparar abajo */ }
+  // Medidas en pulgadas copiadas de la caja (16"18"+2") rompen el JSON: la comilla después de un número
+  // que no cierra el texto se cambia por "pulg". Si aun así falla, se descarta.
+  try { return JSON.parse(crudo.replace(/(\d)\s*"(?!\s*[,}\]:])/g, '$1 pulg')); } catch { return []; }
 }
 
 async function interpretarDictado(args: { textos?: (string | null)[] | null; idioma?: string | null; moneda?: string | null; rubro?: string | null }) {
@@ -165,14 +170,18 @@ export const handler = async (event: EventoIA) => {
       modelId: process.env.MODEL_ID,
       messages: [{role:'user',content:[
         ...imagenes.map(bytes=>({image:{format:'jpeg' as const,source:{bytes}}})),
-        {text:'Organiza estas fotos numeradas desde 0 en productos físicos individuales. Agrupa solo fotos que claramente muestran el MISMO artículo desde distintos ángulos. No agrupes solo por categoría o marca: colores, modelos o tallas diferentes son productos distintos. Una etiqueta aislada sin vínculo claro debe quedar fuera. Las fotos ambiguas deben quedar fuera para revisión humana. No supongas grupos de tamaño fijo ni uses el orden como evidencia suficiente. Devuelve SOLO JSON: [{"nombre":"nombre corto en español","indices":[0,2,5]}]. Cada índice puede aparecer una sola vez. Incluye grupos de una foto si claramente muestran un producto.'},
+        {text:'Organiza estas fotos numeradas desde 0 en productos físicos individuales. Agrupa dos fotos SOLO si muestran claramente el MISMO artículo: el mismo diseño de colgante o dije, el mismo color y forma de la pieza, y si hay caja, la misma caja (mismo color y diseño). Ejemplos que SÍ van juntos: el mismo collar de frente y de cerca; el mismo collar dentro de su caja y la misma caja cerrada si se ve que es la misma. Ejemplos que NO van juntos: dos collares con colgantes distintos; un collar y una pulsera; dos cajas de distinto color o diseño; productos distintos de la misma marca. Ser de la misma marca (por ejemplo GUESS) o venir en caja no es razón para agrupar. Lo normal es que cada producto tenga entre 1 y 4 fotos; si un grupo te queda con más, revisa y sepáralo. Si una foto muestra solo una caja y no se sabe a cuál producto pertenece, déjala fuera. Ante la duda, sepáralas. El "nombre" es el del producto (collar, pulsera, reloj, aretes…), nunca el de la caja; si son aretes o una pulsera, no los llames collar. Devuelve SOLO JSON: [{"nombre":"nombre corto en español","indices":[0,2,5]}]. Cada índice puede aparecer una sola vez. Incluye grupos de una foto si claramente muestran un producto.'},
       ]}],
-      inferenceConfig:{maxTokens:4096,temperature:0},
+      inferenceConfig:{maxTokens:8000,temperature:0},
     }));
-    if(res.stopReason==='max_tokens') throw new Error('La agrupación quedó incompleta. Organiza manualmente o reintenta.');
     const texto=(res.output?.message?.content??[]).map(c=>'text' in c?c.text:'').join('');
-    const arr=leerArreglo(texto);
-    if(!Array.isArray(arr)) throw new Error('Respuesta de agrupación inválida');
+    let arr: unknown[] = [];
+    const leido = leerArreglo(texto); if (Array.isArray(leido)) arr = leido;
+    // Respuesta cortada o mal formada (pasa con muchas fotos): se rescatan los grupos que sí llegaron completos.
+    if(!arr.length){
+      arr=[...texto.matchAll(/\{[^{}]*"indices"\s*:\s*\[[\d,\s]*\][^{}]*\}/g)].flatMap(m=>{try{return [JSON.parse(m[0])];}catch{return [];}});
+    }
+    if(!arr.length) throw new Error(res.stopReason==='max_tokens'?'La agrupación quedó incompleta.':'Respuesta de agrupación inválida');
     return JSON.stringify(arr);
   }
   if (event.fieldName === 'interpretarDictado') return interpretarDictado(event.arguments);

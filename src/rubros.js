@@ -12,7 +12,7 @@ export const TIPOS = [
   ['Zapatillas', 'Zapatos', 'ZAP', 'zapatilla|zapatillas|tenis|sneakers'], ['Sandalias', 'Zapatos', 'SAN', 'sandalia|sandalias|chancla|chanclas|chinela'],
   ['Botas', 'Zapatos', 'BOT', 'bota|botas|botin|botines'], ['Tacones', 'Zapatos', 'TAC', 'tacon|tacones|taco|tacos'], ['Zapatos', 'Zapatos', 'ZPT', 'zapato|zapatos|mocasin|mocasines|ballerinas'],
   ['Cartera', 'Carteras y bolsos', 'CAR', 'cartera'], ['Bolso', 'Carteras y bolsos', 'BOL', 'bolso|tote|bandolera|crossbody'], ['Mochila', 'Carteras y bolsos', 'MCH', 'mochila'],
-  ['Billetera', 'Carteras y bolsos', 'BIL', 'billetera|monedero'], ['Lentes de sol', 'Accesorios', 'LEN', 'lentes|gafas|anteojos'], ['Gorra', 'Accesorios', 'GOR', 'gorra|gorro|sombrero'],
+  ['Billetera', 'Carteras y bolsos', 'BIL', 'billetera|monedero'], ['Neceser', 'Carteras y bolsos', 'NEC', 'neceser|cosmetiquera|porta cosmeticos|portacosmeticos|estuche de maquillaje|bolso de maquillaje|organizador de maquillaje|makeup bag|cosmetic bag'], ['Lentes de sol', 'Accesorios', 'LEN', 'lentes|gafas|anteojos'], ['Gorra', 'Accesorios', 'GOR', 'gorra|gorro|sombrero'],
   ['Correa', 'Accesorios', 'COR', 'correa|cinturon'], ['Bufanda', 'Accesorios', 'BUF', 'bufanda|chalina'], ['Reloj', 'Relojes y joyería', 'REL', 'reloj|smartwatch'],
   ['Aretes', 'Relojes y joyería', 'ARE', 'arete|aretes|pendientes'], ['Collar', 'Relojes y joyería', 'COL', 'collar|cadena|dije'], ['Pulsera', 'Relojes y joyería', 'PUL', 'pulsera|brazalete'],
   ['Anillo', 'Relojes y joyería', 'ANI', 'anillo'], ['Perfume', 'Perfumes y belleza', 'PER', 'perfume|colonia|fragancia|eau de'], ['Body splash', 'Perfumes y belleza', 'BSP', 'body splash|splash|mist'],

@@ -3,7 +3,7 @@ import {
   miTienda, crearTienda, listarTiendas, cambiarEstadoTienda, limpiarSlug, SLUG_RE,
   signIn, signOut, signUp, confirmSignUp, resendSignUpCode, confirmSignIn, resetPassword, confirmResetPassword, updatePassword,
   googleDisponible, entrarConGoogle, alVolverDeGoogle, cerrarSesion,
-  PLANES, planVigente, tieneFondoIA, pagarPlan, quitarFondo, asistente, interpretarDictado, cancelarPlan, conectarCobros, estadoCobros, pagarPedido, pedidoYape,
+  PLANES, planVigente, tieneFondoIA, pagarPlan, quitarFondo, asistente, buscarInternet, interpretarDictado, cancelarPlan, conectarCobros, estadoCobros, pagarPedido, pedidoYape,
   miTiendaActual, listarPedidos, cambiarEstadoPedido, cambiarPlanTienda, confianza, refrescarProductos, preguntarTienda, traducirTextos, clienteCuenta, listarClientes,
 } from './amplify-adapter.js';
 import { interpretarComando } from './comandos.js';
@@ -12,7 +12,9 @@ import { escucha, vocabulario, corregir, codigosDichos, SEPARADOR_PRODUCTOS } fr
 import { interpretarPorLotes } from './dictado.js';
 import { prepararUnion, ejecutarUnion } from './juntar-productos.js';
 import { arrastrable } from './arrastrar.js';
-import { abrirOrganizador } from './organizador-fotos.js';
+import { abrirOrganizador, girarImagen } from './organizador-fotos.js';
+import { abrirCapa } from './atras.js';
+import { ponerFondoBlanco, compararFondo } from './fondo-blanco.js';
 import './organizador.css';
 import { crearGruposUnion } from './grupos-union.js';
 const gruposUnion=crearGruposUnion();
@@ -426,35 +428,171 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
   }
 
   // ---------- Subida en bloque ----------
+  const FOTOS_POR_TANDA = 20;
+  // Aviso entre partes: seguir con las fotos que faltan o dejarlas para después.
+  function siguienteTanda(resto, opciones, tanda){
+    const ov = $("planOverlay"); ov.textContent=""; ov.hidden=false; delete ov.dataset.dict; delete ov.dataset.conf;
+    const cerrar = ()=>{ ov.hidden=true; ov.textContent=""; ov.onclick=null; };
+    ov.onclick = e=>{ if(e.target===ov) cerrar(); };
+    const n = resto.length;
+    ov.append(el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":"Siguiente parte"},
+      el("h2",null,`Parte ${tanda.n-1} lista ✓`),
+      el("p",{style:"margin:0;font-size:16px"}, `Faltan ${n} foto${n===1?"":"s"} por subir (parte ${tanda.n} de ${tanda.total}).`),
+      el("p",{class:"note",style:"margin:0"}, "Si prefieres, primero revisa los precios de esta parte y luego vuelve a elegir las fotos que faltan."),
+      el("div",{class:"actions",style:"justify-content:stretch;display:grid;grid-template-columns:1fr 1fr;gap:8px"},
+        el("button",{class:"btn",type:"button",onclick:cerrar},"Más tarde"),
+        el("button",{class:"btn primary",type:"button",onclick:()=>{ cerrar(); abrirOrganizadorFotos(resto, { ...opciones, tanda }); }},`Seguir con ${n} foto${n===1?"":"s"}`))));
+  }
   function abrirOrganizadorFotos(list, opciones={}){
     if(!S.canEdit || !S.assets || !S.db) return;
     const files=[...list].filter(f=>f.type.startsWith('image/')||/\.(heic|heif)$/i.test(f.name));
     if(!files.length){toast('Selecciona al menos una foto');return;}
+    // Por partes: como máximo FOTOS_POR_TANDA fotos a la vez (la IA agrupa bien hasta 20). Las demás esperan
+    // y al terminar cada tanda se ofrece seguir con la siguiente.
+    const tanda = opciones.tanda || { n:1, total:Math.ceil(files.length/FOTOS_POR_TANDA) };
+    const resto = files.splice(FOTOS_POR_TANDA);
+    if(tanda.n===1 && resto.length) toast(`Elegiste ${files.length+resto.length} fotos: las subimos por partes, de ${FOTOS_POR_TANDA} en ${FOTOS_POR_TANDA}. Parte 1 de ${tanda.total}.`);
+    // "Completa con internet": primero se lee la foto y con esa marca y nombre se busca la ficha en internet.
+    const conInternet = !!(opciones.asistente && S.buscarInternet && /internet|\bweb\b|google|en l[ií]nea|busca|investiga/i.test(opciones.texto||''));
+    const web = { hechos: [], sinDatos: [], limite: false, error: false };
+    const sinLeer = [];
+    const pd = opciones.porDefecto || {};
     abrirOrganizador(files,{
-      autoSugerir:!!opciones.asistente,
+      // La IA agrupa sola las fotos del mismo producto (asistente, "Con fotos" y "Productos con varias fotos").
+      autoSugerir:!!opciones.agrupar || (!!opciones.asistente && !opciones.cadaFoto),
+      cadaFoto:!!opciones.cadaFoto,
+      publicar:!!opciones.publicar,
       instrucciones:opciones.texto||'',
       preparar:async f=>{const foto=await processPhoto(f,modoGuardado()||'mejorar');delete foto._blob;return foto;},
       limpiar:deletePhotos,
       agrupar:agruparFotos,
       permitir:n=>{if(n>usoPlan().libres){toast('Los grupos superan los productos disponibles en tu plan');return false;}return true;},
       referencia:()=>S.db.collection('productos').doc(),
-      guardar:async(ref,nombre,fotos)=>{
+      guardar:async(ref,nombre,fotos,info={})=>{
         let visual={},dictado={};
+        // Un nombre puesto por la IA al agrupar es solo una pista: manda la lectura de la foto.
+        const nombreGenerico = !!info.nombreIA || /^producto( \d+| nuevo)?$/i.test(String(nombre||'').trim());
+        // La IA lee las fotos (hasta 3: la de la caja o la etiqueta suele traer la marca) cuando viene del
+        // asistente o cuando el producto todavía no tiene un nombre de verdad ("Producto 7").
+        if(opciones.asistente || opciones.ia || nombreGenerico){
+          // Hasta 3 intentos: con varios productos seguidos la IA a veces responde ocupada o vacía.
+          for(let intento=0; intento<3 && !visual.nombre && !visual.descripcion; intento++){
+            if(intento) await new Promise(r=>setTimeout(r, 1500*intento));
+            try{
+              const r=await ai.json('',{images:fotos.slice(0,3).map(f=>f.thumb),idioma:esUS()?'en':'es',rubro:rubroActual()});
+              // Primero las fotos del producto; las que solo muestran la caja quedan al final (de ahí solo se toma la marca).
+              const esCaja = x=>/^(caja|estuche|empaque|bolsa de regalo|box)\b/i.test(String(x&&x.nombre||''));
+              const lect = (Array.isArray(r)?r:[]).sort((a,b)=>(esCaja(a)-esCaja(b))||((a.i||0)-(b.i||0)));
+              const hayProducto = lect.some(x=>!esCaja(x));
+              for(const x of lect) for(const [k,v] of Object.entries(x||{})) if(k!=='i' && v!=null && v!=='' && visual[k]==null && (!hayProducto || !esCaja(x) || k==='marca')) visual[k]=v;
+            }catch(e){console.warn('No se completaron datos de la foto (intento '+(intento+1)+')',e);}
+          }
+          if(!visual.nombre && !visual.descripcion) sinLeer.push(nombre);
+        }
         if(opciones.asistente){
-          try{const r=await ai.json('',{images:[fotos[0].thumb],idioma:esUS()?'en':'es',rubro:rubroActual()});visual=r?.[0]||{};}catch(e){console.warn('No se completaron datos de la foto',e);}
           if(opciones.texto)try{const r=await interpretarDictado([`Producto: ${nombre}. Extrae solamente datos de este producto presentes en estas indicaciones; si se refieren a otro producto, deja esos campos vacíos: ${opciones.texto}`],esUS()?'en':'es',enSoles()?'PEN':'USD',rubroActual());dictado=r?.[0]||{};}catch(e){console.warn('No se interpretaron las indicaciones',e);}
         }
-        let precio=dictado.precio??null;
+        // El nombre del grupo lo revisó la vendedora: si dice qué es ("Porta cosméticos beige"), eso manda
+        // sobre lo que la IA creyó ver en la foto. Los nombres por defecto ("Producto 3") no cuentan.
+        const nombrePropio = !nombreGenerico;
+        // Marca escrita en la caja o en la descripción ("caja original de GUESS") aunque la IA no la puso como marca.
+        if(!visual.marca) visual.marca = marcaDeTexto([visual.nombre, visual.descripcion].filter(Boolean).join(' ')) || '';
+        if(!visual.tipo && visual.nombre) visual.tipo = tipoDeTexto(visual.nombre, rubroActual()) || '';
+        const tipoNombre = nombrePropio ? tipoDeTexto(nombre, rubroActual()) : '';
+        const marcaNombre = nombrePropio ? marcaDeTexto(nombre) : '';
+        let extraWeb = '';
+        if(conInternet && !web.limite){
+          // Marca + nombre leído de la foto + tipo, sin repetir palabras que ya están en el nombre.
+          const base=String(nombrePropio ? nombre : (visual.nombre||nombre||'')), tiene=w=>base.toLowerCase().includes(String(w).toLowerCase());
+          const marca=marcaNombre||dictado.marca||visual.marca, tipo=nombrePropio ? '' : (visual.tipo||'');
+          const consulta=[marca&&!tiene(marca)?marca:'', base, tipo&&!tiene(tipo)?tipo:''].filter(Boolean).join(' ').trim();
+          if(consulta.length>2){
+            try{
+              const r=await S.buscarInternet(consulta);
+              if(r && r.limite) web.limite=true;
+              else if(r && r.ok && r.encontrado){
+                extraWeb=[r.descripcion, r.material&&('Material: '+r.material+'.'), r.medidas&&('Medidas: '+r.medidas+'.'), r.colores&&('Colores: '+r.colores+'.')].filter(Boolean).join(' ');
+                web.hechos.push({nombre:nombrePropio?nombre:(visual.nombre||nombre), modelo:r.modelo, precio:r.precio_usd, fuentes:r.fuentes||[]});
+              } else if(r && r.ok) web.sinDatos.push(nombrePropio?nombre:(visual.nombre||nombre));
+              else web.error=true;
+            }catch(e){console.warn('No se buscó en internet',e);web.error=true;}
+          }
+        }
+        let precio=dictado.precio??pd.precio??null;
+        if(precio==null && pd.margen!=null && visual.costo) precio=precioConMargen(visual.costo, pd.margen);
         const moneda=enSoles()?'PEN':'USD';if(precio!=null&&dictado.moneda&&dictado.moneda!==moneda&&tipoCambio())precio=moneda==='PEN'?Math.round(precio*tipoCambio()*100)/100:Math.round(precio/tipoCambio()*100)/100;
-        const datos={nombre,marca:dictado.marca||visual.marca||'',precio,stock:dictado.stock??null,talla:dictado.talla||visual.talla||'',categoria:dictado.categoria||visual.categoria||'',publico:dictado.publico||visual.publico||'',descripcion:dictado.descripcion||visual.descripcion||'',condicion:dictado.condicion||visual.condicion||'',estado:'oculto',fotos,creado:Date.now()};
+        const tipoFinal = tipoNombre || visual.tipo || '';
+        const nombreFinal = nombrePropio ? nombre : (visual.nombre || dictado.nombre || nombre);
+        const datos={nombre:nombreFinal,...(tipoFinal?{tipo:tipoFinal}:{}),marca:marcaNombre||dictado.marca||pd.marca||visual.marca||'',precio,stock:dictado.stock??pd.stock??1,...(visual.costo?{costo:visual.costo}:{}),talla:dictado.talla||visual.talla||'',categoria:(tipoNombre&&categoriaDeTipo(tipoNombre))||dictado.categoria||pd.cat||visual.categoria||'',publico:dictado.publico||visual.publico||'',descripcion:(extraWeb||dictado.descripcion||visual.descripcion||'').slice(0,600),condicion:dictado.condicion||pd.condicion||visual.condicion||'',estado:opciones.publicar?'disponible':'oculto',fotos,creado:Date.now()};
         await ref.set(datos);
         if(!S.products.some(p=>p.id===ref.id))S.products.push({id:ref.id,...datos});
       },
-      terminar:ids=>{render();toast('Productos guardados como ocultos. Revisa los datos antes de publicarlos.');abrirLote(ids,'subida');},
+      terminar:ids=>{
+        render();toast(opciones.publicar ? (sinLeer.length ? `Productos publicados. La IA no pudo leer ${sinLeer.length===1?'1 producto':sinLeer.length+' productos'}: complétalo${sinLeer.length===1?'':'s'} en la lista.` : 'Productos publicados. Revisa precio y datos en la lista.') : sinLeer.length ? `Guardados como ocultos. La IA no pudo leer ${sinLeer.length===1?'1 producto':sinLeer.length+' productos'}: complétalo${sinLeer.length===1?'':'s'} en la lista.` : 'Productos guardados como ocultos. Revisa los datos antes de publicarlos.');
+        if(conInternet) avisoWeb(web);
+        abrirLote(ids,'subida');
+        if(resto.length) setTimeout(()=>siguienteTanda(resto, opciones, { n:tanda.n+1, total:tanda.total }), 900);
+      },
     });
   }
+  // Resumen de lo que se completó con internet, con sus fuentes, en el chat del asistente.
+  function avisoWeb(web){
+    const l=[];
+    if(web.hechos.length){
+      l.push(`Completé con internet la descripción de ${web.hechos.length} producto${web.hechos.length===1?'':'s'}. Revísala antes de publicar:`);
+      web.hechos.forEach(h=>l.push(`- **${h.nombre}**${h.modelo&&h.modelo!==h.nombre?` (${h.modelo})`:''}${h.precio?` · en EE. UU. cuesta unos $${h.precio}`:''}`));
+    }
+    if(web.sinDatos.length) l.push(`No encontré en internet ese mismo modelo para: ${web.sinDatos.join(', ')}. Les dejé lo que se ve en la foto.`);
+    if(web.limite) l.push('Se acabaron las búsquedas en internet de hoy; los demás productos quedaron con lo que se ve en la foto. Mañana se renuevan.');
+    if(web.error) l.push('Algunas búsquedas en internet no respondieron; esos productos quedaron con lo que se ve en la foto.');
+    const fuentes=[...new Set(web.hechos.flatMap(h=>h.fuentes.map(f=>f.url)))].slice(0,10);
+    if(fuentes.length) l.push('', 'Fuentes de internet:', ...fuentes.map(u=>'- '+u));
+    if(!l.length) return;
+    cargarAsis(); asisLog.push({role:'assistant',text:l.join('\n')}); guardarAsis();
+    if(!$('asis').hidden) pintarAsis(); else setTimeout(()=>toast('Te dejé en el Asistente lo que encontré en internet, con las fuentes.'), 2500);
+  }
+  // Opciones antes de subir (precio, categoría, marca, cantidad, margen y condición para todo el lote).
+  function valoresPorDefecto(){
+    const v = { precio:parsePrice($("defPrice").value), cat:$("defCat").value.trim(), marca:$("defMarca").value.trim(), stock:parseStock($("defStock").value), margen:parseMargen($("defMargen").value), condicion:$("defCond").value };
+    for(const k of Object.keys(v)) if(v[k]==null || v[k]==="") delete v[k];
+    return v;
+  }
+  // Al elegir las fotos se leen UNA vez, de a una, y se guarda una copia liviana (máx. 2048 px) en memoria.
+  // Así no se vuelven a pedir a la galería (con Google Fotos, leer muchas fotos grandes varias veces
+  // las dejaba en blanco) y todo lo que sigue es más rápido. Se ve el avance en pantalla.
+  async function leerFotos(lista){
+    const files = [...lista].filter(f => f.type.startsWith("image/") || /\.(heic|heif)$/i.test(f.name));
+    if(!files.length) return { fotos:[], fallidas:0 };
+    const ov = el("div",{class:"overlay lectura-fotos"});
+    const txt = el("strong",null,"Leyendo tus fotos…"), paso = el("span",null,""), barra = el("span");
+    ov.append(el("div",{class:"cart lectura-caja",role:"status","aria-live":"polite"}, el("span",{class:"org-giro","aria-hidden":"true"}), el("div",null, txt, paso), el("div",{class:"org-trabajo-barra"}, barra)));
+    document.body.append(ov);
+    const fotos = []; let fallidas = 0;
+    try{
+      for(let i=0;i<files.length;i++){
+        paso.textContent = `Foto ${i+1} de ${files.length}`; barra.style.width = Math.max(6, Math.round(100*i/files.length))+"%";
+        const f = files[i];
+        try{
+          const img = await decode(f);
+          const w = img.naturalWidth||img.width, h = img.naturalHeight||img.height, k = Math.min(1, 2048/Math.max(w,h));
+          const c = document.createElement("canvas"); c.width = Math.round(w*k); c.height = Math.round(h*k);
+          c.getContext("2d").drawImage(img, 0, 0, c.width, c.height); if(img.close) img.close();
+          const b = await new Promise(r=>c.toBlob(r,"image/jpeg",.92));
+          if(!b || b.size < 1000) throw new Error("vacía");
+          fotos.push(new File([b], (f.name||"foto").replace(/\.[^.]+$/,"")+".jpg", { type:"image/jpeg", lastModified:f.lastModified||Date.now() }));
+        }catch(e){
+          // No se pudo leer aquí (por ejemplo HEIC): se intenta con el archivo original más adelante.
+          if(/\.(heic|heif)$/i.test(f.name) || /heic|heif/i.test(f.type)) fotos.push(f); else fallidas++;
+        }
+      }
+    }finally{ ov.remove(); }
+    if(fallidas) toast(`${fallidas===1?"1 foto no se pudo":fallidas+" fotos no se pudieron"} leer. Si están en Google Fotos, descárgalas al celular y vuelve a elegirlas.`);
+    return { fotos, fallidas };
+  }
   async function handleFiles(list, organizado=false){
-    if(S.mode==='group' && !organizado) { abrirOrganizadorFotos(list); return; }
+    if(!organizado){ const r = await leerFotos(list); if(!r.fotos.length){ if(!r.fallidas) toast("Ninguno de esos archivos es una foto"); return; } list = r.fotos; }
+    // Agrupar fotos de varios productos: organizador con sugerencia de la IA.
+    if(S.mode==='group' && !organizado) { abrirOrganizadorFotos(list,{asistente:true,publicar:true,porDefecto:valoresPorDefecto()}); return; }
     const files = [...list].filter(f => f.type.startsWith("image/") || /\.(heic|heif)$/i.test(f.name));
     if(!files.length){ toast("Ninguno de esos archivos es una foto"); return; }
     if(!S.assets || !S.db){ toast("Solo quien administra la vitrina puede subir fotos"); return; }
@@ -465,8 +603,10 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
     let huellas = [];
     if(!(S.mode==="group" && files.length>1)){
       $("progress").hidden=false; setProg(0, files.length, "Revisando fotos repetidas…");
-      huellas = await Promise.all(files.map(huellaDeArchivo));
-      await asegurarHuellas();
+      const aviso = el("div",{class:"overlay lectura-fotos"}, el("div",{class:"cart lectura-caja",role:"status"}, el("span",{class:"org-giro","aria-hidden":"true"}), el("div",null, el("strong",null,"Revisando fotos repetidas…"), el("span",null,"Un momento"))));
+      document.body.append(aviso);
+      try{ huellas = []; for(const f of files) huellas.push(await huellaDeArchivo(f)); await asegurarHuellas(); }
+      finally{ aviso.remove(); }
       const existentes = S.products.map(p=>p.huella).filter(Boolean);
       const repetidas = [];
       huellas.forEach((h, idx)=>{
@@ -484,6 +624,9 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
         }
       }
     }
+    // "Con fotos": también pasa por el organizador (cada foto empieza como un producto) para poder
+    // ver, mover, girar o juntar fotos antes de guardar. La IA lee cada foto al guardar.
+    if(!organizado){ $("progress").hidden = true; abrirOrganizadorFotos(files,{cadaFoto:true,agrupar:true,ia:!!(S.ai && $("aiToggle").checked),publicar:true,porDefecto:valoresPorDefecto()}); return; }
     S.fondoFallos = 0;
     const price = parsePrice($("defPrice").value), cat = $("defCat").value.trim(), marca = $("defMarca").value.trim(), stock = parseStock($("defStock").value), margen = parseMargen($("defMargen").value), condicion = $("defCond").value;
     const useAI = S.ai && $("aiToggle").checked;
@@ -714,12 +857,12 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       const cover = p.fotos && p.fotos[0];
       const st = p.estado||"disponible";
       const card = el("div",{class:"card "+st+(p.stock===0?" agotado":"")+(S.sel.has(p.id)?" sel":"")});
-      const grupoUnion=S.selecting?gruposUnion.propietario(p.id):null;
+      // Los grupos para juntar solo se ven en "Modo juntar"; al seleccionar para editar o borrar no aparecen.
+      const grupoUnion=S.selecting&&S.juntando?gruposUnion.propietario(p.id):null;
       if(grupoUnion){card.classList.add('en-grupo-union');card.style.setProperty('--grupo-color',gruposUnion.color(grupoUnion.id));card.append(el('span',{class:'grupo-etiqueta'},grupoUnion.nombre));}
       if(!p.unidoA) card.dataset.producto=p.id;
       if(S.canEdit && p.unidoA) card.append(el('span',{class:'union-etiqueta'},'Ya unido a otro producto'));
-      else if(S.canEdit && S.selecting && S.sel.has(p.id)) card.append(el('span',{class:'union-etiqueta'},'En el grupo · toca para quitar'));
-      if(S.canEdit && S.selecting){
+      if(S.canEdit && S.selecting && S.juntando){
         const asa=el('button',{class:'drag-asa',type:'button','aria-label':'Arrastrar '+nom(p)+' para juntar'},'⠿ Arrastrar para juntar');
         asa.disabled=!!p.unidoA || !!grupoUnion;
         asa.textContent=p.unidoA?'Ya unido':grupoUnion?grupoUnion.nombre:'⠿ Arrastrar para juntar';
@@ -736,7 +879,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
           toast(`${seleccion.size} productos preparados. Puedes agregar más o tocar Juntar.`);
         }});
       }
-      if(S.canEdit&&S.selecting&&grupoUnion){
+      if(S.canEdit&&S.selecting&&S.juntando&&grupoUnion){
         const mover=el('select',{'aria-label':'Grupo de '+nom(p)});
         gruposUnion.grupos.forEach(g=>mover.append(el('option',{value:g.id},g.nombre)));mover.value=grupoUnion.id;
         mover.onchange=()=>{S.sel=gruposUnion.activar(Number(mover.value));S.sel.add(p.id);S.sel=gruposUnion.asignar(S.sel);render();};card.append(mover);
@@ -776,26 +919,38 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   // ---------- Selección en bloque ----------
   function toggleSel(id){
     const p=S.products.find(x=>x.id===id);
+    if(!S.juntando){ S.sel.has(id)?S.sel.delete(id):S.sel.add(id); render(); return; }
     if(p?.unidoA){toast('Este producto ya está unido. Usa su producto principal.');return;}
     const anterior=gruposUnion.propietario(id);
     if(anterior&&anterior.id!==gruposUnion.activo){S.sel=gruposUnion.activar(anterior.id);render();return;}
     S.sel.has(id)?S.sel.delete(id):S.sel.add(id);S.sel=gruposUnion.asignar(S.sel); render();
   }
   function renderBulk(){
-    gruposUnion.asignar(S.sel);
+    if(S.juntando) gruposUnion.asignar(S.sel);
+    $("bulkJuntando").hidden = !S.juntando; $("bulkAcciones").hidden = !!S.juntando; $("bulkAll").hidden = !!S.juntando;
+    $("bulk").classList.toggle("juntando", !!S.juntando); $("grid").classList.toggle("seleccionando", !!S.selecting);
+    $("bulkAyuda").textContent = S.juntando ? "" : (S.sel.size ? "Ahora elige qué hacer con ellos:" : "Toca los productos que quieres cambiar y elige qué hacer.");
+    $("bulkAyuda").hidden = !!S.juntando;
     const leyenda=$('unionGrupos');leyenda.textContent='';
     gruposUnion.grupos.forEach(g=>leyenda.append(el('button',{class:'btn grupo-leyenda',type:'button',style:`--grupo-color:${gruposUnion.color(g.id)}`,'aria-pressed':String(g.id===gruposUnion.activo),onclick:()=>{S.sel=gruposUnion.activar(g.id);render();}},`${g.nombre} · ${g.ids.size} productos`)));
     pintarAsisSel();
     $("bulk").hidden = !S.selecting;
-    $("bulkCount").textContent = S.sel.size + (S.sel.size===1?" seleccionado":" seleccionados");
+    $("bulkCount").textContent = S.juntando ? `${S.sel.size} en el grupo` : S.sel.size + (S.sel.size===1?" seleccionado":" seleccionados");
     $("bulkJuntar").disabled = S.sel.size < 2;
     $("bulkJuntar").textContent = S.sel.size >= 2 ? `Juntar los ${S.sel.size} productos` : 'Juntar en un producto';
     $("bulkCancelarUnion").hidden = S.sel.size < 2;
     $("bulkApply").disabled = $("bulkDel").disabled = $("bulkAI").disabled = $("bulkShare").disabled = $("bulkMover").disabled = $("bulkUnshare").disabled = !S.sel.size;
   }
   $('unionNuevo').onclick=()=>{S.sel=gruposUnion.nuevo();render();};
-  $("selectBtn").onclick = ()=>{ S.selecting=true; gruposUnion.limpiar();S.sel.clear(); render(); $("bulk").scrollIntoView({block:"nearest"}); };
-  $("bulkDone").onclick = ()=>{ S.selecting=false;gruposUnion.limpiar(); S.sel.clear(); $("bulkConfirm").hidden=true; render(); };
+  function cerrarSecciones(){ document.querySelectorAll("#bulk details.bulk-seccion").forEach(d=>d.open=false); }
+  function salirJuntar(){ S.juntando=false; gruposUnion.limpiar(); S.sel.clear(); cerrarSecciones(); render(); }
+  $("selectBtn").onclick = ()=>{ S.selecting=true; S.juntando=false; gruposUnion.limpiar();S.sel.clear(); cerrarSecciones(); render(); $("bulk").scrollIntoView({block:"nearest"}); };
+  $("bulkDone").onclick = ()=>{ S.selecting=false; S.juntando=false; gruposUnion.limpiar(); S.sel.clear(); $("bulkConfirm").hidden=true; cerrarSecciones(); render(); };
+  // Juntar es un modo aparte: empieza sin nada marcado y se sale con "Salir de juntar".
+  $("bulkEntrarJuntar").onclick = ()=>{ S.juntando=true; gruposUnion.limpiar(); S.sel.clear(); $("bulkConfirm").hidden=true; render(); $("bulk").scrollIntoView({block:"nearest"}); toast("Toca las fichas que son el mismo producto"); };
+  $("bulkSalirJuntar").onclick = salirJuntar;
+  // Abrir una sección cierra las otras: así siempre queda claro qué se está haciendo.
+  document.querySelectorAll("#bulk details.bulk-seccion").forEach(d=>d.addEventListener("toggle",()=>{ if(d.open) document.querySelectorAll("#bulk details.bulk-seccion").forEach(o=>{ if(o!==d) o.open=false; }); }));
   $("bulkAll").onclick = ()=>{ const ids=filtered().filter(p=>!p.unidoA&&(!gruposUnion.propietario(p.id)||gruposUnion.propietario(p.id).id===gruposUnion.activo)).map(p=>p.id); const all=ids.every(id=>S.sel.has(id)); ids.forEach(id=>all?S.sel.delete(id):S.sel.add(id)); render(); };
   async function runPool(ids, fn){ let i=0, fails=0; await Promise.all(Array.from({length:Math.min(4,ids.length)},async()=>{ while(i<ids.length){ const id=ids[i++]; try{ await fn(id); }catch(e){ fails++; } } })); return fails; }
   $("bulkApply").onclick = async ()=>{
@@ -864,7 +1019,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const grupoId=gruposUnion.activo;
     if(!S.canEdit) return;
     const ids = [...S.sel], productos = ids.map(id=>S.products.find(p=>p.id===id)).filter(Boolean);
-    let principalId = ids[0], portada = null, ocupado = false;
+    let principalId = ids[0], portada = null, ocupado = false, seguro = productos.length <= 3;
     try { prepararUnion(productos, principalId); } catch(e) { toast(e.message); return; }
     const firma = JSON.stringify(productos);
     const ov = $("planOverlay"); ov.hidden=false; delete ov.dataset.dict; delete ov.dataset.conf;
@@ -904,17 +1059,22 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
           if(principalLocal) principalLocal.unidosDesde=unidosDesde;
           const eliminados=new Set(plan.secundarios.filter(p=>!resultado.fallidos.includes(p.id)).map(p=>p.id));
           S.products=S.products.filter(p=>!eliminados.has(p.id));
-          ocupado=false; cerrar();S.sel=gruposUnion.quitarGrupo(grupoId); S.selecting=gruposUnion.grupos.some(g=>g.ids.size);render();
+          ocupado=false; cerrar();S.sel=gruposUnion.quitarGrupo(grupoId); if(!gruposUnion.grupos.some(g=>g.ids.size)){ S.juntando=false; S.selecting=false; S.sel.clear(); } render();
           if(resultado.fallidos.length) toast(`Las fotos quedaron juntas, pero ${resultado.fallidos.length} ficha(s) secundaria(s) no se pudieron eliminar. Puedes borrarlas sin volver a unir sus fotos.`);
           else toast(`Listo: queda un solo producto con ${plan.fotos.length} fotos.`);
           openProduct(plan.principal.id);
         } catch(e) { ocupado=false; pintar(); toast("No se pudo completar la unión. Revisa el producto principal antes de reintentar. "+errText(e)); }
-      }},ocupado?"Juntando fotos…":"Confirmar unión");
+      }},ocupado?"Juntando fotos…":`Juntar ${productos.length} fichas en una`);
+      confirmar.disabled = ocupado || !seguro;
+      // Las fichas que se van a juntar, con su foto, para ver que de verdad son el mismo producto.
+      const fichas = el("div",{class:"union-fichas"}, ...productos.map(p=>el("div",{class:"union-ficha"}, p.fotos&&p.fotos[0] ? el("img",{src:src(p.fotos[0].thumb||p.fotos[0].full),alt:""}) : el("span"), el("span",null, `${codigoDe(p)||""} ${p.nombre||""}`.trim()))));
+      const check = productos.length > 3 ? el("label",{class:"union-seguro"}, el("input",{type:"checkbox",checked:seguro?"":false,disabled:ocupado,onchange:e=>{ seguro=e.target.checked; confirmar.disabled = ocupado || !seguro; }}), ` Sí, estas ${productos.length} fichas son el mismo producto`) : null;
       ov.append(el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":"Juntar en un producto",style:"width:min(680px,100%)"},
         el("div",{class:"cart-head"},el("h2",null,"Juntar en un producto"),el("button",{class:"btn",type:"button",disabled:ocupado,onclick:cerrar},"Cancelar")),
-        el("label",{class:"f"},"Conservar los datos de",selector),
-        el("p",{class:"note"},`Se conservarán el código, nombre, precio y cantidad de ${plan.principal.nombre}. Las cantidades no se suman. Después de guardar todas las fotos en el principal, se eliminarán las otras ${plan.secundarios.length} fichas. Esta eliminación no se puede deshacer.`),
-        el("strong",null,`${plan.fotos.length} fotos · Toca una para elegir la portada`),galeria,confirmar));
+        el("p",{class:"union-aviso"},`Vas a juntar ${productos.length} fichas en una sola. Las otras ${plan.secundarios.length} se borran y no se puede deshacer.`),
+        fichas,
+        el("label",{class:"f"},"Conservar el nombre, código y precio de",selector),
+        el("strong",null,`${plan.fotos.length} fotos · Toca una para elegir la portada`),galeria,check,confirmar));
     }
     pintar();
   }
@@ -930,7 +1090,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
 
   // ---------- Revisión del lote en tabla ----------
   // Una fila por producto: se edita todo de corrido (Tab / Enter) y se guarda junto.
-  let loteIds = [], loteSucio = new Set();
+  let loteIds = [], loteSucio = new Set(), loteGuardadoAlgo = false, loteCapa = null;
   const COLS_LOTE = [
     { k:"nombre", label:"Nombre", cls:"c-nombre", tipo:"text", max:120 },
     { k:"marca", label:"Marca", cls:"c-marca w-marca", tipo:"text", max:40, list:"marcaList" },
@@ -944,15 +1104,32 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     return v==null ? "" : String(v);
   }
   function abrirLote(ids, origen){
-    loteIds = ids.filter(id=>S.products.some(p=>p.id===id)); loteSucio = new Set();
+    loteIds = ids.filter(id=>S.products.some(p=>p.id===id)); loteSucio = new Set(); loteGuardadoAlgo = false;
     const box = $("lote"); box.textContent = "";
     if(!loteIds.length){ box.hidden = true; return; }
     const titulo = origen==="subida" ? `Revisa tu lote (${loteIds.length} producto${loteIds.length===1?"":"s"})` : `Editar ${loteIds.length} producto${loteIds.length===1?"":"s"}`;
-    const guardar = el("button",{class:"btn primary",type:"button",id:"loteGuardar",onclick:guardarLote},"Guardar todo");
+    // Botón principal: guarda si hay cambios; si no, termina la revisión (no hay que subir a buscar "Cerrar").
+    const guardar = el("button",{class:"btn primary",type:"button",id:"loteGuardar",onclick:()=>{ if(loteSucio.size) guardarLote(); else cerrarLote(); }},"Listo");
     const cerrar = el("button",{class:"btn",type:"button",onclick:cerrarLote},"Cerrar");
     box.append(el("div",{class:"lote-head"},
-      el("h2",{id:"loteTitulo"}, titulo), el("button",{class:"btn",type:"button",onclick:buscarRepetidos},"Buscar repetidos"), cerrar, guardar,
-      el("p",{class:"note"}, origen==="subida" ? "La IA ya llenó lo que pudo. Completa o corrige el precio, la marca y la descripción, y toca Guardar todo. Enter baja a la siguiente fila." : "Edita varios productos de corrido. Enter baja a la siguiente fila.")));
+      el("h2",{id:"loteTitulo"}, titulo), el("button",{class:"btn lote-repetidos",type:"button",onclick:buscarRepetidos},"Buscar repetidos"), cerrar,
+      el("p",{class:"note"}, origen==="subida" ? "La IA llenó lo que pudo. Revisa sobre todo el precio, la marca y la descripción." : "Cambia lo que necesites y guarda al final.",
+        el("span",{class:"solo-pc"}," Enter baja a la siguiente fila."))));
+    // Mismo precio para varios: lo escribe una vez y se copia a todos los productos del lote.
+    if(loteIds.length > 1){
+      const colPrecio = COLS_LOTE.findIndex(c=>c.tipo==="precio");
+      const pp = el("input",{type:"text",inputmode:"decimal",placeholder:"Ej. 120","aria-label":"Precio para todos",class:"lote-todos-input"});
+      const poner = ()=>{
+        const v = parsePrice(pp.value); if(v==null){ toast("Escribe un precio"); pp.focus(); return; }
+        let n = 0;
+        box.querySelectorAll(`[data-col="${colPrecio}"]`).forEach(inp=>{ if(inp.value.trim() !== pp.value.trim()){ inp.value = pp.value.trim(); inp.dispatchEvent(new Event("input")); n++; } });
+        toast(n ? `Precio ${money(v)} puesto en ${n} producto${n===1?"":"s"}. Revisa y toca Guardar cambios.` : "Ya tenían ese precio");
+        pp.value = ""; pp.blur();
+      };
+      pp.addEventListener("keydown", e=>{ if(e.key==="Enter"){ e.preventDefault(); poner(); } });
+      box.append(el("div",{class:"lote-todos"}, el("span",null,"¿Todos al mismo precio? ", el("b",null, simbolo())), pp,
+        el("button",{class:"btn",type:"button",onclick:poner},"Poner a todos")));
+    }
     const tb = el("tbody");
     loteIds.forEach((id, fila)=>{
       const p = S.products.find(x=>x.id===id);
@@ -965,7 +1142,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         if(c.tipo==="area"){ inp = el("textarea",{...attrs, rows:"2", maxlength:"600", placeholder:"Talla, color, estado, si es original…"}); inp.value = valorLote(p,c); }
         else inp = el("input",{...attrs, maxlength: c.max ? String(c.max) : "12", inputmode: c.tipo==="precio" ? "decimal" : c.tipo==="stock" ? "numeric" : false, list: c.list || false,
           placeholder: c.tipo==="precio" ? "Consultar" : c.tipo==="stock" ? "—" : "", title: c.tipo==="stock" ? "Vacío = sin control de cantidad" : false});
-        inp.addEventListener("input", ()=>{ loteSucio.add(id); tr.classList.add("cambiado"); if(c.tipo==="precio") pintarHint(); });
+        inp.addEventListener("input", ()=>{ loteSucio.add(id); tr.classList.add("cambiado"); if(c.tipo==="precio") pintarHint(); pintarPieLote(); });
         inp.addEventListener("keydown", e=>{
           if(e.key==="Enter" && !(c.tipo==="area" && e.shiftKey)){
             e.preventDefault();
@@ -989,7 +1166,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         tr.append(td);
       });
       const acc = el("td",{class:"c-acc"});
-      const btnBorrar = el("button",{class:"btn danger",type:"button","aria-label":`Borrar ${p.nombre||"producto"}`},"Borrar");
+      const btnBorrar = el("button",{class:"btn danger lote-borrar",type:"button","aria-label":`Borrar ${p.nombre||"producto"}`},"🗑 Borrar");
       btnBorrar.onclick = ()=>{
         acc.textContent = "";
         acc.append(el("div",{class:"borrar-si"}, "¿Borrar?",
@@ -1005,14 +1182,36 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     });
     box.append(el("div",{class:"tablewrap"}, el("table",null,
       el("thead",null, el("tr",null, el("th",null,"Foto"), ...COLS_LOTE.map(c=>el("th",null,c.label)), el("th",null,""))), tb)));
+    // Barra fija abajo: lo que falta guardar y el botón principal, siempre a la vista.
+    box.append(el("div",{class:"lote-pie"}, el("span",{id:"loteEstado",class:"lote-estado","aria-live":"polite"}),
+      el("div",{class:"lote-pie-botones"}, el("button",{class:"btn",type:"button",id:"loteCerrarPie",onclick:cerrarLote},"Cerrar"), guardar)));
+    pintarPieLote();
+    document.body.classList.add("lote-abierto");
+    // Botón atrás del celular: cierra la revisión; si hay cambios sin guardar, pregunta abajo.
+    if(!loteCapa){
+      loteCapa = abrirCapa(()=>{ if(loteSucio.size){ cerrarLote(); $("loteGuardar")?.scrollIntoView({block:"end"}); return false; } loteCapa = null; cerrarLote(); return true; });
+      loteCapa.pendiente = ()=>loteSucio.size>0;
+    }
     box.hidden = false;
     box.scrollIntoView({block:"start", behavior:"smooth"});
+    // Celular: mientras se escribe, la barra de abajo se esconde para que el teclado no la deje cortada.
+    if(!box.dataset.escucha){ box.dataset.escucha = "1";
+    box.addEventListener("focusin", e=>{ if(e.target.matches("input,textarea")) document.body.classList.add("lote-escribiendo"); });
+    box.addEventListener("focusout", ()=>setTimeout(()=>{ if(!box.contains(document.activeElement) || !document.activeElement.matches("input,textarea")) document.body.classList.remove("lote-escribiendo"); }, 0)); }
     const primero = box.querySelector('[data-fila="0"][data-col="1"]') || box.querySelector("input");
     if(primero) setTimeout(()=>primero.focus({preventScroll:true}), 350);
   }
+  function pintarPieLote(){
+    const e = $("loteEstado"), b = $("loteGuardar"); if(!e || !b) return;
+    const n = loteSucio.size;
+    e.textContent = n ? `${n} producto${n===1?"":"s"} con cambios sin guardar` : (loteGuardadoAlgo ? "✓ Todo guardado" : "Revisa y corrige lo que haga falta");
+    e.classList.toggle("pendiente", n>0); e.classList.toggle("ok", !n && loteGuardadoAlgo);
+    if(!b.disabled) b.textContent = n ? `Guardar cambios (${n})` : "Listo, cerrar";
+    const c = $("loteCerrarPie"); if(c) c.hidden = !n;
+  }
   function quitarFilaLote(id){
     const tr = document.querySelector(`#lote tr[data-id="${id}"]`); if(!tr) return;
-    tr.remove(); loteIds = loteIds.filter(x=>x!==id); loteSucio.delete(id);
+    tr.remove(); loteIds = loteIds.filter(x=>x!==id); loteSucio.delete(id); pintarPieLote();
     if(!loteIds.length){ cerrarLote(); return; }
     const t = $("loteTitulo"); if(t) t.textContent = t.textContent.replace(/\(\d+ producto(s)?\)|\d+ producto(s)?/, m=> m.startsWith("(") ? `(${loteIds.length} producto${loteIds.length===1?"":"s"})` : `${loteIds.length} producto${loteIds.length===1?"":"s"}`);
   }
@@ -1031,21 +1230,22 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       }
       return S.db.doc("productos/"+id).update(patch);
     });
-    btn.disabled = false; btn.textContent = "Guardar todo";
+    btn.disabled = false; pintarPieLote();
     if(fails){ toast(`Se guardaron ${ids.length-fails}; ${fails} no se pudieron guardar. Intenta de nuevo.`); return; }
-    loteSucio.clear(); box.querySelectorAll("tr.cambiado").forEach(tr=>tr.classList.remove("cambiado"));
+    loteSucio.clear(); loteGuardadoAlgo = true; box.querySelectorAll("tr.cambiado").forEach(tr=>tr.classList.remove("cambiado")); pintarPieLote();
     toast(`${ids.length} producto${ids.length===1?"":"s"} guardado${ids.length===1?"":"s"}`);
   }
   function cerrarLote(){
     const box = $("lote");
     if(loteSucio.size && !box.querySelector(".lote-aviso")){
-      box.querySelector(".lote-head").append(el("div",{class:"lote-aviso",role:"alert"},
-        `Tienes ${loteSucio.size} producto(s) con cambios sin guardar.`,
+      box.querySelector(".lote-pie").prepend(el("div",{class:"lote-aviso",role:"alert"},
+        el("span",{style:"flex-basis:100%"}, `Tienes ${loteSucio.size===1?'1 producto':loteSucio.size+' productos'} con cambios sin guardar. ¿Qué hago?`),
         el("button",{class:"btn primary",type:"button",onclick:async()=>{ await guardarLote(); if(!loteSucio.size) cerrarLote(); }},"Guardar y cerrar"),
         el("button",{class:"btn",type:"button",onclick:()=>{ loteSucio.clear(); cerrarLote(); }},"Descartar")));
       return;
     }
-    box.hidden = true; box.textContent = ""; loteIds = [];
+    box.hidden = true; box.textContent = ""; loteIds = []; document.body.classList.remove("lote-abierto", "lote-escribiendo");
+    if(loteCapa){ const c = loteCapa; loteCapa = null; c.cerrar(); }
   }
 
   // ---------- Detalle / edición ----------
@@ -1054,6 +1254,24 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   function closeSheet(){ openId=null; $("overlay").hidden=true; $("overlay").textContent=""; if(!$("cli").hidden) pintarCli(); }
   $("overlay").addEventListener("click", e=>{ if(e.target.id==="overlay") (cartOpen||cuentaOpen?closeCart:closeSheet)(); });
   document.addEventListener("keydown", e=>{ if(e.key==="Escape"){ if(cartOpen||cuentaOpen) closeCart(); else if(openId) closeSheet(); } });
+  async function separarFotos(p, b){
+    { const u = usoPlan(); if(u && u.libres!=null && u.libres < p.fotos.length-1){ toast("Tu plan no tiene espacio para tantos productos nuevos"); return; } }
+    b.disabled = true; b.textContent = "Separando…";
+    const fotos = (S.products.find(x=>x.id===p.id)||p).fotos.slice(), [portada, ...resto] = fotos, nuevos = [];
+    try{
+      for(const f of resto){
+        let v = {};
+        try{ const r = await ai.json('',{images:[f.thumb||f.full],idioma:esUS()?'en':'es',rubro:rubroActual()}); v = (Array.isArray(r)&&r[0])||{}; }catch(e){}
+        const ref = S.db.collection("productos").doc();
+        const datos = { nombre:v.nombre||"Producto nuevo", marca:v.marca||p.marca||"", ...(v.tipo?{tipo:v.tipo}:{}), categoria:v.categoria||p.categoria||"", publico:v.publico||p.publico||"", descripcion:v.descripcion||"", condicion:v.condicion||p.condicion||"", precio:p.precio??null, stock:1, estado:p.estado||"disponible", fotos:[f], creado:Date.now() };
+        await ref.set(datos); nuevos.push(ref.id);
+        if(!S.products.some(x=>x.id===ref.id)) S.products.push({id:ref.id,...datos});
+      }
+      await S.db.doc("productos/"+p.id).update({ fotos:[portada], huella:"" });
+      closeSheet(); render(); toast(`Listo: ${nuevos.length+1} productos separados. Revisa sus datos.`);
+      abrirLote([p.id, ...nuevos], "subida");
+    }catch(e){ toast("No se pudo separar: "+errText(e)+(nuevos.length?` (${nuevos.length} ya se crearon)`:"")); b.disabled=false; b.textContent="✂️ Separar fotos en productos"; }
+  }
   function drawSheet(){
     const p = S.products.find(x=>x.id===openId); const ov=$("overlay");
     if(!p){ closeSheet(); return; }
@@ -1062,7 +1280,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const editaFotos = S.canEdit && !esCopia(p);   // las fotos de un producto de confianza las maneja la otra tienda
     ov.textContent="";
     const gal = el("div",{class:"gal"});
-    if(fotos[photoIdx]) gal.append(el("img",{class:"main",src:src(fotos[photoIdx].full),alt:nom(p)}));
+    // Mientras carga la foto grande se ve la miniatura (ya está en caché), en vez de un recuadro en blanco.
+    if(fotos[photoIdx]) gal.append(el("img",{class:"main",src:src(fotos[photoIdx].full),alt:nom(p),style:`background:#f1f3f5 url("${src(fotos[photoIdx].thumb||fotos[photoIdx].full)}") center/contain no-repeat`}));
     const th = el("div",{class:"thumbs"});
     fotos.forEach((f,i)=>{
       const t = el("button",{class:"t"+(i===photoIdx?" on":""),type:"button","aria-label":tx("Foto ","Photo ")+(i+1),onclick:()=>{photoIdx=i;drawSheet();}}, el("img",{src:src(f.thumb||f.full),alt:""}));
@@ -1072,6 +1291,44 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       th.append(t);
     });
     if(fotos.length>1 || editaFotos) gal.append(th);
+    // Girar la foto que se está viendo (90° a la derecha cada toque) y guardarla así.
+    if(editaFotos && fotos[photoIdx]) gal.append(el("button",{class:"btn",type:"button",id:"girarFoto",onclick:async ev=>{
+      const b = ev.currentTarget; if(b.disabled) return; b.disabled = true; b.textContent = "Girando…";
+      const idx = photoIdx, vieja = fotos[idx];
+      try{
+        const blob = await girarImagen(src(vieja.full));
+        const nueva = await processPhoto(new File([blob],"girada.jpg",{type:"image/jpeg"}), "original"); delete nueva._blob;
+        const cur = ((S.products.find(x=>x.id===p.id)||p).fotos||[]).slice(); const k = cur.findIndex(f=>f.full===vieja.full);
+        if(k<0) throw new Error("la foto cambió");
+        cur[k] = nueva; await S.db.doc("productos/"+p.id).update({fotos:cur, huella:""}); deletePhotos([vieja]); toast("Foto girada");
+      }catch(e){ toast("No se pudo girar: "+errText(e)); b.disabled = false; b.textContent = "↻ Girar foto"; }
+    }},"↻ Girar foto"));
+    // Fondo blanco gratis (en el celular) para la foto que se está viendo.
+    if(editaFotos && fotos[photoIdx]) gal.append(el("button",{class:"btn",type:"button",id:"fondoFoto",onclick:async ev=>{
+      const b = ev.currentTarget; if(b.disabled) return; b.disabled = true;
+      const idx = photoIdx, vieja = fotos[idx];
+      try{
+        const r = await ponerFondoBlanco(src(vieja.full), t=>{ b.textContent = t; });
+        const ops = [r.conCaja && {titulo:"Con su caja", url:URL.createObjectURL(r.conCaja), valor:"caja"}, r.soloProducto && {titulo:"Solo el producto", url:URL.createObjectURL(r.soloProducto), valor:"solo"}].filter(Boolean);
+        b.textContent = "⬜ Fondo blanco"; b.disabled = false;
+        const elegido = await compararFondo(src(vieja.full), ops);
+        ops.forEach(o=>URL.revokeObjectURL(o.url));
+        if(!elegido) return;
+        const blob = elegido==="caja" ? r.conCaja : r.soloProducto;
+        b.disabled = true; b.textContent = "Guardando…";
+        const nueva = await processPhoto(new File([blob],"fondo.jpg",{type:"image/jpeg"}), "original"); delete nueva._blob;
+        const cur = ((S.products.find(x=>x.id===p.id)||p).fotos||[]).slice(); const k = cur.findIndex(f=>f.full===vieja.full);
+        if(k<0) throw new Error("la foto cambió");
+        cur[k] = nueva; await S.db.doc("productos/"+p.id).update({fotos:cur, huella:""}); deletePhotos([vieja]); toast("Foto con fondo blanco");
+      }catch(e){ toast("No se pudo poner el fondo blanco: "+((e&&e.message)||errText(e))); }
+      finally{ if(b.isConnected){ b.disabled = false; b.textContent = "⬜ Fondo blanco"; } }
+    }},"⬜ Fondo blanco"));
+    // Separar: cada foto (menos la portada) pasa a ser su propio producto. Sirve para deshacer una unión hecha por error.
+    if(editaFotos && fotos.length>1) gal.append(el("button",{class:"btn",type:"button",id:"separarFotos",onclick:ev=>{
+      const b = ev.currentTarget;
+      if(!b.dataset.seguro){ b.dataset.seguro="1"; b.textContent = `¿Separar en ${fotos.length} productos? Toca otra vez`; b.classList.add("danger"); setTimeout(()=>{ if(b.isConnected){ delete b.dataset.seguro; b.textContent="✂️ Separar fotos en productos"; b.classList.remove("danger"); } }, 5000); return; }
+      separarFotos(p, b);
+    }},"✂️ Separar fotos en productos"));
     if(editaFotos && photoIdx>0) gal.append(el("button",{class:"btn",type:"button",onclick:async()=>{ const nf=[fotos[photoIdx],...fotos.filter((_,j)=>j!==photoIdx)]; await S.db.doc("productos/"+p.id).update({fotos:nf}); photoIdx=0; toast("Portada cambiada"); }},"Usar como portada"));
     if(editaFotos){
       const add = el("input",{type:"file",accept:"image/*",multiple:"",hidden:"",id:"addPh"});
@@ -1115,7 +1372,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       side.append(el("div",{class:"actions"},
         el("button",{class:"btn danger",type:"button",onclick:()=>{conf.hidden=false;}},"Borrar"),
         el("div",{style:"display:flex;gap:8px"}, el("button",{class:"btn",type:"button",onclick:closeSheet},"Cerrar"),
-          el("button",{class:"btn primary",type:"button",onclick:async()=>{ const patch={ nombre:$("eName").value.trim()||"Producto nuevo", marca:$("eMarca").value.trim(), stock:parseStock($("eStock").value), costo:parsePrice($("eCosto").value), talla:$("eTalla").value.trim(), condicion:$("eCond").value, precio:parsePrice($("ePrice").value), estado:$("eStatus").value, tipo:$("eTipo").value, categoria:$("eCat").value.trim(), publico:$("ePub").value, descripcion:$("eDesc").value.trim(), compartido:$("eShare").checked, precioReventa:parsePrice($("ePrecioRev").value) }; if(patch.compartido && patch.precioReventa==null){ if(patch.precio==null){ toast("Para compartirlo, ponle un precio para revendedoras"); return; } patch.precioReventa = patch.precio; } try{ await S.db.doc("productos/"+p.id).update(patch); toast("Guardado"); closeSheet(); }catch(e){ toast("No se pudo guardar. Revisa tu conexión e intenta de nuevo."); } }},"Guardar"))
+          el("button",{class:"btn primary",type:"button",onclick:async()=>{ const patch={ nombre:$("eName").value.trim()||"Producto nuevo", marca:$("eMarca").value.trim(), stock:parseStock($("eStock").value), costo:parsePrice($("eCosto").value), talla:$("eTalla").value.trim(), condicion:$("eCond").value, precio:parsePrice($("ePrice").value), estado:$("eStatus").value, tipo:$("eTipo").value, categoria:$("eCat").value.trim(), publico:$("ePub").value, descripcion:$("eDesc").value.trim(), compartido:$("eShare").checked, precioReventa:parsePrice($("ePrecioRev").value) }; if(patch.compartido && patch.precioReventa==null){ if(patch.precio==null){ toast("Para compartirlo, ponle un precio para revendedoras"); return; } patch.precioReventa = patch.precio; } const recienCompartido = patch.compartido && !p.compartido; try{ await S.db.doc("productos/"+p.id).update(patch); toast("Guardado"); closeSheet(); if(recienCompartido) confianza("avisar",{ n:1 }).catch(e=>console.warn("Aviso por correo", e)); }catch(e){ toast("No se pudo guardar. Revisa tu conexión e intenta de nuevo."); } }},"Guardar"))
       ), conf);
     } else {
       const st=p.estado||"disponible";
@@ -1720,7 +1977,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       : n==="ExpiredCodeException" ? ti("El código venció. Toca \"Reenviar código\".","The code expired. Tap \"Resend code\".")
       : n==="UserNotConfirmedException" ? ti("Falta verificar tu correo.","You still need to verify your email.")
       : n==="LimitExceededException"||n==="TooManyRequestsException" ? ti("Hiciste muchos intentos seguidos. Espera unos minutos y vuelve a intentar.","Too many attempts. Wait a few minutes and try again.")
-      : n==="InvalidParameterException" && paso==="olvido" ? "Esa cuenta todavía no verificó su correo o entra con Google: no se puede recuperar la contraseña así."
+      : n==="InvalidParameterException" && paso==="olvido" ? "Esta cuenta entra con Google y no tiene contraseña. Toca Cancelar y luego \"Continuar con Google\"."
       : ((err && err.message) || ti("No se pudo completar. Intenta de nuevo.","Something went wrong. Please try again.")); };
   async function trasLogin(r){
     if(r.isSignedIn){ location.href = location.pathname; return; }
@@ -2507,8 +2764,30 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     { const inv = c ? c.relaciones.filter(r=>r.estado==="pendiente" && !r.invitaYo).length : 0, venc = c ? separadosMios().filter(vencido).length + misSeparados().filter(vencido).length : 0; marcarTab("confianza", inv + venc, urgente); }
     $("confBtn").className = "btn" + (urgente ? " tag" : "");
     const hayInv = !!(c && c.relaciones.some(r=>r.estado==="pendiente" && !r.invitaYo));
-    $("confBtn").textContent = hayInv ? "Ver invitación" : urgente ? "Revisar" : "Abrir";
-    $("confBtn").onclick = ()=>abrirConfianza(hayInv ? "tiendas" : urgente ? "cuentas" : null);
+    const nuevosRev = c ? c.compartidos.filter(x=>!x.yaAgregado).length : 0;
+    // El botón dice qué va a pasar (antes decía solo "Abrir" y no se entendía que ahí estaban los productos).
+    $("confBtn").textContent = hayInv ? "Ver invitación" : urgente ? "Revisar" : nuevosRev ? `Ver ${nuevosRev} para revender` : (c && c.relaciones.some(r=>r.estado==="aceptada")) ? "Ver mis tiendas" : "Invitar tiendas";
+    if(nuevosRev && !hayInv && !urgente) $("confBtn").className = "btn primary";
+    $("confBtn").onclick = ()=>abrirConfianza(hayInv ? "tiendas" : urgente ? "cuentas" : nuevosRev ? "revender" : "tiendas");
+    pintarAvisoCompartidos();
+  }
+  // En Productos: aviso con las fotos de lo que te compartieron y un botón para agregarlos.
+  function pintarAvisoCompartidos(){
+    const box = $("compAviso"); if(!box) return;
+    const c = S.conf, lista = c && S.canEdit ? c.compartidos.filter(x=>!x.yaAgregado) : [];
+    let oculto = ""; try{ oculto = localStorage.getItem("vitrina-comp-visto-"+(S.config&&S.config.id||"")) || ""; }catch(e){}
+    const firma = lista.map(x=>x.id).sort().join(",");
+    box.textContent = ""; box.hidden = !lista.length || firma === oculto;
+    if(box.hidden) return;
+    const tiendas = [...new Set(lista.map(x=>x.tiendaNombre).filter(Boolean))];
+    const quien = tiendas.length===1 ? tiendas[0] : `${tiendas.length} tiendas de confianza`;
+    const fotos = el("div",{class:"comp-fotos"}, ...lista.slice(0,4).map(x=>{ const f = x.fotosThumb && x.fotosThumb[0]; return f ? el("img",{src:src(f),alt:"",loading:"lazy"}) : el("span",{class:"noimg"}); }), lista.length>4 ? el("span",{class:"comp-mas"},"+"+(lista.length-4)) : null);
+    box.append(el("div",{class:"comp-txt"}, el("strong",null, `🤝 ${quien} ${tiendas.length===1?"te compartió":"te compartieron"} ${lista.length===1?"1 producto":lista.length+" productos"}`),
+        el("span",null,"Puedes venderlos en tu tienda como tuyos, con tu precio. Elige cuáles quieres.")),
+      fotos,
+      el("div",{class:"comp-botones"},
+        el("button",{class:"btn primary",type:"button",onclick:()=>abrirConfianza("revender")},"Ver y agregar a mi tienda"),
+        el("button",{class:"btn",type:"button",onclick:()=>{ try{ localStorage.setItem("vitrina-comp-visto-"+(S.config&&S.config.id||""), firma); }catch(e){} box.hidden = true; }},"Ahora no")));
   }
   let confTab = "tiendas";
   const confAbierto = () => !$("planOverlay").hidden && $("planOverlay").dataset.conf === "1";
@@ -2536,14 +2815,39 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     card.append(sec); ov.append(card);
   }
   function tabTiendas(sec, c){
-    const inp = el("input",{placeholder:"Enlace de su tienda, ej. lucia-store",autocapitalize:"off",spellcheck:"false","aria-label":"Enlace de la tienda que quieres invitar",style:"flex:1;min-width:180px"});
-    const b = el("button",{class:"btn primary",type:"button"},"Invitar");
-    b.onclick = ()=>{ const slug = inp.value.trim(); if(!slug){ toast("Escribe el enlace de su tienda"); inp.focus(); return; } accionConf(b,"invitar",{slug}, r=>r && r.estado==="aceptada" ? "¡Listo! Ya son tiendas de confianza" : "Invitación enviada. Le avisamos por correo."); };
-    inp.onkeydown = e=>{ if(e.key==="Enter"){ e.preventDefault(); b.click(); } };
+    // Buscar la tienda por su nombre o su código (también se puede pegar el enlace completo).
+    const inp = el("input",{type:"search",placeholder:"Nombre o código de su tienda",autocapitalize:"off",spellcheck:"false","aria-label":"Buscar la tienda que quieres invitar",class:"conf-buscar"});
+    const res = el("div",{class:"conf-resultados","aria-live":"polite"});
+    let reloj = null, ultima = "";
+    const invitar = (slug, btn)=>accionConf(btn,"invitar",{slug}, r=>r && r.estado==="aceptada" ? "¡Listo! Ya son tiendas de confianza" : "Invitación enviada. Le avisamos por correo.");
+    const buscar = async ()=>{
+      const q = inp.value.trim(); ultima = q; res.textContent = "";
+      if(q.length < 2) return;
+      // Enlace pegado: se invita directo, sin buscar.
+      if(/showroomcito\.com|[?&]tienda=/i.test(q)){ const b = el("button",{class:"btn primary",type:"button"},"Invitar esta tienda"); b.onclick = ()=>invitar(q, b); res.append(el("div",{class:"conf-tienda"}, el("span",null,"Enlace pegado"), b)); return; }
+      res.append(el("p",{class:"note",style:"margin:0"},"Buscando…"));
+      try{
+        const r = await confianza("buscar",{q}); if(ultima !== q) return;
+        res.textContent = "";
+        const lista = (r && r.tiendas) || [];
+        if(!lista.length){ res.append(el("p",{class:"note",style:"margin:0"},`No encontramos tiendas con "${q}". Pídele el código de su tienda: es lo que va al final de su enlace (por ejemplo, maria-importados).`)); return; }
+        for(const t of lista){
+          const ya = c.relaciones.find(x=>x.tienda===t.slug);
+          const b = el("button",{class:"btn primary",type:"button",disabled:!!ya}, ya ? (ya.estado==="aceptada" ? "Ya conectadas" : ya.invitaYo ? "Invitación enviada" : "Te invitó: acepta abajo") : "Invitar");
+          b.onclick = ()=>invitar(t.slug, b);
+          res.append(el("div",{class:"conf-tienda"},
+            t.portada ? el("img",{src:src(t.portada),alt:""}) : el("span",{class:"conf-tienda-ini","aria-hidden":"true"}, String(t.nombre||"?").charAt(0).toUpperCase()),
+            el("div",null, el("strong",null,t.nombre), el("span",{class:"note",style:"margin:0"}, "Código: "+t.slug)), b));
+        }
+      }catch(e){ if(ultima===q){ res.textContent=""; res.append(el("p",{class:"note",style:"margin:0"}, msgConf(e))); } }
+    };
+    inp.oninput = ()=>{ clearTimeout(reloj); reloj = setTimeout(buscar, 400); };
+    inp.onkeydown = e=>{ if(e.key==="Enter"){ e.preventDefault(); clearTimeout(reloj); buscar(); } };
     sec.append(
       el("p",{class:"note",style:"margin:0"},"Conéctate con vendedoras en quienes confías. Cada una elige qué productos comparte, y la otra los puede vender en su tienda como suyos, con su propio precio. Sus clientes nunca ven de qué tienda vienen."),
-      el("div",{style:"display:flex;gap:8px;flex-wrap:wrap"}, inp, b),
-      el("span",{class:"note",style:"margin:0"},"Pídele el enlace de su tienda (lo que va después de ?tienda=). Solo entre tiendas que usan la misma moneda."));
+      el("strong",null,"Invitar a una tienda"),
+      inp, res,
+      el("span",{class:"note",style:"margin:0"},`Escribe el nombre de su tienda o su código. El código de tu tienda es ${S.config&&S.config.id||""}: compártelo para que te encuentren. Solo entre tiendas que usan la misma moneda.`));
     if(!c.relaciones.length) sec.append(el("p",{class:"note",style:"margin:0"},"Todavía no tienes tiendas de confianza."));
     const grupos = [["Te invitaron", r=>r.estado==="pendiente" && !r.invitaYo],["Tus tiendas de confianza", r=>r.estado==="aceptada"],["Invitaciones que enviaste", r=>r.estado==="pendiente" && r.invitaYo]];
     for(const [titulo, f] of grupos){
@@ -2606,7 +2910,11 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       const r = await accionConf(add,"agregar",{ ids:[...elegidos], margen: parseMargen(margen.value) ?? 0 }, r=>r && r.creados ? `${r.creados} producto(s) agregados a tu tienda` : "No se agregó ninguno: ya no están disponibles");
       if(r) refrescarProductos();
     };
-    sec.append(el("p",{class:"note",style:"margin:0"},"Elige qué productos quieres vender en tu tienda. Tus clientes los verán como tuyos, con tu WhatsApp y tus formas de pago. Cuando vendas uno, le pagas a la otra tienda lo que te cuesta."),
+    sec.append(el("ol",{class:"rv-pasos"},
+        el("li",null, el("b",null,"Marca"), " los productos que quieres vender."),
+        el("li",null, "Pon ", el("b",null,"tu ganancia"), " (se suma a lo que te cuesta)."),
+        el("li",null, "Toca ", el("b",null,"Agregar a mi tienda"), ". Aparecen en tus Productos con la etiqueta \"De …\" y tus clientes los ven como tuyos.")),
+      el("p",{class:"note",style:"margin:0"},"Cuando vendas uno, le pagas a la otra tienda lo que te cuesta (lo ves en Cuentas)."),
       listEl,
       el("div",{class:"rv-foot"}, el("label",{class:"f"},"Tu ganancia %", margen), el("div",{style:"flex:1;min-width:160px"}, ej), todos, add));
     pie();
@@ -2662,6 +2970,14 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const ov=$("planOverlay"); ov.textContent=""; ov.hidden=false; delete ov.dataset.conf;
     const cerrar = ()=>{ ov.hidden=true; ov.textContent=""; };
     ov.onclick = e=>{ if(e.target===ov) cerrar(); };
+    // Sin tiendas de confianza todavía: primero hay que invitar a una (antes se compartía igual y el aviso llegaba después).
+    if(S.conf && !S.conf.relaciones.some(r=>r.estado==="aceptada")){
+      ov.append(el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":"Compartir con tiendas de confianza"},
+        el("div",{class:"cart-head"}, el("h2",null,"Primero invita a una tienda"), el("button",{class:"btn",type:"button",onclick:cerrar},"Cerrar")),
+        el("p",{style:"margin:0"}, "Compartir sirve para que otras vendedoras de confianza revendan tus productos. Todavía no tienes ninguna conectada."),
+        el("button",{class:"btn primary",type:"button",onclick:()=>{ cerrar(); abrirConfianza("tiendas"); }},"Buscar e invitar una tienda")));
+      return;
+    }
     const desc = el("input",{inputmode:"decimal",value:"15",style:"width:80px","aria-label":"Descuento para revendedoras en porcentaje"});
     const ej = el("span",{class:"note",style:"margin:0"});
     const conPrecio = propios.filter(p=>p.precio!=null);
@@ -2674,6 +2990,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       const fails = await runPool(conPrecio.map(p=>p.id), id=>{ const p=S.products.find(x=>x.id===id); return S.db.doc("productos/"+id).update({ compartido:true, precioReventa: redondeoRev(p.precio*(1-d/100)) }); });
       cerrar();
       toast(fails ? `${conPrecio.length-fails} compartidos; ${fails} fallaron` : `${conPrecio.length} producto(s) compartidos con tus tiendas de confianza`);
+      if(conPrecio.length-fails > 0) confianza("avisar",{ n: conPrecio.length-fails }).catch(e=>console.warn("Aviso por correo", e));
       if(S.conf && !S.conf.relaciones.some(r=>r.estado==="aceptada")) setTimeout(()=>toast("Aún no tienes tiendas de confianza: invítalas en Tiendas de confianza"), 3000);
     };
     ov.append(el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":"Compartir productos"},
@@ -2962,10 +3279,10 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
     const n = S.sel.size;
     if(n){
       box.append(el("b",null, `${n} producto${n===1?"":"s"} marcado${n===1?"":"s"}`), " · puedes decirle \"estos\"",
-        el("button",{type:"button",onclick:()=>{ S.selecting=false; S.sel.clear(); render(); }},"Quitar"));
+        el("button",{type:"button",onclick:()=>{ S.selecting=false; S.juntando=false; S.sel.clear(); render(); }},"Quitar"));
     } else {
       box.append("Para hablar de productos en particular, toca ",
-        el("button",{type:"button",onclick:()=>{ S.selecting=true; S.sel.clear(); render(); $("bulk").scrollIntoView({block:"nearest"}); }},"Editar varios"),
+        el("button",{type:"button",onclick:()=>{ S.selecting=true; S.juntando=false; S.sel.clear(); render(); $("bulk").scrollIntoView({block:"nearest"}); }},"Editar varios"),
         " y toca cada producto.");
     }
   }
@@ -2988,7 +3305,9 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
       if(!S.canEdit)return;
       const fotos=[...asisFotosPendientes];
       asisLog.push({role:'user',text:`${texto||'Crear productos a partir de estas fotos'} · ${fotos.length} fotos adjuntas`},
-        {role:'assistant',text:'Voy a preparar grupos con tus fotos. Revisa los grupos y sus datos antes de guardar. Los productos se crean ocultos; no busco en internet ni invento precio o stock.'});
+        {role:'assistant',text:/internet|\bweb\b|google|en l[ií]nea|busca|investiga/i.test(texto||'') && S.buscarInternet
+          ? 'Voy a preparar grupos con tus fotos. Primero leo cada foto y con esa marca y modelo busco la descripción en internet. Los productos se crean ocultos para que los revises; no invento precio ni stock.'
+          : 'Voy a preparar grupos con tus fotos. Revisa los grupos y sus datos antes de guardar. Los productos se crean ocultos; no invento precio ni stock. Si quieres que complete la descripción con internet, dímelo al enviar las fotos.'});
       limpiarAsisInput(texto);guardarAsis();pintarAsis();cerrarAsis();
       asisFotosPendientes=[];pintarAdjuntosAsis();
       abrirOrganizadorFotos(fotos,{asistente:true,texto});return;
@@ -3027,7 +3346,11 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
   // Las tablas Markdown (| a | b |) se muestran como tabla, igual que la tarjeta de cambios.
   function negritas(t){
     const out = [];
-    String(t).replace(/<br\s*\/?>/gi, "\n").split(/\*\*(.+?)\*\*/s).forEach((parte, i)=>{ if(parte) out.push(i % 2 ? el("strong",{}, parte) : document.createTextNode(parte)); });
+    // Enlaces (las fuentes de las búsquedas en internet) se abren en otra pestaña.
+    const conEnlaces = txt => String(txt).split(/(https?:\/\/[^\s<>()"]+[^\s<>()".,;:!?])/).map((p, j)=> j % 2
+      ? el("a",{href:p, target:"_blank", rel:"noopener noreferrer"}, (()=>{ try{ const u = new URL(p); return u.hostname.replace(/^www\./,"") + (u.pathname.length > 1 ? u.pathname.slice(0, 40) + (u.pathname.length > 40 ? "…" : "") : ""); }catch(e){ return p; } })())
+      : document.createTextNode(p));
+    String(t).replace(/<br\s*\/?>/gi, "\n").split(/\*\*(.+?)\*\*/s).forEach((parte, i)=>{ if(parte) out.push(...(i % 2 ? [el("strong",{}, parte)] : conEnlaces(parte))); });
     return out;
   }
   function textoAsis(t){
@@ -3066,10 +3389,12 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
     if(asisFotosPendientes.length)zona.append(el('p',{class:'note'},`${asisFotosPendientes.length} fotos · escribe o dicta las indicaciones y toca Enviar`));
   }
   $('asisAdjuntar').onclick=()=>{if(S.canEdit&&!asisOcupado)$('asisFotos').click();};
-  $('asisFotos').onchange=e=>{
+  $('asisFotos').onchange=async e=>{
     if(!S.canEdit)return;
-    asisFotosPendientes.push(...[...e.target.files].filter(f=>f.type.startsWith('image/')||/\.(heic|heif)$/i.test(f.name)));
-    e.target.value='';pintarAdjuntosAsis();
+    const lista=[...e.target.files]; e.target.value='';
+    const r=await leerFotos(lista);
+    asisFotosPendientes.push(...r.fotos);
+    pintarAdjuntosAsis();
   };
   $("asisForm").addEventListener("submit", e=>{ e.preventDefault(); enviarAsis($("asisInput").value); });
   // Hablarle al asistente para actualizar la tienda ("bájale 10 soles a las carteras"). El texto queda
@@ -3188,7 +3513,7 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
 
     // Vitrina de la vendedora: solo sus productos y sus fotos
     usarModoVendedora(tienda.id);
-    S.db = db; S.assets = assets; S.ai = ai; S.aiMax = 8; S.canEdit = true; S.quitarFondo = quitarFondo; S.asistente = asistente;
+    S.db = db; S.assets = assets; S.ai = ai; S.aiMax = 8; S.canEdit = true; S.quitarFondo = quitarFondo; S.asistente = asistente; S.buscarInternet = typeof buscarInternet === 'function' ? buscarInternet : null;
     show("asisBtn", true);
     pintarModoFoto();
     $("modoFotoCambiar").onclick = ()=>{ try{ localStorage.removeItem(MODO_KEY); }catch(e){} pintarModoFoto(); toast("Te preguntaremos en la próxima subida"); };

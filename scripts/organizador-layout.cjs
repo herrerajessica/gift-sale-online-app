@@ -41,7 +41,7 @@ const estilos=[...readFileSync(resolve(__dirname,'../index.html'),'utf8').matchA
       }
       await comprobar('revisión');
       await page.getByRole('button',{name:'Guardar productos ocultos y revisar'}).click();
-      await page.getByText('Guardando productos ocultos.',{exact:false}).waitFor();
+      await page.getByText('Guardando tus productos',{exact:false}).waitFor();
       await comprobar('guardado');
       mkdirSync(resolve(__dirname,'../test-results'),{recursive:true});
       await page.screenshot({path:resolve(__dirname,`../test-results/organizador-${width}.png`)});

@@ -12,7 +12,8 @@ export function arrastrable(nodo, {destino, soltar}) {
     nodo.setPointerCapture(e.pointerId);
     gesto = {id:e.pointerId, x:e.clientX,y:e.clientY,activo:false};
     gesto.reloj = setTimeout(()=>{
-      if(!gesto) return;
+      // Si la foto ya no está en pantalla (se abrió la hoja o se redibujó), no se empieza a arrastrar.
+      if(!gesto || !nodo.isConnected){ limpiar(); return; }
       gesto.activo=true;
       gesto.sombra=nodo.cloneNode(true); gesto.sombra.classList.add('drag-fantasma');
       gesto.sombra.style.left=gesto.x+'px'; gesto.sombra.style.top=gesto.y+'px';
@@ -39,6 +40,9 @@ export function arrastrable(nodo, {destino, soltar}) {
     limpiar(); if(activo && sobre) soltar(sobre);
   });
   nodo.addEventListener('pointercancel',limpiar);
+  // Respaldo: el dedo se levantó fuera de la foto o la foto se redibujó en medio del gesto.
+  window.addEventListener('pointerup',e=>{ if(gesto && gesto.id===e.pointerId && !nodo.isConnected) limpiar(); });
+  nodo.addEventListener('click',()=>{ if(gesto && !gesto.activo) limpiar(); });
   nodo.addEventListener('lostpointercapture',limpiar);
   nodo.addEventListener('contextmenu',e=>e.preventDefault());
 }

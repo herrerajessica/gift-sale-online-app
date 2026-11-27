@@ -6,7 +6,7 @@ import {
 import { QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb, PRODUCTO, PEDIDO, TIENDA, leerTienda, subDe } from '../shared/tablas';
 import { PLANES, planVigente } from '../shared/planes';
-import { HERRAMIENTAS, LIMITE_DIARIO, buscarTexto, instrucciones, limpiarPropuesta } from './herramientas';
+import { HERRAMIENTAS, LIMITE_DIARIO, LIMITE_WEB, WEB_POR_MENSAJE, buscarTexto, instrucciones, limpiarPropuesta } from './herramientas';
 
 const bedrock = new BedrockRuntimeClient({});
 const MAX_RONDAS = 7;
@@ -52,6 +52,90 @@ async function contarUso(t: Record<string, any>) {
   }
 }
 
+/** Cuenta una búsqueda en internet; devuelve false si ya se usaron las del día. */
+async function contarWeb(t: Record<string, any>): Promise<boolean> {
+  const hoy = new Date().toISOString().slice(0, 10);
+  const limite = LIMITE_WEB[planVigente(t)] ?? 0;
+  try {
+    // Día nuevo: empieza en 1. Mismo día: suma 1 si no pasó el límite.
+    await ddb.send(new UpdateCommand({
+      TableName: TIENDA(), Key: { id: t.id },
+      UpdateExpression: 'SET webUsos = if_not_exists(webUsos, :cero) + :uno',
+      ConditionExpression: 'webDia = :hoy AND webUsos < :lim',
+      ExpressionAttributeValues: { ':hoy': hoy, ':cero': 0, ':uno': 1, ':lim': limite },
+    }));
+    return true;
+  } catch (e) {
+    if ((e as { name?: string }).name !== 'ConditionalCheckFailedException') throw e;
+  }
+  if (limite < 1) return false;
+  try {
+    await ddb.send(new UpdateCommand({
+      TableName: TIENDA(), Key: { id: t.id },
+      UpdateExpression: 'SET webDia = :hoy, webUsos = :uno',
+      ConditionExpression: 'attribute_not_exists(webDia) OR webDia <> :hoy',
+      ExpressionAttributeValues: { ':hoy': hoy, ':uno': 1 },
+    }));
+    return true;
+  } catch (e) {
+    if ((e as { name?: string }).name === 'ConditionalCheckFailedException') return false;
+    throw e;
+  }
+}
+
+/** Búsqueda en internet con Amazon Nova Web Grounding. Devuelve un resumen y las fuentes (obligatorias). */
+async function buscarWeb(consulta: string, us: boolean) {
+  const res = await bedrock.send(new ConverseCommand({
+    modelId: process.env.WEB_MODEL_ID || 'us.amazon.nova-2-lite-v1:0',
+    system: [{ text: 'Busca en internet el producto indicado y responde en español, corto (máximo 8 líneas), solo con datos que encuentres: nombre exacto del modelo, descripción breve, material, medidas, colores disponibles y precio en tiendas de EE. UU. (en dólares). Si no encuentras ese mismo modelo, dilo. No inventes.' }],
+    messages: [{ role: 'user', content: [{ text: `Producto: ${consulta}${us ? '' : ' (vendido en Perú, traído de EE. UU.)'}` }] }],
+    // Herramienta de sistema de Nova: hace la búsqueda en internet y cita las páginas.
+    toolConfig: { tools: [{ systemTool: { name: 'nova_grounding' } } as any] },
+    inferenceConfig: { maxTokens: 800 },
+  }));
+  let texto = '';
+  const fuentes: { url: string; dominio: string }[] = [];
+  for (const c of (res.output?.message?.content || []) as any[]) {
+    if (c.text) texto += c.text;
+    for (const ci of c.citationsContent?.citations || []) {
+      const url = ci?.location?.web?.url;
+      if (url && !fuentes.some((f) => f.url === url)) fuentes.push({ url: String(url), dominio: String(ci.location.web.domain || '') });
+    }
+  }
+  return { resumen: texto.trim().slice(0, 1500), fuentes: fuentes.slice(0, 6) };
+}
+
+/** Ficha de un producto desde internet, para completar productos recién subidos desde fotos. */
+async function fichaWeb(consulta: string, us: boolean) {
+  const res = await bedrock.send(new ConverseCommand({
+    modelId: process.env.WEB_MODEL_ID || 'us.amazon.nova-2-lite-v1:0',
+    system: [{ text: `Busca en internet el producto indicado. Responde SOLO con un objeto JSON, sin texto antes ni después, con estas claves: "encontrado" (true solo si encontraste ese mismo modelo), "modelo" (nombre exacto del modelo), "descripcion" (1 o 2 frases para vender, ${us ? 'en inglés' : 'en español'}, solo con datos encontrados), "material", "medidas", "colores", "precio_usd" (número, precio en tiendas de EE. UU., o null). Si un dato no aparece, usa "" o null. No inventes.` }],
+    messages: [{ role: 'user', content: [{ text: `Producto: ${consulta}` }] }],
+    toolConfig: { tools: [{ systemTool: { name: 'nova_grounding' } } as any] },
+    inferenceConfig: { maxTokens: 700 },
+  }));
+  let texto = '';
+  const fuentes: { url: string; dominio: string }[] = [];
+  for (const c of (res.output?.message?.content || []) as any[]) {
+    if (c.text) texto += c.text;
+    for (const ci of c.citationsContent?.citations || []) {
+      const url = ci?.location?.web?.url;
+      if (url && !fuentes.some((f) => f.url === url)) fuentes.push({ url: String(url), dominio: String(ci.location.web.domain || '') });
+    }
+  }
+  let d: Record<string, any> = {};
+  try { const m = texto.match(/\{[\s\S]*\}/); d = m ? JSON.parse(m[0]) : {}; } catch { d = {}; }
+  const txt = (v: unknown, n: number) => (typeof v === 'string' ? v.trim().slice(0, n) : '');
+  const precio = Number(d.precio_usd);
+  return {
+    encontrado: d.encontrado === true && !!txt(d.descripcion, 600),
+    modelo: txt(d.modelo, 120), descripcion: txt(d.descripcion, 600), material: txt(d.material, 120),
+    medidas: txt(d.medidas, 120), colores: txt(d.colores, 160),
+    precio_usd: precio > 0 && precio < 100000 ? Math.round(precio * 100) / 100 : null,
+    fuentes: fuentes.slice(0, 5),
+  };
+}
+
 const resumirProducto = (p: Record<string, any>) => ({
   id: p.id, codigo: p.codigo || '', nombre: p.nombre, marca: p.marca || '', precio: p.precio ?? null, costo: p.costo ?? null,
   stock: typeof p.stock === 'number' ? p.stock : null, talla: p.talla || '', condicion: p.condicion || '', categoria: p.categoria || '', tipo: p.tipo || '',
@@ -64,6 +148,21 @@ export const handler = async (event: Evento) => {
   const sub = event.identity?.sub;
   const t = await leerTienda(String(tiendaId || ''));
   if (!t || !sub || subDe(t.owner) !== sub) throw new Error('No autorizado');
+
+  // Completar con internet un producto recién creado desde fotos (no cuenta como mensaje del asistente).
+  let pedido: unknown = null;
+  try { pedido = JSON.parse(String(mensajes || 'null')); } catch { /* se valida abajo */ }
+  if (pedido && !Array.isArray(pedido) && (pedido as any).modo === 'web') {
+    const consulta = String((pedido as any).consulta || '').trim().slice(0, 200);
+    if (consulta.length < 3) throw new Error('Falta qué buscar');
+    if (!(await contarWeb(t))) return JSON.stringify({ ok: false, limite: true, limiteDia: LIMITE_WEB[planVigente(t)] ?? 0 });
+    try {
+      return JSON.stringify({ ok: true, ...(await fichaWeb(consulta, t.pais === 'US')) });
+    } catch (e) {
+      console.error('fichaWeb', e);
+      return JSON.stringify({ ok: false, error: 'La búsqueda en internet no respondió' });
+    }
+  }
 
   // Conversación que guarda el navegador: solo texto, últimos turnos.
   let historial: { role: 'user' | 'assistant'; text: string }[] = [];
@@ -87,7 +186,9 @@ export const handler = async (event: Evento) => {
   let propuesta: ReturnType<typeof limpiarPropuesta> | null = null;
   const hayPropuesta = (): boolean => { const p = propuesta as ReturnType<typeof limpiarPropuesta> | null; return !!p && p.productos.length + p.pedidos.length > 0; };
 
-  const ejecutar = (nombre: string, input: Record<string, any>): unknown => {
+  const fuentesWeb: { url: string; dominio: string }[] = [];
+  let busquedasMensaje = 0;
+  const ejecutar = async (nombre: string, input: Record<string, any>): Promise<unknown> => {
     switch (nombre) {
       case 'resumen_tienda': {
         const plan = planVigente(t);
@@ -135,6 +236,24 @@ export const handler = async (event: Evento) => {
             };
           });
         return { total: lista.length, pedidos: lista };
+      }
+      case 'buscar_en_internet': {
+        const consulta = String(input.consulta || '').trim().slice(0, 200);
+        if (!consulta) return { error: 'Falta qué buscar' };
+        if (busquedasMensaje >= WEB_POR_MENSAJE) return { ok: false, nota: `Ya hiciste ${WEB_POR_MENSAJE} búsquedas en este mensaje. Responde con lo que tienes y dile que te pida los siguientes productos.` };
+        if (!(await contarWeb(t))) {
+          const lim = LIMITE_WEB[planVigente(t)] ?? 0;
+          return { ok: false, nota: `Se acabaron las búsquedas en internet de hoy (${lim} por día). Díselo a la vendedora: mañana se renuevan.` };
+        }
+        busquedasMensaje++;
+        try {
+          const r = await buscarWeb(consulta, t.pais === 'US');
+          for (const f of r.fuentes) if (!fuentesWeb.some((x) => x.url === f.url)) fuentesWeb.push(f);
+          return { ok: true, consulta, resultado: r.resumen || 'No se encontró información.', paginas: r.fuentes.map((f) => f.dominio) };
+        } catch (e) {
+          console.error('buscar_en_internet', e);
+          return { ok: false, nota: 'La búsqueda en internet no respondió. Dile que intente más tarde.' };
+        }
       }
       case 'proponer_cambios': {
         propuesta = limpiarPropuesta(input, mapaProd, mapaPed, zonaDe(t.pais), t.pais !== 'US' && t.moneda === 'PEN' ? 'PEN' : 'USD');
@@ -185,17 +304,21 @@ export const handler = async (event: Evento) => {
       }
       break;
     }
-    const resultados: ContentBlock[] = usos.map((c) => {
+    const resultados: ContentBlock[] = await Promise.all(usos.map(async (c) => {
       let salida: unknown;
-      try { salida = ejecutar(c.toolUse!.name!, (c.toolUse!.input || {}) as Record<string, any>); }
+      try { salida = await ejecutar(c.toolUse!.name!, (c.toolUse!.input || {}) as Record<string, any>); }
       catch (e) { salida = { error: (e as Error).message }; }
       return { toolResult: { toolUseId: c.toolUse!.toolUseId!, content: [{ json: salida as any }] } };
-    });
+    }));
     messages.push({ role: 'user', content: resultados });
   }
 
   if (!hayPropuesta() && DICE_QUE_PROPUSO.test(texto)) {
     texto = 'No pude preparar la tarjeta con los cambios. Escríbemelo otra vez con el código y el cambio, por ejemplo: "En el CAR-002 pon de nombre Cartera Guess y 1 en stock".';
+  }
+  // Fuentes de internet: AWS exige mostrarlas siempre que se usa la búsqueda.
+  if (fuentesWeb.length) {
+    texto = (texto || 'Listo.') + '\n\nFuentes de internet:\n' + fuentesWeb.slice(0, 8).map((f) => `- ${f.url}`).join('\n');
   }
   return JSON.stringify({ texto: texto || 'Listo.', propuesta });
 };
