@@ -85,6 +85,8 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
   const solesContado = n => { const r = rate(), d = descuento(); return (r && d && typeof n==="number" && isFinite(n)) ? Math.round(n*r*(1-d/100)) : null; };
   // Precio equivalente en soles, como dato secundario (no hace falta si el precio ya está en soles).
   const soles = n => { const r=rate(); return (!enSoles() && r && typeof n==="number" && isFinite(n)) ? "S/ " + Math.round(n*r).toLocaleString("es-PE") : ""; };
+  // Tienda en soles vista en inglés: el precio sigue en soles (así se paga) y debajo va su equivalente aproximado en dólares.
+  const dolaresAprox = n => (enSoles() && EN() && tipoCambio() && typeof n==="number" && isFinite(n) && n>0) ? "≈ $" + Math.max(1, Math.round(n/tipoCambio())).toLocaleString("en-US") : "";
   const dual = n => { const a=money(n), b=soles(n); return a && b ? a+" · "+b : a; };
   const parseStock = v => { const t=String(v??"").trim(); if(t==="") return null; const n=parseInt(t.replace(/\D/g,""),10); return isFinite(n) ? Math.min(n, 99999) : null; };
   // Un producto no se puede pedir si está vendido o su cantidad llegó a 0.
@@ -888,7 +890,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       const ph = el("div",{class:"ph"});
       if(cover) ph.append(el("img",{src:src(cover.thumb||cover.full),alt:"",loading:"lazy",decoding:"async",onerror:function(){this.remove();}}));
       const of = oferta(p), pv = precioHoy(p);
-      ph.append(el("span",{class:"price"+(pv==null?" none":"")+(of?" oferta":"")}, pv==null ? tx("Consultar","Ask price") : money(pv), of ? el("s",null, money(of.antes)) : null, pv!=null && soles(pv) ? el("small",null, soles(pv)) : null));
+      ph.append(el("span",{class:"price"+(pv==null?" none":"")+(of?" oferta":"")}, pv==null ? tx("Consultar","Ask price") : money(pv), of ? el("s",null, money(of.antes)) : null, pv!=null && (soles(pv)||dolaresAprox(pv)) ? el("small",null, soles(pv)||dolaresAprox(pv)) : null));
       if(of) ph.append(el("span",{class:"oferta-tag"}, `-${of.pct} %`));
       if(st!=="disponible") ph.append(el("span",{class:"status "+st}, {vendido:tx("Vendido","Sold"),apartado:tx("Apartado","On hold"),oculto:"Oculto"}[st]||st));
       else if(p.stock===0) ph.append(el("span",{class:"status agotado"},tx("Agotado","Sold out")));
@@ -1377,7 +1379,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     } else {
       const st=p.estado||"disponible";
       side.append((p.marca || p.codigo) ? el("span",{class:"tags-row"}, p.marca ? el("span",{class:"marca-tag"},p.marca) : null, p.codigo ? el("span",{class:"cod-tag"}, tx("Código ","Code ")+p.codigo) : null) : null, el("h2",null,nom(p)||tx("Producto","Product")),
-        el("div",{class:"bigprice"+(oferta(p)?" oferta":"")}, precioHoy(p)==null?tx("Precio a consultar","Price on request"):money(precioHoy(p)), oferta(p) ? el("s",null, money(oferta(p).antes)) : null, precioHoy(p)!=null && soles(precioHoy(p)) ? el("span",{class:"bigsol"}, soles(precioHoy(p)) + tx(" con tarjeta"," by card")) : null),
+        el("div",{class:"bigprice"+(oferta(p)?" oferta":"")}, precioHoy(p)==null?tx("Precio a consultar","Price on request"):money(precioHoy(p)), oferta(p) ? el("s",null, money(oferta(p).antes)) : null, precioHoy(p)!=null && soles(precioHoy(p)) ? el("span",{class:"bigsol"}, soles(precioHoy(p)) + tx(" con tarjeta"," by card"))
+          : precioHoy(p)!=null && dolaresAprox(precioHoy(p)) ? el("span",{class:"bigsol"}, dolaresAprox(precioHoy(p)) + " USD approx. · you pay in soles (S/)") : null),
         oferta(p) ? el("span",{class:"oferta-hasta",style:"font-size:14px"}, `-${oferta(p).pct} % · ` + textoOferta(oferta(p))) : null,
         precioHoy(p)!=null && solesContado(precioHoy(p))!=null ? el("span",{class:"contado",style:"font-size:15px"}, `S/ ${solesContado(precioHoy(p)).toLocaleString("es-PE")} ` + tx(`pagando con Yape o efectivo (${descuento()} % menos)`,`paying with Yape or cash (${descuento()}% off)`)) : null,
         st!=="disponible" ? el("span",{class:"status "+st,style:"position:static;justify-self:start"}, st==="vendido"?tx("Vendido","Sold"):tx("Apartado","On hold")) : p.stock===0 ? el("span",{class:"status agotado",style:"position:static;justify-self:start"},tx("Agotado","Sold out")) : null,
@@ -1676,8 +1679,6 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const fl=$("waFloat"); fl.hidden = !wa || S.canEdit;
     if(wa) fl.href = `https://wa.me/${wa}?text=${encodeURIComponent(tx(`Hola${S.config.nombre?" "+S.config.nombre:""}, vi tu tienda online y tengo una consulta.`, `Hi${S.config.nombre?" "+S.config.nombre:""}, I saw your online store and have a question.`))}`;
     fl.setAttribute("aria-label", tx("Escríbenos por WhatsApp","Message us on WhatsApp")); fl.querySelector("span").textContent = tx("Escríbenos","Chat with us");
-    // Tienda de EE. UU.: el sello "Traído de USA" no aplica; el cliente ve la tienda en inglés.
-    document.querySelector(".brand .stamp").hidden = esUS(); document.querySelector(".brand .stamp").textContent = tx("Traído de USA","Imported from USA");
     { const o = $("orden").options; o[0].text = tx("Más nuevos","Newest"); o[1].text = tx("Precio: menor a mayor","Price: low to high"); o[2].text = tx("Precio: mayor a menor","Price: high to low"); $("orden").setAttribute("aria-label", tx("Ordenar productos","Sort products")); }
     document.documentElement.lang = EN() ? "en" : "es";
     // Botón ES | EN: el cliente cambia el idioma de la tienda (la vendedora siempre ve su panel en español)
@@ -3489,7 +3490,7 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
       iniciarVitrina();
       return;
     }
-    if(!ses.logged){ show("landing", true); show("vitrina", false); show("langBtn", true); aplicarIdiomaInicio(); pintarPlanesLanding(monedaLanding); { const st = document.querySelector(".brand .stamp"); if(st) st.hidden = true; } if(location.hash==="#entrar") abrirAuth("login"); return; }
+    if(!ses.logged){ show("landing", true); show("vitrina", false); show("langBtn", true); aplicarIdiomaInicio(); pintarPlanesLanding(monedaLanding); if(location.hash==="#entrar") abrirAuth("login"); return; }
 
     let tienda = null;
     try{ tienda = await miTienda(ses.sub, ses.usuario, ses.superadmin); }catch(e){

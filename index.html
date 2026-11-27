@@ -130,7 +130,10 @@ button{cursor:pointer}
 .portada{position:relative;margin:0 0 16px;border-radius:22px;overflow:hidden;min-height:150px;display:flex;align-items:flex-end;background:linear-gradient(135deg,#1f4fd1,#14213d);background-size:cover;background-position:center;color:#fff}
 .portada.con-foto{min-height:clamp(200px,32vw,340px)}
 .portada.con-foto::before{content:"";position:absolute;inset:0;background:linear-gradient(to top,rgb(10 16 30 / .82),rgb(10 16 30 / .15) 65%)}
-.portada-txt{position:relative;padding:clamp(18px,3vw,32px);display:grid;gap:6px;max-width:760px}
+.portada-txt{position:relative;padding:clamp(18px,3vw,32px);display:grid;gap:6px;max-width:min(760px,54%)}
+/* La foto puede traer texto a la derecha (por ejemplo, las marcas): en pantallas angostas el texto ocupa todo el ancho
+   y lleva un fondo oscuro para que no se mezcle con la foto. */
+@media (max-width:760px){.portada.con-foto .portada-txt{max-width:none;margin:10px;padding:14px 16px;border-radius:16px;background:rgb(10 16 30 / .62);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}}
 .portada h2{margin:0;font-family:var(--display);font-weight:800;font-size:clamp(26px,4.4vw,44px);line-height:1.05;letter-spacing:-.5px;text-wrap:balance}
 .portada p{margin:0;font-size:clamp(14.5px,1.6vw,17px);line-height:1.45;opacity:.95;white-space:pre-line}
 .portada-meta{font-size:13.5px;font-weight:700;opacity:.9}
@@ -190,7 +193,8 @@ main.con-tabs:not([data-tab="plan"]) [data-sec="plan"]{display:none!important}
 main.con-tabs:not([data-tab="datos"]) [data-sec="datos"]{display:none!important}
 main.con-tabs .pedidos > summary{pointer-events:none;list-style:none}main.con-tabs .pedidos > summary::-webkit-details-marker{display:none}
 .tags-row{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}.cod-tag{display:inline-block;font:600 11px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.04em;color:var(--muted);background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:1px 6px;justify-self:start;align-self:start;width:max-content}.c-foto .cod-tag{display:block;margin-top:4px}
-.marca-tag{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.marca-tag{font-size:12.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--ink);border-bottom:2.5px solid var(--tag);padding-bottom:1px;line-height:1.25}
+.side .marca-tag{font-size:16px;letter-spacing:.12em;border-bottom-width:3px}
 .cond-tag{display:inline-block;width:fit-content;font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;background:#e7f3ec;color:#14532d;margin-top:2px}
 .cond-tag.cond-caja_abierta{background:#eef2ff;color:#312e81}
 .cond-tag.cond-como_nuevo,.cond-tag.cond-usado{background:#fdf2e3;color:#7c2d12}
@@ -622,7 +626,7 @@ html,body{overflow-x:clip}
 <body>
 <header class="bar">
   <div class="wrap">
-    <div class="brand"><h1 id="shopName">Showroomcito</h1><span class="stamp">Traído de USA</span></div>
+    <div class="brand"><h1 id="shopName">Showroomcito</h1></div>
     <button class="btn ghost cuenta-btn" id="cuentaBtn" type="button" hidden><span>Mis pedidos</span></button>
     <button class="btn ghost lang" id="langBtn" type="button" hidden>English</button>
     <div class="contact" id="contact" hidden></div>
@@ -635,19 +639,19 @@ html,body{overflow-x:clip}
 
 <main class="wrap">
   <div class="landing" id="landing" hidden>
-    <div class="l-tira" aria-hidden="true"><div class="l-tira-mov"><span data-en="⚡ Free up to 20 products">⚡ Gratis hasta 20 productos</span><span data-en="⚡ Yape with no fees">⚡ Yape sin comisión</span><span data-en="⚡ Add products by voice">⚡ Carga tus productos por voz</span><span data-en="⚡ AI reads the tag">⚡ La IA lee la etiqueta</span><span data-en="⚡ Complete orders on WhatsApp">⚡ Pedidos completos por WhatsApp</span><span data-en="⚡ Peru and the United States">⚡ Perú y Estados Unidos</span><span data-en="⚡ Trusted stores">⚡ Tiendas de confianza</span><span data-en="⚡ Free up to 20 products">⚡ Gratis hasta 20 productos</span><span data-en="⚡ Yape with no fees">⚡ Yape sin comisión</span><span data-en="⚡ Add products by voice">⚡ Carga tus productos por voz</span><span data-en="⚡ AI reads the tag">⚡ La IA lee la etiqueta</span><span data-en="⚡ Complete orders on WhatsApp">⚡ Pedidos completos por WhatsApp</span><span data-en="⚡ Peru and the United States">⚡ Perú y Estados Unidos</span><span data-en="⚡ Trusted stores">⚡ Tiendas de confianza</span></div></div>
+    <div class="l-tira" aria-hidden="true"><div class="l-tira-mov"><span data-en="⚡ Free up to 20 products">⚡ Gratis hasta 20 productos</span><span data-en="⚡ Yape with no fees">⚡ Yape sin comisión</span><span data-en="⚡ Add products by voice">⚡ Carga tus productos por voz</span><span data-en="⚡ AI groups each product’s photos">⚡ La IA junta las fotos de cada producto</span><span data-en="⚡ AI reads the tag">⚡ La IA lee la etiqueta</span><span data-en="⚡ Free white background">⚡ Fondo blanco gratis</span><span data-en="⚡ Complete orders on WhatsApp">⚡ Pedidos completos por WhatsApp</span><span data-en="⚡ Peru and the United States">⚡ Perú y Estados Unidos</span><span data-en="⚡ Trusted stores">⚡ Tiendas de confianza</span><span data-en="⚡ Free up to 20 products">⚡ Gratis hasta 20 productos</span><span data-en="⚡ Yape with no fees">⚡ Yape sin comisión</span><span data-en="⚡ Add products by voice">⚡ Carga tus productos por voz</span><span data-en="⚡ AI groups each product’s photos">⚡ La IA junta las fotos de cada producto</span><span data-en="⚡ AI reads the tag">⚡ La IA lee la etiqueta</span><span data-en="⚡ Free white background">⚡ Fondo blanco gratis</span><span data-en="⚡ Complete orders on WhatsApp">⚡ Pedidos completos por WhatsApp</span><span data-en="⚡ Peru and the United States">⚡ Perú y Estados Unidos</span><span data-en="⚡ Trusted stores">⚡ Tiendas de confianza</span></div></div>
     <section class="l-hero">
       <span class="l-blob l-b1" aria-hidden="true"></span><span class="l-blob l-b2" aria-hidden="true"></span><span class="l-blob l-b3" aria-hidden="true"></span><span class="l-x" aria-hidden="true">✕</span>
       <div class="logo-row"><svg aria-hidden="true" width="44" height="44" viewBox="0 0 64 64" fill="none" stroke-linejoin="round"><rect width="64" height="64" rx="14" fill="#F4A51C"/><g transform="translate(6 6) scale(.8125)"><rect x="15" y="24" width="34" height="36" rx="6" fill="#FFFFFF" stroke="#16203A" stroke-width="4.5"/><path d="M14 8h36l6 14H8L14 8z" fill="#16203A"/><path d="M8 22a6 6 0 0 0 12 0a6 6 0 0 0 12 0a6 6 0 0 0 12 0a6 6 0 0 0 12 0z" fill="#FFFFFF" stroke="#16203A" stroke-width="3.5"/><path d="M27 52h10" stroke="#16203A" stroke-width="4" stroke-linecap="round"/></g></svg><span class="logo-txt">showroom<span>cito</span></span></div>
       <h2 data-en="Your &lt;mark&gt;showroom&lt;/mark&gt; on your phone">Tu <mark>showroom</mark> en el celular</h2>
-      <p data-en="Upload all your photos at once, new or used. AI adds the name, brand and price; you share your link and your customers order on WhatsApp and pay with Yape or card.">Sube todas tus fotos de una vez, nuevas o usadas. La IA les pone nombre, marca y precio; tú compartes tu enlace y tus clientas te piden por WhatsApp y pagan con Yape o tarjeta.</p>
+      <p data-en="Pick your photos from your gallery, new or used. AI groups the photos of each product and adds the name, brand and price; you share your link and your customers order on WhatsApp and pay with Yape or card.">Elige tus fotos de la galería, nuevas o usadas. La IA junta las fotos de cada producto y les pone nombre, marca y precio; tú compartes tu enlace y tus clientas te piden por WhatsApp y pagan con Yape o tarjeta.</p>
       <div class="l-btns">
         <a class="pill blanco" href="#comoFunciona" data-en="See how it works &lt;i aria-hidden=&quot;true&quot;&gt;↓&lt;/i&gt;">Mira cómo funciona <i aria-hidden="true">↓</i></a>
         <button class="pill lleno" type="button" id="goSignup" data-en="Create my free showroom">Crear mi showroom gratis</button>
       </div>
       <span class="note" style="margin:0"><span data-en="Free up to 20 products ·">Gratis hasta 20 productos ·</span> <button class="linkish" type="button" id="goLogin" style="font-size:inherit" data-en="I already have an account">Ya tengo cuenta</button></span>
       <div class="l-escena" aria-hidden="true">
-        <span class="l-chip c1" data-en="✨ AI reads the tag">✨ La IA lee la etiqueta</span>
+        <span class="l-chip c1" data-en="✨ AI groups your photos">✨ La IA ordena tus fotos</span>
         <span class="l-chip c2" data-en="💜 Yape with no fees">💜 Yape sin comisión</span>
         <span class="l-chip c3" data-en="🎙️ Just say it">🎙️ Díctalo por voz</span>
         <div class="l-laptop"><div class="l-pantalla">
@@ -681,8 +685,8 @@ html,body{overflow-x:clip}
     <section class="l-sec l-dark" id="comoFunciona">
       <h3 data-en="That easy">Así de fácil</h3>
       <ol class="l-pasos">
-        <li><b>1</b><div><strong data-en="Upload all your photos">Sube todas tus fotos</strong><span data-en="All at once: 10, 50 or 100. Or say them out loud while you look at them.">De una sola vez: 10, 50 o 100. O díctalos por voz mientras los miras.</span></div></li>
-        <li><b>2</b><div><strong data-en="AI does the rest">La IA hace el resto</strong><span data-en="Name, category, brand, size, condition and a short description. You just review.">Nombre, categoría, marca, talla, condición y una descripción corta. Tú solo revisas.</span></div></li>
+        <li><b>1</b><div><strong data-en="Pick your photos">Elige tus fotos</strong><span data-en="Several photos per product, 20 at a time. AI puts together the ones that belong to the same product. Or say them out loud.">Varias fotos por producto, de 20 en 20. La IA junta las que son del mismo producto. O díctalos por voz.</span></div></li>
+        <li><b>2</b><div><strong data-en="AI does the rest">La IA hace el resto</strong><span data-en="Name, category, brand (even from the box), size, condition and a short description. You just review and publish.">Nombre, categoría, marca (también la de la caja), talla, condición y una descripción corta. Tú solo revisas y publicas.</span></div></li>
         <li><b>3</b><div><strong data-en="Share your link">Comparte tu enlace</strong><span data-en="Your customers choose and the complete order reaches you on WhatsApp, with prices.">Tus clientas eligen y te llega el pedido completo por WhatsApp, con precios.</span></div></li>
       </ol>
     </section>
@@ -690,12 +694,16 @@ html,body{overflow-x:clip}
     <section class="l-sec">
       <h3 data-en="Everything you need to sell">Todo lo que necesitas para vender</h3>
       <div class="l-feat">
-        <div><strong data-en="📸 Batch photos">📸 Fotos en lote</strong><span data-en="They improve automatically and stay light, so your store loads fast on mobile data.">Se mejoran solas y pesan poco, para que tu tienda cargue rápido con datos móviles.</span></div>
+        <div><strong data-en="📸 Photos that sort themselves">📸 Fotos que se ordenan solas</strong><span data-en="AI groups the photos of each product; you move any that went to the wrong place with a tap. They stay light so your store loads fast.">La IA agrupa las fotos de cada producto y, si alguna quedó mal, la mueves con un toque. Pesan poco para que tu tienda cargue rápido.</span></div>
+        <div><strong data-en="⬜ Free white background">⬜ Fondo blanco gratis</strong><span data-en="Rotate the photo and put it on white, with its box or just the product. It is done on your own phone, at no cost.">Gira la foto y ponla sobre blanco, con su caja o solo el producto. Se hace en tu mismo celular, sin costo.</span></div>
         <div><strong data-en="🎙️ Add by voice">🎙️ Carga por voz</strong><span data-en="Say “Coach handbag, new with tags, 85 dollars” and you are done. You see a preview before publishing.">Dicta “cartera Coach, nueva con etiqueta, 85 soles” y listo. Ves una vista previa antes de publicar.</span></div>
         <div><strong data-en="💬 Orders on WhatsApp">💬 Pedidos por WhatsApp</strong><span data-en="The message arrives ready: products, quantities and total.">El mensaje llega armado: productos, cantidades y total.</span></div>
         <div><strong data-en="💜 Yape and card">💜 Yape y tarjeta</strong><span data-en="Your Yape QR in the store with no fees, plus online card payments.">Tu QR de Yape en la tienda, sin comisión, y pago con tarjeta en línea.</span></div>
-        <div><strong data-en="🤝 Trusted stores">🤝 Tiendas de confianza</strong><span data-en="Share products with other sellers and resell theirs as your own. Holds and clear accounts.">Comparte productos con otras vendedoras y revende los suyos como tuyos. Separados y cuentas claras.</span></div>
-        <div><strong data-en="✨ Assistant">✨ Asistente</strong><span data-en="“Lower the bags by 10 dollars”: it proposes the changes and you confirm.">“Bájale 10 soles a las carteras”: te propone los cambios y tú confirmas.</span></div>
+        <div><strong data-en="🤝 Trusted stores">🤝 Tiendas de confianza</strong><span data-en="Find other sellers by name, share products with them and resell theirs as your own. We email them when you share something new.">Busca a otras vendedoras por nombre, comparte productos y revende los suyos como tuyos. Les avisamos por correo cuando les compartes algo nuevo.</span></div>
+        <div><strong data-en="✨ Assistant">✨ Asistente</strong><span data-en="“Lower the bags by 10 dollars” or “write the missing descriptions”: it proposes the changes and you confirm. It can also look up a product’s details online.">“Bájale 10 soles a las carteras” o “escribe las descripciones que faltan”: te propone los cambios y tú confirmas. También busca la ficha del producto en internet.</span></div>
+        <div><strong data-en="🛍️ An assistant for your customers">🛍️ Asistente para tus clientas</strong><span data-en="They ask “do you have gold watches?” in your store and get your products with prices.">Preguntan “¿tienes relojes dorados?” en tu tienda y les muestra tus productos con precio.</span></div>
+        <div><strong data-en="📣 Message for your group">📣 Mensaje para tu grupo</strong><span data-en="Pick products and the WhatsApp group message is ready: codes, prices and your store link.">Marcas productos y el mensaje para tu grupo de WhatsApp sale listo: códigos, precios y el enlace de tu tienda.</span></div>
+        <div><strong data-en="✏️ Edit many at once">✏️ Edita varios a la vez</strong><span data-en="Price, category, hide, share or join products that were split, all in one go.">Precio, categoría, ocultar, compartir o juntar productos que quedaron separados, todo de una vez.</span></div>
         <div><strong data-en="🇵🇪 🇺🇸 Peru and the US">🇵🇪 🇺🇸 Perú y EE. UU.</strong><span data-en="Prices in soles or dollars, and your store in English or Spanish for your customers.">Precios en soles o dólares, y tu tienda en inglés para clientas de EE. UU.</span></div>
         <div><strong data-en="📦 Stock and status">📦 Stock y estados</strong><span data-en="Quantities, on hold, sold and duplicate products under control.">Cantidades, apartados, vendidos y productos repetidos bajo control.</span></div>
       </div>
@@ -705,7 +713,7 @@ html,body{overflow-x:clip}
       <div class="l-head"><h3 data-en="Plans">Planes</h3>
         <div class="l-moneda" role="group" aria-label="Moneda de los precios"><button class="chip" type="button" data-moneda="PEN" aria-pressed="true" data-en="Soles">Soles</button><button class="chip" type="button" data-moneda="USD" aria-pressed="false" data-en="Dollars">Dólares</button></div></div>
       <div class="plans" id="lPlanes"></div>
-      <p class="note" style="margin:0" data-en="You pay based on how many products your store shows; hidden ones do not count. You can change plans or go back to Free anytime.">Pagas según cuántos productos se muestran en tu tienda; los ocultos no cuentan. Puedes cambiar de plan o volver a Free cuando quieras.</p>
+      <p class="note" style="margin:0" data-en="You pay based on how many products your store shows; hidden ones do not count. For now you can choose Free or Basic; Pro and Plus are coming soon. You can go back to Free anytime.">Pagas según cuántos productos se muestran en tu tienda; los ocultos no cuentan. Por ahora puedes elegir Free o Básico; Pro y Plus llegan pronto. Puedes volver a Free cuando quieras.</p>
     </section>
 
     <section class="l-sec">
@@ -713,6 +721,8 @@ html,body{overflow-x:clip}
       <div class="l-faq">
         <details><summary data-en="Do I need to know technology?">¿Necesito saber de tecnología?</summary><p data-en="No. If you can send photos on WhatsApp, you can use Showroomcito. Everything works from your phone.">No. Si sabes mandar fotos por WhatsApp, sabes usar Showroomcito. Todo funciona desde el celular.</p></details>
         <details><summary data-en="Do you charge a fee on my sales?">¿Cobran comisión por mis ventas?</summary><p data-en="Not for WhatsApp or Yape: the money goes straight to you. Card sales have an 8% fee, which covers what the bank and the payment platform charge.">Por WhatsApp y Yape, no: el dinero llega directo a ti. Con tarjeta se cobra 8 % por venta, que cubre lo que cobra el banco y la plataforma de pagos.</p></details>
+        <details><summary data-en="Can I upload several photos of the same product?">¿Puedo subir varias fotos del mismo producto?</summary><p data-en="Yes. Pick them all and AI puts together the ones of the same product (front, back, box). Before saving you see the groups and can move any photo.">Sí. Elígelas todas y la IA junta las del mismo producto (de frente, de atrás, la caja). Antes de guardar ves cómo quedaron y puedes mover cualquier foto.</p></details>
+        <details><summary data-en="Does the white background cost extra?">¿El fondo blanco tiene costo?</summary><p data-en="No. It is done on your own phone or computer, in every plan. The first time it downloads a small program (4 MB).">No. Se hace en tu mismo celular o computadora, en todos los planes. La primera vez descarga un programa pequeño (4 MB).</p></details>
         <details><summary data-en="Can I sell used items?">¿Puedo vender cosas usadas?</summary><p data-en="Yes. Each product shows its condition: new with tags, new, open box, like new or used.">Sí. Cada producto muestra su condición: nuevo con etiqueta, nuevo, caja abierta, usado como nuevo o usado.</p></details>
         <details><summary data-en="Do my customers need to install anything?">¿Mis clientas necesitan instalar algo?</summary><p data-en="No. They open your link on their phone, choose, and message you on WhatsApp or pay online.">No. Abren tu enlace desde el celular, eligen y te escriben por WhatsApp o pagan en línea.</p></details>
         <details><summary data-en="Does it work if I sell in the United States?">¿Funciona si vendo en Estados Unidos?</summary><p data-en="Yes. You choose your customers’ country: for the US the store is shown in English with prices in dollars.">Sí. Eliges el país de tus clientas: para EE. UU. la tienda se muestra en inglés y con precios en dólares.</p></details>
