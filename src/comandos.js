@@ -208,12 +208,21 @@ export function interpretarComando(texto, ctx) {
     usado.push([m.index, m.index + m[0].length]);
   }
 
+  // ---------- Ventas y devoluciones: "PUL-003 vendí 1", "vendí 2 de BOL-001", "PUL-003 devolvieron 1" ----------
+  const NUM = '(\\d+|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)';
+  const mVende = new RegExp(`\\b(?:vendi|vendimos|vendieron|se vendieron|se vendio)\\s+${NUM}\\b(?!\\s*%)`).exec(n) || /\b(?:vendi|vendimos)\b/.exec(n);
+  const mDevuelve = new RegExp(`\\b(?:devolvieron|devolvio|devolvi|regresaron|regreso|me devolvieron)\\s+${NUM}\\b`).exec(n) || /\b(?:devolvieron|devolvio|me devolvieron)\b/.exec(n);
+  if (mDevuelve) { cambios.devolver = numero(mDevuelve[1]) || 1; dice.push(`sumar ${cambios.devolver} (devolución)`); usado.push([mDevuelve.index, mDevuelve.index + mDevuelve[0].length]); }
+  else if (mVende) { cambios.vender = numero(mVende[1]) || 1; dice.push(`vender ${cambios.vender} (descontar ${cambios.vender === 1 ? '1 unidad' : cambios.vender + ' unidades'})`); usado.push([mVende.index, mVende.index + mVende[0].length]); }
+
   // ---------- Estado ----------
-  if (/\b(?:vendido|vendida|ya se vendio|se vendio)\b/.test(n)) { cambios.estado = 'vendido'; dice.push('marcar vendido'); }
+  if (cambios.vender || cambios.devolver) { /* la venta o devolución ya dice qué hacer con el stock */ }
+  else if (/\b(?:vendido|vendida|ya se vendio|se vendio)\b/.test(n)) { cambios.estado = 'vendido'; dice.push('marcar vendido'); }
   else if (/\b(?:ocultar|ocultalo|ocultala|ocultalos|oculto|oculta|esconder|esconde)\b/.test(n)) { cambios.estado = 'oculto'; dice.push('ocultar'); }
   else if (/\b(?:apartado|apartada|apartar|separado|separada)\b/.test(n)) { cambios.estado = 'apartado'; dice.push('marcar apartado'); }
   else if (/\b(?:publicar|publicalo|publicala|publicalos|mostrar|disponible|disponibles)\b/.test(n)) { cambios.estado = 'disponible'; dice.push('publicar (disponible)'); }
-  if (/\bagotad[oa]s?\b/.test(n)) { cambios.stock = 0; dice.push('cantidad 0 (agotado)'); }
+  if (cambios.vender || cambios.devolver) { /* nada */ }
+  else if (/\bagotad[oa]s?\b/.test(n)) { cambios.stock = 0; dice.push('cantidad 0 (agotado)'); }
   else {
     const ms = /\b(?:hay|tengo|quedan|queda)\s+(\d+|[a-z]+)(?:\s+(?:en stock|unidades?))?\b/.exec(n) || /\b(\d+)\s+(?:en stock|unidades)\b/.exec(n);
     if (ms && numero(ms[1]) != null && Number.isInteger(numero(ms[1]))) { cambios.stock = numero(ms[1]); dice.push(`cantidad ${cambios.stock}`); usado.push([ms.index, ms.index + ms[0].length]); }
@@ -273,6 +282,18 @@ export function interpretarComando(texto, ctx) {
     if (nombre && nombre !== p.nombre) campos.nombre = nombre;
     for (const k of ['marca', 'talla', 'descripcion', 'condicion', 'estado', 'costo', 'categoria', 'publico']) if (cambios[k] != null && cambios[k] !== p[k]) campos[k] = cambios[k];
     if (cambios.stock != null) { if (ctx.esCopia(p)) copiasStock++; else if (cambios.stock !== p.stock) campos.stock = cambios.stock; }
+    if (cambios.vender) {
+      if (ctx.esCopia(p)) copiasStock++;
+      else if (typeof p.stock === 'number') { if (p.stock > 0) campos.stock = Math.max(0, p.stock - cambios.vender); }
+      else if (p.estado !== 'vendido') campos.estado = 'vendido';   // pieza única (sin cantidad)
+    }
+    if (cambios.devolver) {
+      if (ctx.esCopia(p)) copiasStock++;
+      else {
+        campos.stock = (typeof p.stock === 'number' ? p.stock : 0) + cambios.devolver;
+        if (p.estado === 'vendido') campos.estado = 'disponible';
+      }
+    }
     let precio = cambios.precio != null ? cambios.precio : p.precio;
     if (cambios.ajustePct != null || cambios.ajusteMonto != null) {
       if (p.precio == null) sinPrecio++;

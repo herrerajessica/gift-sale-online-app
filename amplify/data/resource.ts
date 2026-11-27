@@ -123,8 +123,9 @@ const schema = a.schema({
     .secondaryIndexes((index) => [index('tiendaId').name('byTienda')])
     .authorization((allow) => [allow.owner(), allow.group('SUPERADMIN')]),
 
-  // Pedidos pagados en línea. Los crea la función "pagos".
+  // Pedidos. Los crea la función "pagos".
   // Tarjeta: los confirma el webhook de Stripe. Yape: los confirma la vendedora.
+  // WhatsApp: se anotan cuando la clienta envía el pedido; la vendedora confirma lo que se vendió de verdad.
   Pedido: a
     .model({
       tiendaId: a.string().required(),
@@ -136,7 +137,7 @@ const schema = a.schema({
       email: a.string(),
       telefono: a.string(),
       nota: a.string(),
-      metodo: a.enum(['tarjeta', 'yape']),
+      metodo: a.enum(['tarjeta', 'yape', 'whatsapp']),
       operacion: a.string(),      // código de operación Yape que escribe el cliente
       estado: a.enum(['pendiente', 'por_confirmar', 'pagado', 'entregado', 'cancelado']),
       stripeSessionId: a.string(),
@@ -318,6 +319,19 @@ const schema = a.schema({
       email: a.string(),
       nota: a.string(),
       operacion: a.string(),
+    })
+    .returns(a.string())
+    .handler(a.handler.function(pagos))
+    .authorization((allow) => [allow.guest(), allow.authenticated()]),
+
+  // La clienta envió su pedido por WhatsApp: se anota para que la vendedora confirme lo vendido con un toque.
+  pedidoWhatsapp: a
+    .mutation()
+    .arguments({
+      tiendaId: a.string().required(),
+      items: a.string().required(),
+      nombre: a.string(),
+      nota: a.string(),
     })
     .returns(a.string())
     .handler(a.handler.function(pagos))
