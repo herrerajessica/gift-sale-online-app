@@ -1676,8 +1676,6 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     const fl=$("waFloat"); fl.hidden = !wa || S.canEdit;
     if(wa) fl.href = `https://wa.me/${wa}?text=${encodeURIComponent(tx(`Hola${S.config.nombre?" "+S.config.nombre:""}, vi tu tienda online y tengo una consulta.`, `Hi${S.config.nombre?" "+S.config.nombre:""}, I saw your online store and have a question.`))}`;
     fl.setAttribute("aria-label", tx("Escríbenos por WhatsApp","Message us on WhatsApp")); fl.querySelector("span").textContent = tx("Escríbenos","Chat with us");
-    // Tienda de EE. UU.: el sello "Traído de USA" no aplica; el cliente ve la tienda en inglés.
-    document.querySelector(".brand .stamp").hidden = esUS(); document.querySelector(".brand .stamp").textContent = tx("Traído de USA","Imported from USA");
     { const o = $("orden").options; o[0].text = tx("Más nuevos","Newest"); o[1].text = tx("Precio: menor a mayor","Price: low to high"); o[2].text = tx("Precio: mayor a menor","Price: high to low"); $("orden").setAttribute("aria-label", tx("Ordenar productos","Sort products")); }
     document.documentElement.lang = EN() ? "en" : "es";
     // Botón ES | EN: el cliente cambia el idioma de la tienda (la vendedora siempre ve su panel en español)
@@ -3489,7 +3487,7 @@ Puedes juntar varias: "CAR-002 precio 120 y stock 1". Siempre te muestro los cam
       iniciarVitrina();
       return;
     }
-    if(!ses.logged){ show("landing", true); show("vitrina", false); show("langBtn", true); aplicarIdiomaInicio(); pintarPlanesLanding(monedaLanding); { const st = document.querySelector(".brand .stamp"); if(st) st.hidden = true; } if(location.hash==="#entrar") abrirAuth("login"); return; }
+    if(!ses.logged){ show("landing", true); show("vitrina", false); show("langBtn", true); aplicarIdiomaInicio(); pintarPlanesLanding(monedaLanding); if(location.hash==="#entrar") abrirAuth("login"); return; }
 
     let tienda = null;
     try{ tienda = await miTienda(ses.sub, ses.usuario, ses.superadmin); }catch(e){
