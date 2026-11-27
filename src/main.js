@@ -480,7 +480,11 @@ import { RUBROS, TIPOS, tiposDe, categoriaDeTipo, prefijoDeTipo, tipoDeTexto, ma
             if(intento) await new Promise(r=>setTimeout(r, 1500*intento));
             try{
               const r=await ai.json('',{images:fotos.slice(0,3).map(f=>f.thumb),idioma:esUS()?'en':'es',rubro:rubroActual()});
-              for(const x of (Array.isArray(r)?r:[]).sort((a,b)=>(a.i||0)-(b.i||0))) for(const [k,v] of Object.entries(x||{})) if(k!=='i' && v!=null && v!=='' && visual[k]==null) visual[k]=v;
+              // Primero las fotos del producto; las que solo muestran la caja quedan al final (de ahí solo se toma la marca).
+              const esCaja = x=>/^(caja|estuche|empaque|bolsa de regalo|box)\b/i.test(String(x&&x.nombre||''));
+              const lect = (Array.isArray(r)?r:[]).sort((a,b)=>(esCaja(a)-esCaja(b))||((a.i||0)-(b.i||0)));
+              const hayProducto = lect.some(x=>!esCaja(x));
+              for(const x of lect) for(const [k,v] of Object.entries(x||{})) if(k!=='i' && v!=null && v!=='' && visual[k]==null && (!hayProducto || !esCaja(x) || k==='marca')) visual[k]=v;
             }catch(e){console.warn('No se completaron datos de la foto (intento '+(intento+1)+')',e);}
           }
           if(!visual.nombre && !visual.descripcion) sinLeer.push(nombre);
@@ -1368,7 +1372,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       side.append(el("div",{class:"actions"},
         el("button",{class:"btn danger",type:"button",onclick:()=>{conf.hidden=false;}},"Borrar"),
         el("div",{style:"display:flex;gap:8px"}, el("button",{class:"btn",type:"button",onclick:closeSheet},"Cerrar"),
-          el("button",{class:"btn primary",type:"button",onclick:async()=>{ const patch={ nombre:$("eName").value.trim()||"Producto nuevo", marca:$("eMarca").value.trim(), stock:parseStock($("eStock").value), costo:parsePrice($("eCosto").value), talla:$("eTalla").value.trim(), condicion:$("eCond").value, precio:parsePrice($("ePrice").value), estado:$("eStatus").value, tipo:$("eTipo").value, categoria:$("eCat").value.trim(), publico:$("ePub").value, descripcion:$("eDesc").value.trim(), compartido:$("eShare").checked, precioReventa:parsePrice($("ePrecioRev").value) }; if(patch.compartido && patch.precioReventa==null){ if(patch.precio==null){ toast("Para compartirlo, ponle un precio para revendedoras"); return; } patch.precioReventa = patch.precio; } try{ await S.db.doc("productos/"+p.id).update(patch); toast("Guardado"); closeSheet(); }catch(e){ toast("No se pudo guardar. Revisa tu conexión e intenta de nuevo."); } }},"Guardar"))
+          el("button",{class:"btn primary",type:"button",onclick:async()=>{ const patch={ nombre:$("eName").value.trim()||"Producto nuevo", marca:$("eMarca").value.trim(), stock:parseStock($("eStock").value), costo:parsePrice($("eCosto").value), talla:$("eTalla").value.trim(), condicion:$("eCond").value, precio:parsePrice($("ePrice").value), estado:$("eStatus").value, tipo:$("eTipo").value, categoria:$("eCat").value.trim(), publico:$("ePub").value, descripcion:$("eDesc").value.trim(), compartido:$("eShare").checked, precioReventa:parsePrice($("ePrecioRev").value) }; if(patch.compartido && patch.precioReventa==null){ if(patch.precio==null){ toast("Para compartirlo, ponle un precio para revendedoras"); return; } patch.precioReventa = patch.precio; } const recienCompartido = patch.compartido && !p.compartido; try{ await S.db.doc("productos/"+p.id).update(patch); toast("Guardado"); closeSheet(); if(recienCompartido) confianza("avisar",{ n:1 }).catch(e=>console.warn("Aviso por correo", e)); }catch(e){ toast("No se pudo guardar. Revisa tu conexión e intenta de nuevo."); } }},"Guardar"))
       ), conf);
     } else {
       const st=p.estado||"disponible";
@@ -1973,7 +1977,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       : n==="ExpiredCodeException" ? ti("El código venció. Toca \"Reenviar código\".","The code expired. Tap \"Resend code\".")
       : n==="UserNotConfirmedException" ? ti("Falta verificar tu correo.","You still need to verify your email.")
       : n==="LimitExceededException"||n==="TooManyRequestsException" ? ti("Hiciste muchos intentos seguidos. Espera unos minutos y vuelve a intentar.","Too many attempts. Wait a few minutes and try again.")
-      : n==="InvalidParameterException" && paso==="olvido" ? "Esa cuenta todavía no verificó su correo o entra con Google: no se puede recuperar la contraseña así."
+      : n==="InvalidParameterException" && paso==="olvido" ? "Esta cuenta entra con Google y no tiene contraseña. Toca Cancelar y luego \"Continuar con Google\"."
       : ((err && err.message) || ti("No se pudo completar. Intenta de nuevo.","Something went wrong. Please try again.")); };
   async function trasLogin(r){
     if(r.isSignedIn){ location.href = location.pathname; return; }
@@ -2986,6 +2990,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       const fails = await runPool(conPrecio.map(p=>p.id), id=>{ const p=S.products.find(x=>x.id===id); return S.db.doc("productos/"+id).update({ compartido:true, precioReventa: redondeoRev(p.precio*(1-d/100)) }); });
       cerrar();
       toast(fails ? `${conPrecio.length-fails} compartidos; ${fails} fallaron` : `${conPrecio.length} producto(s) compartidos con tus tiendas de confianza`);
+      if(conPrecio.length-fails > 0) confianza("avisar",{ n: conPrecio.length-fails }).catch(e=>console.warn("Aviso por correo", e));
       if(S.conf && !S.conf.relaciones.some(r=>r.estado==="aceptada")) setTimeout(()=>toast("Aún no tienes tiendas de confianza: invítalas en Tiendas de confianza"), 3000);
     };
     ov.append(el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":"Compartir productos"},

@@ -236,6 +236,28 @@ async function liberarSeparado(t: Item, d: Item) {
 }
 
 // ---------- Invitar, aceptar y cortar ----------
+/** Avisa por correo a mis tiendas de confianza que compartí productos (como máximo uno cada 6 horas por tienda). */
+async function avisarCompartidos(t: Item, d: Item) {
+  const n = Math.max(1, Math.min(500, Math.floor(Number(d.n) || 1)));
+  const esc = (x: unknown) => String(x || '').replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' } as Record<string, string>)[c]);
+  const ahora = Date.now();
+  let enviados = 0;
+  for (const r of (await relacionesDe(t.id)).filter((x) => x.estado === 'aceptada')) {
+    const campo = 'aviso_' + String(t.id).replace(/[^a-z0-9]/g, '_');
+    if (Number(r[campo] || 0) > ahora - 6 * 3600e3) continue;
+    const otra = await leerTienda(r.otra);
+    if (!otra || !otra.email) continue;
+    await ddb.send(new UpdateCommand({ TableName: CONFIANZA(), Key: { id: r.id }, UpdateExpression: 'SET #c = :a', ExpressionAttributeNames: { '#c': campo }, ExpressionAttributeValues: { ':a': ahora } }));
+    await enviarCorreo({
+      para: otra.email, responderA: t.email,
+      asunto: `${t.nombre} te compartió ${n === 1 ? 'un producto' : n + ' productos'} para revender`,
+      html: `<p style="font-family:Arial,sans-serif;font-size:15px"><b>${esc(t.nombre)}</b> te compartió ${n === 1 ? 'un producto' : n + ' productos'} en Showroomcito. Puedes venderlos en tu tienda como tuyos, con tu precio. Entra a tu tienda › <b>Productos</b> y toca <b>Ver y agregar a mi tienda</b>.</p>`,
+    }).catch((e: unknown) => console.warn('aviso compartidos', e));
+    enviados++;
+  }
+  return { ok: true, enviados };
+}
+
 /** Busca tiendas aprobadas por nombre o por su código (enlace), para invitarlas. */
 async function buscar(t: Item, d: Item) {
   const sinTildes = (x: unknown) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
@@ -407,6 +429,7 @@ export const handler = async (event: Evento) => {
   switch (accion) {
     case 'listar': res = await listar(t); break;
     case 'buscar': res = await buscar(t, d); break;
+    case 'avisar': res = await avisarCompartidos(t, d); break;
     case 'invitar': res = await invitar(t, d); break;
     case 'aceptar': res = await aceptar(t, d); break;
     case 'cortar': res = await cortar(t, d); break;

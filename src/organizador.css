@@ -210,3 +210,11 @@
 .rv-item{cursor:pointer;min-height:64px}
 .rv-item:has(input:checked){border-color:var(--accent);background:color-mix(in srgb,var(--accent) 6%,var(--surface))}
 .rv-item input{width:22px;height:22px}
+/* Aviso de arriba de la tienda (Aprobada / Pendiente): en el celular el texto ocupa todo el ancho */
+@media(max-width:600px){
+  #storeBanner:not([hidden]){display:grid!important;grid-template-columns:1fr 1fr;gap:8px}
+  #storeBanner>#bannerPill{grid-column:1/-1;justify-self:start}
+  #storeBanner>#bannerText{grid-column:1/-1}
+  #storeBanner>#bannerLink{grid-column:1/-1;overflow-wrap:anywhere}
+  #storeBanner>.btn{justify-content:center;min-height:44px}
+}
