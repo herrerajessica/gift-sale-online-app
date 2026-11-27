@@ -82,7 +82,10 @@ test.describe('REQ-030 Grupo de WhatsApp de ventas', () => {
     await page.locator('#selectBtn').click();
     await page.locator('#grid .card').filter({ hasText: cod }).locator('button.open').click();
     await expect(page.locator('#bulkCount')).toContainText('1');
-    await page.locator('#bulkGrupo').click();
+    // El botón está dentro de la sección "📣 Compartir y mensajes" (cerrada al empezar)
+    const grupo = page.locator('#bulkGrupo');
+    if (!(await grupo.isVisible())) await page.locator('details').filter({ has: grupo }).locator('summary').click();
+    await grupo.click();
     const dlg = page.getByRole('dialog', { name: 'Mensaje para tu grupo' });
     await expect(dlg).toBeVisible();
     const texto = dlg.locator('#grupoTexto');

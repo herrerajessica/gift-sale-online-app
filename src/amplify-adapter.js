@@ -40,8 +40,16 @@ export function alVolverDeGoogle(ok, error) {
  * Devuelve true cuando la página se va a Cognito y vuelve sola.
  */
 export async function cerrarSesion() {
+  // Solo cuenta si ESTA sesión se abrió con Google (Amplify lo anota como "oauthSignIn").
+  // No se usa el dato "identities" del token: una cuenta de correo enlazada con Google también lo trae,
+  // y entonces la página esperaba 8 segundos sin motivo al cerrar sesión con contraseña.
   let conGoogle = false;
-  try { const s = await fetchAuthSession(); conGoogle = !!(s.tokens && s.tokens.idToken && s.tokens.idToken.payload.identities); } catch { /* sin sesión */ }
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i) || '';
+      if (k.endsWith('.oauthSignIn') && String(localStorage.getItem(k)).startsWith('true')) conGoogle = true;
+    }
+  } catch { /* sin acceso al almacenamiento */ }
   await signOut();
   return conGoogle;
 }
