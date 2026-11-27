@@ -357,11 +357,12 @@ export async function traducirTextos(textos, a) {
 // Debe coincidir con amplify/functions/shared/planes.ts
 export const PLANES = [
   // asis: mensajes del asistente por día (LIMITE_DIARIO en asistente/herramientas.ts); cli: preguntas de clientes por día (LIMITE_CLIENTES en catalogo/cliente.ts).
+  // pronto: todavía no se puede contratar; se muestra "Próximamente" (y el cobro lo rechaza: PLANES_PRONTO en shared/planes.ts).
   // precio: soles (tiendas de Perú). precioUsd: dólares (tiendas de EE. UU.), PROVISIONALES: deben coincidir con amplify/functions/shared/planes.ts.
   { id: 'free', nombre: 'Free', limite: 20, precio: 0, precioUsd: 0, asis: 15, cli: 20 },
   { id: 'basico', nombre: 'Básico', limite: 50, precio: 19, precioUsd: 9, asis: 60, cli: 100 },
-  { id: 'pro', nombre: 'Pro', limite: null, precio: 49, precioUsd: 19, asis: 200, cli: 300 },
-  { id: 'plus', nombre: 'Plus', limite: null, precio: 99, precioUsd: 39, asis: 1000, cli: 1000, extra: 'Próximamente: fotos con fondo blanco (IA)' },
+  { id: 'pro', nombre: 'Pro', limite: null, precio: 49, precioUsd: 19, asis: 200, cli: 300, pronto: true },
+  { id: 'plus', nombre: 'Plus', limite: null, precio: 99, precioUsd: 39, asis: 1000, cli: 1000, pronto: true },
 ];
 // Funciones con costo por uso: solo en el plan Plus.
 export const tieneFondoIA = (t) => planVigente(t).id === 'plus';

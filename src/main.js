@@ -1941,14 +1941,16 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     document.querySelectorAll(".l-moneda .chip").forEach(b=>b.setAttribute("aria-pressed", String(b.dataset.moneda===moneda)));
     for(const pl of PLANES){
       const precio = moneda==="USD" ? pl.precioUsd : pl.precio;
-      box.append(el("div",{class:"plan-card"+(pl.id==="basico"?" on":"")},
+      box.append(el("div",{class:"plan-card"+(pl.id==="basico"?" on":"")+(pl.pronto?" pronto":"")},
+        pl.pronto ? el("em",{class:"plan-pronto"}, ti("Próximamente","Coming soon")) : null,
         el("strong",null, pl.nombre),
         el("div",{class:"plan-price"}, precio ? (moneda==="USD" ? `$${precio}` : `S/ ${precio}`) : ti("Gratis","Free"), precio ? el("small",null,ti(" /mes"," /month")) : null),
         el("span",null, pl.limite==null ? ti("Productos ilimitados","Unlimited products") : ti(`Hasta ${pl.limite} productos`,`Up to ${pl.limite} products`)),
         el("span",null, ti("IA, voz, WhatsApp, Yape y tarjeta","AI, voice, WhatsApp, Yape and card")),
         pl.id!=="free" ? el("span",null, ti("Asistente y tiendas de confianza","Assistant and trusted stores")) : el("span",null, ti("Ideal para probar","Great to try it out")),
         pl.extra ? el("span",{class:"extra"}, "+ " + ti(pl.extra, "Coming soon: white-background photos (AI)")) : null,
-        el("button",{class:"btn"+(pl.id==="free"?" primary":""),type:"button",onclick:()=>abrirAuth("signup")}, pl.id==="free" ? ti("Empezar gratis","Start free") : ti("Empezar","Start"))));
+        pl.pronto ? el("button",{class:"btn",type:"button",disabled:""}, ti("Próximamente","Coming soon"))
+          : el("button",{class:"btn"+(pl.id==="free"?" primary":""),type:"button",onclick:()=>abrirAuth("signup")}, pl.id==="free" ? ti("Empezar gratis","Start free") : ti("Empezar","Start"))));
     }
   }
   document.querySelectorAll(".l-moneda .chip").forEach(b=>b.onclick = ()=>pintarPlanesLanding(b.dataset.moneda));
@@ -2359,6 +2361,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     for(const pl of PLANES){
       let btn;
       if(pl.id===u.plan.id) btn = el("button",{class:"btn",type:"button",disabled:""},"Tu plan actual");
+      else if(pl.pronto) btn = el("button",{class:"btn",type:"button",disabled:""},"Próximamente");
       else if(pl.id==="free") btn = el("button",{class:"btn",type:"button",onclick:async()=>{
           btn.disabled=true; try{ await cancelarPlan(); toast("Tu plan seguirá activo hasta fin de mes y luego pasarás a Free"); S.config = await miTiendaActual(); actualizarPlan(); cerrar(); }
           catch(e){ toast((e&&e.message)||"No se pudo cambiar el plan"); btn.disabled=false; } }},"Volver a Free");
@@ -2367,7 +2370,8 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
           try{ const r = await pagarPlan(pl.id); location.href = r.url; }
           catch(e){ toast((e&&e.message)||"No se pudo iniciar el pago"); btn.disabled=false; btn.textContent="Elegir este plan"; } }},
           PLANES.indexOf(pl) > PLANES.indexOf(u.plan) ? "Elegir este plan" : "Cambiar a este plan");
-      grid.append(el("div",{class:"plan-card"+(pl.id===u.plan.id?" on":"")},
+      grid.append(el("div",{class:"plan-card"+(pl.id===u.plan.id?" on":"")+(pl.pronto && pl.id!==u.plan.id?" pronto":"")},
+        pl.pronto && pl.id!==u.plan.id ? el("em",{class:"plan-pronto"},"Próximamente") : null,
         el("strong",null,pl.nombre),
         el("div",{class:"plan-price"}, pl.precio ? (esUS() ? `$${pl.precioUsd}` : `S/ ${pl.precio}`) : "Gratis", pl.precio ? el("small",null," /mes") : null),
         el("span",null, pl.limite==null ? "Productos ilimitados" : `Hasta ${pl.limite} productos`),

@@ -17,6 +17,10 @@ export const paisDe = (t: { pais?: string | null }): Pais => (t.pais === 'US' ? 
 
 export const esPlan = (p: unknown): p is PlanId => typeof p === 'string' && p in PLANES;
 
+// Planes que todavía no se pueden contratar (se muestran como "Próximamente"). Quítalos de aquí y de
+// `pronto` en src/amplify-adapter.js cuando estén listos.
+export const PLANES_PRONTO: PlanId[] = ['pro', 'plus'];
+
 // Días de gracia después del vencimiento antes de volver al plan Free.
 const GRACIA_MS = 3 * 24 * 60 * 60 * 1000;
 
