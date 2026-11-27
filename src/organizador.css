@@ -218,3 +218,7 @@
   #storeBanner>#bannerLink{grid-column:1/-1;overflow-wrap:anywhere}
   #storeBanner>.btn{justify-content:center;min-height:44px}
 }
+
+.union-todos{display:grid;gap:12px;max-height:min(60vh,520px);overflow:auto;padding-right:4px}
+.union-todos-grupo{display:grid;gap:8px;border:1.5px solid var(--line);border-left:6px solid var(--grupo-color,#1d7a46);border-radius:12px;padding:10px 12px}
+.union-todos-grupo .union-fichas{max-height:none}
