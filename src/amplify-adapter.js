@@ -433,8 +433,11 @@ export async function cambiarEstadoPedido(id, estado) {
 }
 
 // Solo SUPERADMIN: asignar un plan a mano (por ejemplo, cortesía o pago fuera de Stripe) por 30 días.
-export async function cambiarPlanTienda(id, plan) {
-  const planVence = plan === 'free' ? null : Date.now() + 30 * 24 * 3600e3;
+// Tiendas de la administración: plan Plus que no vence (31/12/9999). Solo SUPERADMIN puede asignarlo.
+export const SIN_VENCIMIENTO = 253402300799000;
+export const esSinVencimiento = (t) => !!(t && t.planVence && t.planVence >= SIN_VENCIMIENTO);
+export async function cambiarPlanTienda(id, plan, sinVencimiento = false) {
+  const planVence = plan === 'free' ? null : sinVencimiento ? SIN_VENCIMIENTO : Date.now() + 30 * 24 * 3600e3;
   check(await client.models.Tienda.update({ id, plan, planVence }, { authMode: 'userPool' }));
   return planVence;
 }
