@@ -130,7 +130,10 @@ button{cursor:pointer}
 .portada{position:relative;margin:0 0 16px;border-radius:22px;overflow:hidden;min-height:150px;display:flex;align-items:flex-end;background:linear-gradient(135deg,#1f4fd1,#14213d);background-size:cover;background-position:center;color:#fff}
 .portada.con-foto{min-height:clamp(200px,32vw,340px)}
 .portada.con-foto::before{content:"";position:absolute;inset:0;background:linear-gradient(to top,rgb(10 16 30 / .82),rgb(10 16 30 / .15) 65%)}
-.portada-txt{position:relative;padding:clamp(18px,3vw,32px);display:grid;gap:6px;max-width:760px}
+.portada-txt{position:relative;padding:clamp(18px,3vw,32px);display:grid;gap:6px;max-width:min(760px,54%)}
+/* La foto puede traer texto a la derecha (por ejemplo, las marcas): en pantallas angostas el texto ocupa todo el ancho
+   y lleva un fondo oscuro para que no se mezcle con la foto. */
+@media (max-width:760px){.portada.con-foto .portada-txt{max-width:none;margin:10px;padding:14px 16px;border-radius:16px;background:rgb(10 16 30 / .62);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}}
 .portada h2{margin:0;font-family:var(--display);font-weight:800;font-size:clamp(26px,4.4vw,44px);line-height:1.05;letter-spacing:-.5px;text-wrap:balance}
 .portada p{margin:0;font-size:clamp(14.5px,1.6vw,17px);line-height:1.45;opacity:.95;white-space:pre-line}
 .portada-meta{font-size:13.5px;font-weight:700;opacity:.9}
