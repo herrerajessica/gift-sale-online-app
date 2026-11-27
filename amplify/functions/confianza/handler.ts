@@ -50,7 +50,7 @@ const limpiarSlug = (s: unknown) => String(s || '').trim().toLowerCase()
   .replace(/^.*[?&]tienda=/, '').replace(/[&#].*$/, '').replace(/[^a-z0-9-]/g, '').slice(0, 40);
 
 const datosProducto = (p: Item) => ({
-  nombre: p.nombre, marca: p.marca || '', talla: p.talla || '', condicion: p.condicion || '',
+  nombre: p.nombre, marca: p.marca || '', talla: p.talla || '', condicion: p.condicion || '', tipo: p.tipo || '',
   categoria: p.categoria || '', publico: p.publico || '', descripcion: p.descripcion || '',
   fotosFull: p.fotosFull || [], fotosThumb: p.fotosThumb || [],
 });
