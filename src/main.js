@@ -864,24 +864,33 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       if(grupoUnion){card.classList.add('en-grupo-union');card.style.setProperty('--grupo-color',gruposUnion.color(grupoUnion.id));card.append(el('span',{class:'grupo-etiqueta'},grupoUnion.nombre));}
       if(!p.unidoA) card.dataset.producto=p.id;
       if(S.canEdit && p.unidoA) card.append(el('span',{class:'union-etiqueta'},'Ya unido a otro producto'));
-      if(S.canEdit && S.selecting && S.juntando){
+      if(S.canEdit && S.selecting && S.juntando && grupoUnion){
+        // Ya está en un grupo: en vez de la manija, un botón claro para sacarlo.
+        card.append(el('button',{class:'drag-asa quitar-grupo',type:'button','aria-label':'Quitar '+nom(p)+' de '+grupoUnion.nombre,onclick:()=>{
+          S.sel=gruposUnion.activar(grupoUnion.id); S.sel.delete(p.id); S.sel=gruposUnion.asignar(S.sel);
+          if(!S.sel.size && gruposUnion.grupos.length>1) S.sel=gruposUnion.quitarGrupo(grupoUnion.id);
+          render(); toast('Se quitó del grupo'); }},'✕ Quitar del grupo'));
+      } else if(S.canEdit && S.selecting && S.juntando){
         const asa=el('button',{class:'drag-asa',type:'button','aria-label':'Arrastrar '+nom(p)+' para juntar'},'⠿ Arrastrar para juntar');
-        asa.disabled=!!p.unidoA || !!grupoUnion;
-        asa.textContent=p.unidoA?'Ya unido':grupoUnion?grupoUnion.nombre:'⠿ Arrastrar para juntar';
+        asa.disabled=!!p.unidoA;
+        if(p.unidoA) asa.textContent='Ya unido';
         card.append(asa);
         if(!asa.disabled) arrastrable(asa,{destino:'.card[data-producto]',soltar:destino=>{
           const otro=destino.dataset.producto; if(otro===p.id) return;
           const destinoGrupo=gruposUnion.propietario(otro);
-          if(destinoGrupo)S.sel=gruposUnion.activar(destinoGrupo.id);
-          const seleccion = new Set([...S.sel,otro,p.id]);
+          // Se suelta sobre un producto que ya está en un grupo: se suma a ese grupo.
+          // Se suelta sobre uno suelto: se arma un grupo NUEVO solo con esos dos (antes se sumaban al grupo abierto).
+          const seleccion = new Set([...(destinoGrupo ? destinoGrupo.ids : []),otro,p.id]);
           const productos = [...seleccion].map(id=>S.products.find(x=>x.id===id));
           if(productos.some(x=>!x)){toast('Algún producto ya no está disponible. Revisa la selección.');return;}
           try{prepararUnion(productos,[...seleccion][0]);}catch(e){toast(e.message);return;}
+          if(destinoGrupo) gruposUnion.activar(destinoGrupo.id);
+          else if(gruposUnion.grupos.find(g=>g.id===gruposUnion.activo)?.ids.size) gruposUnion.nuevo();
           S.sel=gruposUnion.asignar(seleccion); render();
           toast(`${seleccion.size} productos preparados. Puedes agregar más o tocar Juntar.`);
         }});
       }
-      if(S.canEdit&&S.selecting&&S.juntando&&grupoUnion){
+      if(S.canEdit&&S.selecting&&S.juntando&&grupoUnion&&gruposUnion.grupos.filter(g=>g.ids.size).length>1){
         const mover=el('select',{'aria-label':'Grupo de '+nom(p)});
         gruposUnion.grupos.forEach(g=>mover.append(el('option',{value:g.id},g.nombre)));mover.value=grupoUnion.id;
         mover.onchange=()=>{S.sel=gruposUnion.activar(Number(mover.value));S.sel.add(p.id);S.sel=gruposUnion.asignar(S.sel);render();};card.append(mover);
