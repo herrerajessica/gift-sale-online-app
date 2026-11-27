@@ -222,3 +222,8 @@
 .union-todos{display:grid;gap:12px;max-height:min(60vh,520px);overflow:auto;padding-right:4px}
 .union-todos-grupo{display:grid;gap:8px;border:1.5px solid var(--line);border-left:6px solid var(--grupo-color,#1d7a46);border-radius:12px;padding:10px 12px}
 .union-todos-grupo .union-fichas{max-height:none}
+.card.juntar-elegida{outline:3px solid var(--accent,#2454da);outline-offset:2px;box-shadow:0 0 0 7px rgb(36 84 218 / .18)}
+.card.juntar-elegida::after{content:"Elegida · toca la otra";position:absolute;top:58px;right:10px;z-index:3;background:var(--accent,#2454da);color:#fff;font-size:12.5px;font-weight:700;padding:4px 10px;border-radius:999px;white-space:nowrap;pointer-events:none}
+@media (max-width:600px){.card>.drag-asa{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:6px 8px;min-height:40px}}
+.union-todos .union-fichas{grid-template-columns:repeat(auto-fill,minmax(84px,1fr))}
+.union-todos .union-ficha img{width:100%;aspect-ratio:1;height:auto;object-fit:cover;border-radius:8px}

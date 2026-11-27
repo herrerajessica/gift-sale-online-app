@@ -861,6 +861,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       const card = el("div",{class:"card "+st+(p.stock===0?" agotado":"")+(S.sel.has(p.id)?" sel":"")});
       // Los grupos para juntar solo se ven en "Modo juntar"; al seleccionar para editar o borrar no aparecen.
       const grupoUnion=S.selecting&&S.juntando?gruposUnion.propietario(p.id):null;
+      if(S.selecting&&S.juntando&&S.pendienteJuntar===p.id) card.classList.add('juntar-elegida');
       if(grupoUnion){card.classList.add('en-grupo-union');card.style.setProperty('--grupo-color',gruposUnion.color(grupoUnion.id));card.append(el('span',{class:'grupo-etiqueta'},grupoUnion.nombre));}
       if(!p.unidoA) card.dataset.producto=p.id;
       if(S.canEdit && p.unidoA) card.append(el('span',{class:'union-etiqueta'},'Ya unido a otro producto'));
@@ -875,20 +876,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         asa.disabled=!!p.unidoA;
         if(p.unidoA) asa.textContent='Ya unido';
         card.append(asa);
-        if(!asa.disabled) arrastrable(asa,{destino:'.card[data-producto]',soltar:destino=>{
-          const otro=destino.dataset.producto; if(otro===p.id) return;
-          const destinoGrupo=gruposUnion.propietario(otro);
-          // Se suelta sobre un producto que ya está en un grupo: se suma a ese grupo.
-          // Se suelta sobre uno suelto: se arma un grupo NUEVO solo con esos dos (antes se sumaban al grupo abierto).
-          const seleccion = new Set([...(destinoGrupo ? destinoGrupo.ids : []),otro,p.id]);
-          const productos = [...seleccion].map(id=>S.products.find(x=>x.id===id));
-          if(productos.some(x=>!x)){toast('Algún producto ya no está disponible. Revisa la selección.');return;}
-          try{prepararUnion(productos,[...seleccion][0]);}catch(e){toast(e.message);return;}
-          if(destinoGrupo) gruposUnion.activar(destinoGrupo.id);
-          else if(gruposUnion.grupos.find(g=>g.id===gruposUnion.activo)?.ids.size) gruposUnion.nuevo();
-          S.sel=gruposUnion.asignar(seleccion); render();
-          toast(`${seleccion.size} productos preparados. Puedes agregar más o tocar Juntar.`);
-        }});
+        if(!asa.disabled) arrastrable(asa,{destino:'.card[data-producto]',soltar:destino=>unirFichas(p.id, destino.dataset.producto)});
       }
       if(S.canEdit&&S.selecting&&S.juntando&&grupoUnion&&gruposUnion.grupos.filter(g=>g.ids.size).length>1){
         const mover=el('select',{'aria-label':'Grupo de '+nom(p)});
@@ -927,14 +915,34 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     renderCartBar();
   }
 
+  // ---------- Modo juntar: "esta ficha va con aquella" (al arrastrar o al tocar una y luego la otra) ----------
+  // Sobre una ficha que ya está en un grupo: se suma a ese grupo. Sobre una suelta: arma un grupo NUEVO con las dos.
+  function unirFichas(id, otro){
+    S.pendienteJuntar=null;
+    if(!otro || otro===id){ render(); return; }
+    const destinoGrupo=gruposUnion.propietario(otro);
+    const seleccion = new Set([...(destinoGrupo ? destinoGrupo.ids : []),otro,id]);
+    const productos = [...seleccion].map(x=>S.products.find(q=>q.id===x));
+    if(productos.some(x=>!x)){toast('Algún producto ya no está disponible. Revisa la selección.');render();return;}
+    try{prepararUnion(productos,[...seleccion][0]);}catch(e){toast(e.message);render();return;}
+    if(destinoGrupo) gruposUnion.activar(destinoGrupo.id);
+    else if(gruposUnion.grupos.find(g=>g.id===gruposUnion.activo)?.ids.size) gruposUnion.nuevo();
+    S.sel=gruposUnion.asignar(seleccion); render();
+    const n=gruposListos().length;
+    toast(`Listo: ${gruposUnion.grupos.find(g=>g.id===gruposUnion.activo)?.nombre||"Grupo"} con ${seleccion.size} fichas. Sigue con otro producto o toca Juntar${n>1?` (${n} grupos)`:""}.`);
+  }
+
   // ---------- Selección en bloque ----------
   function toggleSel(id){
     const p=S.products.find(x=>x.id===id);
     if(!S.juntando){ S.sel.has(id)?S.sel.delete(id):S.sel.add(id); render(); return; }
     if(p?.unidoA){toast('Este producto ya está unido. Usa su producto principal.');return;}
-    const anterior=gruposUnion.propietario(id);
-    if(anterior&&anterior.id!==gruposUnion.activo){S.sel=gruposUnion.activar(anterior.id);render();return;}
-    S.sel.has(id)?S.sel.delete(id):S.sel.add(id);S.sel=gruposUnion.asignar(S.sel); render();
+    const pend=S.pendienteJuntar;
+    if(pend===id){ S.pendienteJuntar=null; render(); return; }   // la misma otra vez: se cancela
+    if(pend){ unirFichas(pend, id); return; }
+    if(gruposUnion.propietario(id)){ toast('Ya está en un grupo. Para sacarla toca "Quitar del grupo".'); return; }
+    S.pendienteJuntar=id; render();
+    toast('Ahora toca la otra foto del mismo producto');
   }
   function renderBulk(){
     if(S.juntando) gruposUnion.asignar(S.sel);
@@ -955,11 +963,11 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
   }
   $('unionNuevo').onclick=()=>{S.sel=gruposUnion.nuevo();render();};
   function cerrarSecciones(){ document.querySelectorAll("#bulk details.bulk-seccion").forEach(d=>d.open=false); }
-  function salirJuntar(){ S.juntando=false; gruposUnion.limpiar(); S.sel.clear(); cerrarSecciones(); render(); }
+  function salirJuntar(){ S.pendienteJuntar=null; S.juntando=false; gruposUnion.limpiar(); S.sel.clear(); cerrarSecciones(); render(); }
   $("selectBtn").onclick = ()=>{ S.selecting=true; S.juntando=false; gruposUnion.limpiar();S.sel.clear(); cerrarSecciones(); render(); $("bulk").scrollIntoView({block:"nearest"}); };
   $("bulkDone").onclick = ()=>{ S.selecting=false; S.juntando=false; gruposUnion.limpiar(); S.sel.clear(); $("bulkConfirm").hidden=true; cerrarSecciones(); render(); };
   // Juntar es un modo aparte: empieza sin nada marcado y se sale con "Salir de juntar".
-  $("bulkEntrarJuntar").onclick = ()=>{ S.juntando=true; gruposUnion.limpiar(); S.sel.clear(); $("bulkConfirm").hidden=true; render(); $("bulk").scrollIntoView({block:"nearest"}); toast("Toca las fichas que son el mismo producto"); };
+  $("bulkEntrarJuntar").onclick = ()=>{ S.juntando=true; S.pendienteJuntar=null; gruposUnion.limpiar(); S.sel.clear(); $("bulkConfirm").hidden=true; render(); $("bulk").scrollIntoView({block:"nearest"}); toast("Toca una ficha y luego la otra del mismo producto"); };
   $("bulkSalirJuntar").onclick = salirJuntar;
   // Abrir una sección cierra las otras: así siempre queda claro qué se está haciendo.
   document.querySelectorAll("#bulk details.bulk-seccion").forEach(d=>d.addEventListener("toggle",()=>{ if(d.open) document.querySelectorAll("#bulk details.bulk-seccion").forEach(o=>{ if(o!==d) o.open=false; }); }));
@@ -1064,6 +1072,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     }
     const totalFichas=items.reduce((n,it)=>n+it.productos.length,0);
     let ocupado=false, avance="", seguro=!items.some(it=>it.productos.length>3);
+    $("toast").hidden=true;
     const ov=$("planOverlay"); ov.hidden=false; delete ov.dataset.dict; delete ov.dataset.conf;
     const cerrar=()=>{ if(!ocupado){ ov.hidden=true; ov.textContent=""; } };
     ov.onclick=e=>{ if(e.target===ov) cerrar(); };
@@ -1114,6 +1123,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     let principalId = ids[0], portada = null, ocupado = false, seguro = productos.length <= 3;
     try { prepararUnion(productos, principalId); } catch(e) { toast(e.message); return; }
     const firma = JSON.stringify(productos);
+    $("toast").hidden=true;
     const ov = $("planOverlay"); ov.hidden=false; delete ov.dataset.dict; delete ov.dataset.conf;
     const cerrar = ()=>{ if(!ocupado){ ov.hidden=true; ov.textContent=""; } };
     ov.onclick = e=>{ if(e.target===ov) cerrar(); };
@@ -1146,7 +1156,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
       const check = productos.length > 3 ? el("label",{class:"union-seguro"}, el("input",{type:"checkbox",checked:seguro?"":false,disabled:ocupado,onchange:e=>{ seguro=e.target.checked; confirmar.disabled = ocupado || !seguro; }}), ` Sí, estas ${productos.length} fichas son el mismo producto`) : null;
       ov.append(el("div",{class:"cart",role:"dialog","aria-modal":"true","aria-label":"Juntar en un producto",style:"width:min(680px,100%)"},
         el("div",{class:"cart-head"},el("h2",null,"Juntar en un producto"),el("button",{class:"btn",type:"button",disabled:ocupado,onclick:cerrar},"Cancelar")),
-        el("p",{class:"union-aviso"},`Vas a juntar ${productos.length} fichas en una sola. Las otras ${plan.secundarios.length} se borran y no se puede deshacer.`),
+        el("p",{class:"union-aviso"},`Vas a juntar ${productos.length} fichas en una sola. ${plan.secundarios.length===1?"La otra se borra":`Las otras ${plan.secundarios.length} se borran`} y no se puede deshacer.`),
         fichas,
         el("label",{class:"f"},"Conservar el nombre, código y precio de",selector),
         el("strong",null,`${plan.fotos.length} fotos · Toca una para elegir la portada`),galeria,check,confirmar));
