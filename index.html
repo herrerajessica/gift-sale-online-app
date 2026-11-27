@@ -133,7 +133,14 @@ button{cursor:pointer}
 .portada-txt{position:relative;padding:clamp(18px,3vw,32px);display:grid;gap:6px;max-width:min(760px,54%)}
 /* La foto puede traer texto a la derecha (por ejemplo, las marcas): en pantallas angostas el texto ocupa todo el ancho
    y lleva un fondo oscuro para que no se mezcle con la foto. */
-@media (max-width:760px){.portada.con-foto .portada-txt{max-width:none;margin:10px;padding:14px 16px;border-radius:16px;background:rgb(10 16 30 / .62);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}}
+@media (max-width:760px){
+  /* Celular: la foto arriba, completa y sin texto encima; el nombre y la descripción debajo, sobre fondo oscuro. */
+  .portada.con-foto{display:block;min-height:0;background-color:#16203a;background-size:100% auto;background-position:center top;background-repeat:no-repeat;padding-top:41.7%}
+  .portada.con-foto::before{inset:0 0 auto 0;aspect-ratio:2.4;background:linear-gradient(to bottom,rgb(22 32 58 / 0) 70%,#16203a)}
+  .portada.con-foto .portada-txt{max-width:none;margin:0;padding:14px 18px 18px;gap:8px}
+  .portada.con-foto h2{font-size:26px}
+  .portada.con-foto p{font-size:14.5px;line-height:1.5}
+}
 .portada h2{margin:0;font-family:var(--display);font-weight:800;font-size:clamp(26px,4.4vw,44px);line-height:1.05;letter-spacing:-.5px;text-wrap:balance}
 .portada p{margin:0;font-size:clamp(14.5px,1.6vw,17px);line-height:1.45;opacity:.95;white-space:pre-line}
 .portada-meta{font-size:13.5px;font-weight:700;opacity:.9}
@@ -861,12 +868,21 @@ html,body{overflow-x:clip}
       <label class="f">Descripción de tu tienda<textarea id="setDescTienda" rows="3" maxlength="300" placeholder="Ej.: Ropa y carteras originales traídas de USA. Entregas en Lima y envíos a todo el Perú."></textarea></label>
       <span class="note" style="margin:0" id="setDescCuenta">0 / 300</span>
     </fieldset>
+    <fieldset class="zelle-set">
+      <legend>Cobrar con Zelle (clientas en inglés)</legend>
+      <div class="row2">
+        <label class="f">Correo o teléfono de Zelle<input id="setZelle" maxlength="80" placeholder="tu@correo.com o +1 305 555 0100"></label>
+        <label class="f">Nombre del titular<input id="setZelleName" maxlength="60" placeholder="Como aparece en Zelle"></label>
+      </div>
+      <span class="note" style="margin:0">Cuando una clienta ve tu tienda en inglés, el mensaje del pedido dice "card or Zelle" con estos datos. En español dice "Yape o Plin".</span>
+    </fieldset>
     <fieldset class="yape-set solo-pe">
       <legend>Cobrar con Yape</legend>
       <div class="row2">
         <label class="f">Número de Yape<input id="setYapeNum" inputmode="tel" placeholder="986 639 533"></label>
         <label class="f">Nombre del titular<input id="setYapeName" maxlength="60" placeholder="Como aparece en Yape"></label>
       </div>
+      <label class="f">Número de Plin (si también recibes por Plin)<input id="setPlinNum" inputmode="tel" placeholder="Déjalo vacío si es el mismo que Yape o no usas Plin"></label>
       <div class="yape-qr-row">
         <img id="setYapeImg" alt="Tu QR de Yape" hidden>
         <div style="display:grid;gap:6px;min-width:0">

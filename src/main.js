@@ -1507,20 +1507,40 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     $("cartLbl").textContent = tx("Mi pedido","My order");
   }
   $("cartbar").onclick = ()=>openCart();
-  // El pedido le llega a la vendedora en el idioma de su tienda, aunque el cliente vea la tienda en el otro
-  function buildMessage(){ const antes = S.idioma; S.idioma = idiomaBase(); try{ return armarMensaje(); } finally { S.idioma = antes; } }
+  // El mensaje sale en el idioma en que la clienta ve la tienda (es ella quien lo envía).
+  // Formato de WhatsApp: *negrita*, una línea por producto y al final el total y cómo pagar.
+  function buildMessage(){ return armarMensaje(); }
+  // Formas de pago que se mencionan en el mensaje: en español, Yape o Plin; en inglés, tarjeta o Zelle.
+  function lineaPago(){
+    const c = S.config || {};
+    if(EN()){
+      const z = (c.zelle||"").trim();
+      return `💳 Payment: card or Zelle${z ? ` (Zelle: ${z}${c.zelleNombre ? ", "+c.zelleNombre.trim() : ""})` : ""}`;
+    }
+    const y = (c.yapeNumero||"").trim(), pl = (c.plinNumero||"").trim();
+    // Un solo número (o el mismo en los dos): "al 986…". Números distintos: "(Yape 986… · Plin 987…)".
+    const mismo = !pl || !y || y.replace(/\D/g,"")===pl.replace(/\D/g,"");
+    const nums = mismo ? ((y||pl) ? ` al ${y||pl}` : "") : ` (Yape ${y} · Plin ${pl})`;
+    return `💜 Pago: Yape o Plin${nums}`;
+  }
   function armarMensaje(){
     const lines = cartLines().filter(l=>!agotado(l.p));
     const {total, consultar} = cartTotals();
-    let m = tx(`Hola${S.config.nombre?" "+S.config.nombre:""}, quiero hacer este pedido:\n\n`, `Hi${S.config.nombre?" "+S.config.nombre:""}, I'd like to order:\n\n`);
+    const tienda = S.config.nombre ? " "+S.config.nombre : "";
+    let m = tx(`Hola${tienda} 👋\nQuiero hacer este pedido:\n`, `Hi${tienda} 👋\nI'd like to order:\n`);
     lines.forEach((l,i)=>{
       const pr = l.p.precio==null ? tx("precio a consultar","price on request") : (l.q>1 ? `${l.q} × ${money(l.p.precio)} = ${dual(l.p.precio*l.q)}` : dual(l.p.precio));
-      m += `${i+1}. ${l.p.codigo ? l.p.codigo+" · " : ""}${l.p.nombre}${oferta(l.p) ? tx(" (oferta)"," (sale)") : ""}${l.p.condicion ? " ("+condTxt(l.p.condicion).toLowerCase()+")" : ""}${l.q>1&&l.p.precio==null?tx(` (${l.q} unidades)`,` (${l.q} units)`):""} — ${pr}\n`;
+      const detalle = [l.p.codigo, l.p.marca, l.p.condicion ? condTxt(l.p.condicion) : "", oferta(l.p) ? tx("oferta","sale") : "", l.q>1&&l.p.precio==null ? tx(`${l.q} unidades`,`${l.q} units`) : ""].filter(Boolean).join(" · ");
+      m += `\n${i+1}. *${nom(l.p)||tx("Producto","Item")}*\n`;
+      if(detalle) m += `    ${detalle}\n`;
+      m += `    ${pr}\n`;
     });
-    m += `\nTotal: ${dual(total)||money(0)}${consultar?tx(` + ${consultar} producto(s) a consultar`,` + ${consultar} item(s) to confirm price`):""}`;
-    { const tc = totalContado(lines); if(tc!=null) m += `\nTotal pagando con Yape o efectivo: S/ ${tc.toLocaleString("es-PE")}`; }
-    if(buyer.nombre.trim()) m += tx(`\nMi nombre: ${buyer.nombre.trim()}`,`\nMy name: ${buyer.nombre.trim()}`);
-    if(buyer.nota.trim()) m += tx(`\nNota: ${buyer.nota.trim()}`,`\nNote: ${buyer.nota.trim()}`);
+    m += `\n*Total: ${dual(total)||money(0)}*${consultar?tx(` + ${consultar} producto(s) a consultar`,` + ${consultar} item(s) to confirm price`):""}`;
+    { const usd = EN() ? dolaresAprox(total) : ""; if(usd) m += ` (${usd} USD)`; }
+    { const tc = EN() ? null : totalContado(lines); if(tc!=null) m += `\nPagando con Yape o efectivo: *S/ ${tc.toLocaleString("es-PE")}*`; }
+    if(!esUS() || EN()) m += `\n${lineaPago()}`;
+    if(buyer.nombre.trim()) m += tx(`\n👤 Mi nombre: ${buyer.nombre.trim()}`,`\n👤 My name: ${buyer.nombre.trim()}`);
+    if(buyer.nota.trim()) m += tx(`\n📝 Nota: ${buyer.nota.trim()}`,`\n📝 Note: ${buyer.nota.trim()}`);
     return m;
   }
   let cartOpen=false;
@@ -1794,6 +1814,9 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
     if(grupo){ gl.href = grupo; gl.textContent = tx("💬 Únete a mi grupo de WhatsApp: ofertas y novedades primero", "💬 Join my WhatsApp group for deals and new arrivals"); }
     if(document.activeElement!==$("setYapeNum")) $("setYapeNum").value = S.config.yapeNumero||"";
     if(document.activeElement!==$("setYapeName")) $("setYapeName").value = S.config.yapeNombre||"";
+    if(document.activeElement!==$("setPlinNum")) $("setPlinNum").value = S.config.plinNumero||"";
+    if(document.activeElement!==$("setZelle")) $("setZelle").value = S.config.zelle||"";
+    if(document.activeElement!==$("setZelleName")) $("setZelleName").value = S.config.zelleNombre||"";
     if(yapeQrNuevo===undefined) pintarQrConfig(S.config.yapeQr||"");
     render(); if(openId) drawSheet();
   }
@@ -1922,6 +1945,7 @@ Responde solo con un arreglo JSON, por ejemplo: [{"i":0,"categoria":"Zapatos","p
         descripcionTienda: $("setDescTienda").value.trim().slice(0,300),
         trDescripcionTienda: await traducirDescTienda($("setDescTienda").value.trim().slice(0,300), pais),
         yapeNumero:$("setYapeNum").value.trim(), yapeNombre:$("setYapeName").value.trim(),
+        plinNumero:$("setPlinNum").value.trim(), zelle:$("setZelle").value.trim(), zelleNombre:$("setZelleName").value.trim(),
         yapeQr: yapeQrNuevo!==undefined ? yapeQrNuevo : (S.config.yapeQr||""),
         pais, moneda,
       });

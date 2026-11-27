@@ -97,7 +97,7 @@ async function armarCatalogo(event: Evento): Promise<{ res: Record<string, unkno
     vistaPrevia: estado !== 'aprobada',
     tienda: { id: t.id, nombre: t.nombre, pais: t.pais === 'US' ? 'US' : 'PE', moneda: t.pais !== 'US' && t.moneda === 'PEN' ? 'PEN' : 'USD', whatsapp: t.whatsapp || '', tipoCambio: t.tipoCambio ?? null, cobrosActivos: !!t.cobrosActivos,
       descuentoContado: typeof t.descuentoContado === 'number' ? t.descuentoContado : 0,
-      yapeNumero: t.yapeNumero || '', yapeNombre: t.yapeNombre || '', yapeQr: t.yapeQr || '', grupoWhatsapp: t.grupoWhatsapp || '', chatClientes: t.chatClientes !== false,
+      yapeNumero: t.yapeNumero || '', yapeNombre: t.yapeNombre || '', yapeQr: t.yapeQr || '', plinNumero: t.plinNumero || '', zelle: t.zelle || '', zelleNombre: t.zelleNombre || '', grupoWhatsapp: t.grupoWhatsapp || '', chatClientes: t.chatClientes !== false,
       portada: t.portada || '', descripcionTienda: t.descripcionTienda || '', trDescripcionTienda: t.trDescripcionTienda || '' },
     productos: visibles,
     // Solo la dueña ve cuántos productos quedaron fuera por el límite del plan.

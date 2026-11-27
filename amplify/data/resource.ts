@@ -32,6 +32,10 @@ const schema = a.schema({
       yapeNumero: a.string(),
       yapeNombre: a.string(),
       yapeQr: a.string(),       // ruta de la imagen del QR en S3
+      // Otras formas de pago que se mencionan en el mensaje de WhatsApp: Plin (Perú) y Zelle (EE. UU.)
+      plinNumero: a.string(),
+      zelle: a.string(),        // correo o teléfono de Zelle
+      zelleNombre: a.string(),
       // Descuento (%) por pagar con Yape o efectivo; el precio normal es el de tarjeta
       descuentoContado: a.float(),
       // Tiendas de confianza: cuántos días puede durar un separado de los productos de esta tienda (por defecto 7)
